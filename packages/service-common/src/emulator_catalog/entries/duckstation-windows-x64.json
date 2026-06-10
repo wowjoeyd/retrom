@@ -1,9 +1,9 @@
 {
-  "catalog_id": "duckstation-windows-x64",
+  "catalog_id": "duckstation",
   "display_name": "DuckStation",
   "description": "PlayStation 1 emulator",
   "supported_platform_folder_names": ["psx", "ps1"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -11,16 +11,51 @@
     "supported_extensions": ["bin", "cue", "img", "iso", "chd", "pbp"],
     "custom_args": ["-batch", "{file}"]
   },
-  "upstream": {
-    "type": "github_release",
-    "repo": "stenzek/duckstation",
-    "asset_pattern": "duckstation-windows-x64-release\\.zip",
-    "manifest_version_from": "tag"
-  },
-  "install": {
-    "archive_type": "zip",
-    "strip_components": 0,
-    "executable_glob": "duckstation-qt-x64-*.exe",
-    "preserve_paths": ["memcards/", "savestates/", "settings/"]
-  }
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "duckstation-windows-x64-release\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "duckstation-qt-x64-*.exe",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "duckstation-mac-universal-release\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "DuckStation.app/Contents/MacOS/DuckStation",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "duckstation-x64-release\\.tar\\.zst",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "tar_zst",
+        "strip_components": 0,
+        "executable_relative_path": "duckstation-qt-x64",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    }
+  ]
 }

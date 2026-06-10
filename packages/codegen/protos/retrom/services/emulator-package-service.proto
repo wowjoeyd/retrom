@@ -45,6 +45,8 @@ message GetEmulatorCatalogRequest {}
 
 message GetEmulatorCatalogResponse {
   repeated EmulatorCatalogEntry entries = 1;
+  // Server host OS — clients use with `recommended_operating_system` per entry.
+  Emulator.OperatingSystem host_operating_system = 2;
 }
 
 message CheckEmulatorPackageDirectoryWritableRequest {
@@ -61,6 +63,8 @@ message InstallCatalogPackageRequest {
   uint32 directory_index = 2;
   optional string subpath = 3;
   int32 client_id = 4;
+  // When unset, installs the entry's `recommended_operating_system` for this host.
+  optional Emulator.OperatingSystem target_operating_system = 5;
 }
 
 message InstallCatalogPackageResponse {

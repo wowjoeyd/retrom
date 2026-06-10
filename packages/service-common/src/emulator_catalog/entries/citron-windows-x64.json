@@ -1,9 +1,9 @@
 {
-  "catalog_id": "citron-windows-x64",
+  "catalog_id": "citron",
   "display_name": "Citron",
   "description": "Nintendo Switch emulator (maintained fork)",
   "supported_platform_folder_names": ["switch"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -11,16 +11,51 @@
     "supported_extensions": ["nsp", "xci", "nca"],
     "custom_args": ["{file}"]
   },
-  "upstream": {
-    "type": "github_release",
-    "repo": "citron-neo/emulator",
-    "asset_pattern": "Citron-windows-nightly-.*-x64-msvc\\.zip",
-    "manifest_version_from": "tag"
-  },
-  "install": {
-    "archive_type": "zip",
-    "strip_components": 0,
-    "executable_relative_path": "citron.exe",
-    "preserve_paths": ["user/", "nand/", "sdmc/"]
-  }
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "citron-neo/emulator",
+        "asset_pattern": "Citron-windows-nightly-.*-x64-msvc\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "citron.exe",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "citron-neo/emulator",
+        "asset_pattern": "Citron-macos-nightly-.*\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "citron.app/Contents/MacOS/citron",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "citron-neo/emulator",
+        "asset_pattern": "Citron-linux-nightly-.*-x64.*\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "Citron-*.AppImage",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    }
+  ]
 }

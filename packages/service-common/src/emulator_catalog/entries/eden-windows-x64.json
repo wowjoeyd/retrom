@@ -1,9 +1,9 @@
 {
-  "catalog_id": "eden-windows-x64",
+  "catalog_id": "eden",
   "display_name": "Eden",
   "description": "Nintendo Switch emulator (Yuzu-lineage fork)",
   "supported_platform_folder_names": ["switch"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -11,15 +11,48 @@
     "supported_extensions": ["nsp", "xci", "nca"],
     "custom_args": ["{file}"]
   },
-  "upstream": {
-    "type": "direct_url",
-    "url": "https://stable.eden-emu.dev/v0.2.1/Eden-Windows-v0.2.1-amd64-clang-pgo.zip",
-    "manifest_version_from": "tag"
-  },
-  "install": {
-    "archive_type": "zip",
-    "strip_components": 0,
-    "executable_relative_path": "eden.exe",
-    "preserve_paths": ["user/", "nand/", "sdmc/"]
-  }
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "direct_url",
+        "url": "https://stable.eden-emu.dev/latest/Eden-Windows-amd64-clang-pgo.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "eden.exe",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "direct_url",
+        "url": "https://stable.eden-emu.dev/latest/Eden-macOS-universal-clang-pgo.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "eden.app/Contents/MacOS/eden",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "direct_url",
+        "url": "https://stable.eden-emu.dev/latest/Eden-Linux-x86_64-clang-pgo.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "Eden-*.AppImage",
+        "preserve_paths": ["user/", "nand/", "sdmc/"]
+      }
+    }
+  ]
 }

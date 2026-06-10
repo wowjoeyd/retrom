@@ -128,6 +128,14 @@ message EmulatorCatalogDefaultProfile {
   repeated string custom_args = 3;
 }
 
+// Per-OS upstream source and install instructions. When `targets` is set, prefer
+// the matching entry over legacy top-level `upstream` / `install`.
+message EmulatorCatalogTarget {
+  Emulator.OperatingSystem operating_system = 1;
+  EmulatorCatalogUpstream upstream = 2;
+  EmulatorCatalogInstall install = 3;
+}
+
 message EmulatorCatalogEntry {
   string catalog_id = 1;
   string display_name = 2;
@@ -138,6 +146,11 @@ message EmulatorCatalogEntry {
   bool deprecated = 7;
   optional string legal_notice = 8;
   optional EmulatorCatalogDefaultProfile default_profile = 9;
+  // Legacy single-target fields; populated from the first target when loading JSON
+  // that only defines `targets`, or from top-level JSON for older overlays.
   EmulatorCatalogUpstream upstream = 10;
   EmulatorCatalogInstall install = 11;
+  repeated EmulatorCatalogTarget targets = 12;
+  // Populated at runtime: best target for the server host OS (see GetEmulatorCatalog).
+  optional Emulator.OperatingSystem recommended_operating_system = 13;
 }

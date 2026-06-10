@@ -124,8 +124,12 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
         &self,
         _request: Request<GetEmulatorCatalogRequest>,
     ) -> Result<Response<GetEmulatorCatalogResponse>, Status> {
-        let entries = super::catalog::load_emulator_catalog(&self.config_manager).await;
-        Ok(Response::new(GetEmulatorCatalogResponse { entries }))
+        let (entries, host_os) =
+            super::catalog::load_emulator_catalog(&self.config_manager).await;
+        Ok(Response::new(GetEmulatorCatalogResponse {
+            entries,
+            host_operating_system: host_os as i32,
+        }))
     }
 
     async fn check_emulator_package_directory_writable(
@@ -166,11 +170,40 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
 
     async fn install_catalog_package(
         &self,
-        _request: Request<InstallCatalogPackageRequest>,
+        request: Request<InstallCatalogPackageRequest>,
     ) -> Result<Response<InstallCatalogPackageResponse>, Status> {
-        Err(Status::unimplemented(
-            "Catalog install is implemented in a follow-up PR (service-common install job)",
-        ))
+        let request = request.into_inner();
+
+        if request.catalog_id.is_empty() {
+            return Err(Status::invalid_argument("catalog_id is required"));
+        }
+
+        let job_id = super::install_job::spawn_install_catalog_job(
+            &super::install_job::InstallJobContext {
+                db_pool: self.db_pool.clone(),
+                job_manager: self.job_manager.clone(),
+                config_manager: self.config_manager.clone(),
+            },
+            super::install_job::InstallJobRequest {
+                catalog_id: request.catalog_id,
+                directory_index: request.directory_index as usize,
+                subpath: request.subpath,
+                client_id: request.client_id,
+                target_operating_system: request.target_operating_system,
+            },
+        )
+        .await
+        .map_err(|why| {
+            if why.contains("already running") {
+                Status::already_exists(why)
+            } else {
+                Status::internal(why)
+            }
+        })?;
+
+        Ok(Response::new(InstallCatalogPackageResponse {
+            job_id: job_id.to_string(),
+        }))
     }
 
     async fn link_emulator_to_package(
