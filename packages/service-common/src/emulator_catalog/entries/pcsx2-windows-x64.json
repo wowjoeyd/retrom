@@ -1,0 +1,26 @@
+{
+  "catalog_id": "pcsx2-windows-x64",
+  "display_name": "PCSX2",
+  "description": "PlayStation 2 emulator",
+  "supported_platform_folder_names": ["ps2"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["iso", "bin", "cso", "chd"],
+    "custom_args": ["-batch", "{file}"]
+  },
+  "upstream": {
+    "type": "github_release",
+    "repo": "PCSX2/pcsx2",
+    "asset_pattern": "pcsx2-.*-windows-x64-Qt\\.7z",
+    "manifest_version_from": "tag"
+  },
+  "install": {
+    "archive_type": "7z",
+    "strip_components": 0,
+    "executable_relative_path": "pcsx2-qt.exe",
+    "preserve_paths": ["memcards/", "inis/", "snapshots/"]
+  }
+}

@@ -124,9 +124,8 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
         &self,
         _request: Request<GetEmulatorCatalogRequest>,
     ) -> Result<Response<GetEmulatorCatalogResponse>, Status> {
-        Ok(Response::new(GetEmulatorCatalogResponse {
-            entries: vec![],
-        }))
+        let entries = super::catalog::load_emulator_catalog(&self.config_manager).await;
+        Ok(Response::new(GetEmulatorCatalogResponse { entries }))
     }
 
     async fn check_emulator_package_directory_writable(

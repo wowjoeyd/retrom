@@ -1,0 +1,26 @@
+{
+  "catalog_id": "citron-windows-x64",
+  "display_name": "Citron",
+  "description": "Nintendo Switch emulator (maintained fork)",
+  "supported_platform_folder_names": ["switch"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["nsp", "xci", "nca"],
+    "custom_args": ["{file}"]
+  },
+  "upstream": {
+    "type": "github_release",
+    "repo": "citron-neo/emulator",
+    "asset_pattern": "Citron-windows-nightly-.*-x64-msvc\\.zip",
+    "manifest_version_from": "tag"
+  },
+  "install": {
+    "archive_type": "zip",
+    "strip_components": 0,
+    "executable_relative_path": "citron.exe",
+    "preserve_paths": ["user/", "nand/", "sdmc/"]
+  }
+}

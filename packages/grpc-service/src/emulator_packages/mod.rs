@@ -1,3 +1,4 @@
+mod catalog;
 mod layout_parser;
 mod manifest;
 mod resolver;

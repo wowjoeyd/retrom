@@ -1,0 +1,26 @@
+{
+  "catalog_id": "duckstation-windows-x64",
+  "display_name": "DuckStation",
+  "description": "PlayStation 1 emulator",
+  "supported_platform_folder_names": ["psx", "ps1"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["bin", "cue", "img", "iso", "chd", "pbp"],
+    "custom_args": ["-batch", "{file}"]
+  },
+  "upstream": {
+    "type": "github_release",
+    "repo": "stenzek/duckstation",
+    "asset_pattern": "duckstation-windows-x64-release\\.zip",
+    "manifest_version_from": "tag"
+  },
+  "install": {
+    "archive_type": "zip",
+    "strip_components": 0,
+    "executable_glob": "duckstation-qt-x64-*.exe",
+    "preserve_paths": ["memcards/", "savestates/", "settings/"]
+  }
+}

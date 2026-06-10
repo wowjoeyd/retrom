@@ -1,0 +1,25 @@
+{
+  "catalog_id": "eden-windows-x64",
+  "display_name": "Eden",
+  "description": "Nintendo Switch emulator (Yuzu-lineage fork)",
+  "supported_platform_folder_names": ["switch"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["nsp", "xci", "nca"],
+    "custom_args": ["{file}"]
+  },
+  "upstream": {
+    "type": "direct_url",
+    "url": "https://stable.eden-emu.dev/v0.2.1/Eden-Windows-v0.2.1-amd64-clang-pgo.zip",
+    "manifest_version_from": "tag"
+  },
+  "install": {
+    "archive_type": "zip",
+    "strip_components": 0,
+    "executable_relative_path": "eden.exe",
+    "preserve_paths": ["user/", "nand/", "sdmc/"]
+  }
+}

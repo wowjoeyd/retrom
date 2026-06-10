@@ -1,0 +1,26 @@
+{
+  "catalog_id": "rpcs3-windows-x64",
+  "display_name": "RPCS3",
+  "description": "PlayStation 3 emulator (official Windows binaries)",
+  "supported_platform_folder_names": ["ps3"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["iso", "bin", "pkg"],
+    "custom_args": ["--no-gui", "{file}"]
+  },
+  "upstream": {
+    "type": "github_release",
+    "repo": "RPCS3/rpcs3-binaries-win",
+    "asset_pattern": "rpcs3-.*-win64.*\\.7z",
+    "manifest_version_from": "tag"
+  },
+  "install": {
+    "archive_type": "7z",
+    "strip_components": 0,
+    "executable_relative_path": "rpcs3.exe",
+    "preserve_paths": ["config/", "dev_hdd0/", "games/"]
+  }
+}
