@@ -21,6 +21,8 @@ pub enum Error {
     Steam(#[from] retrom_plugin_steam::Error),
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
+    #[error("Emulator {0} sync required: {1}")]
+    EmulatorSyncFailed(i32, String),
 
     #[error("InternalError: {0}")]
     InternalError(String),

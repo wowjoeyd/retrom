@@ -19,6 +19,13 @@ use tokio::sync::Mutex;
 use tracing::{info, instrument};
 use walkdir::WalkDir;
 
+fn emulator_package_sync_enabled() -> bool {
+    match std::env::var("EMULATOR_PACKAGE_SYNC") {
+        Ok(value) => !matches!(value.to_ascii_lowercase().as_str(), "false" | "0" | "no"),
+        Err(_) => true,
+    }
+}
+
 #[command]
 #[instrument(skip_all)]
 pub(crate) async fn play_game<R: Runtime>(app: AppHandle<R>, payload: Vec<u8>) -> Result<()> {
@@ -231,7 +238,20 @@ pub(crate) async fn play_game<R: Runtime>(app: AppHandle<R>, payload: Vec<u8>) -
 
     let local_config = res.configs.first().expect("No emulator config found");
 
-    let mut cmd = launcher.get_open_cmd(&local_config.executable_path);
+    let executable_path = if local_config.managed_paths && emulator_package_sync_enabled() {
+        let path = PathBuf::from(&local_config.executable_path);
+        if !path.exists() {
+            return Err(crate::Error::EmulatorSyncFailed(
+                emulator_id,
+                "Executable not in cache; launch from Play button to sync".into(),
+            ));
+        }
+        local_config.executable_path.clone()
+    } else {
+        local_config.executable_path.clone()
+    };
+
+    let mut cmd = launcher.get_open_cmd(&executable_path);
 
     tracing::Span::current().record("command", format!("{cmd:?}"));
     info!("Command: {cmd:?}");
