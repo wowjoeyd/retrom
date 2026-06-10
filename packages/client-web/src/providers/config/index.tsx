@@ -80,7 +80,7 @@ export const configStore = create<LocalConfig>()(
   subscribeWithSelector(
     persist(() => initialConfig, {
       name: STORAGE_KEY,
-      version: 6,
+      version: 7,
       migrate,
       skipHydration: checkIsDesktop(),
       onRehydrateStorage: (state) => {

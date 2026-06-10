@@ -58,3 +58,9 @@ export type ConfigV6 = ConfigV5 & {
     installGamesInStandalone?: boolean;
   };
 };
+
+export type ConfigV7 = ConfigV6 & {
+  config?: ConfigV6["config"] & {
+    emulatorCacheDir?: string;
+  };
+};

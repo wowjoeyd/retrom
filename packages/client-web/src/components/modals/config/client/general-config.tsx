@@ -36,6 +36,7 @@ const configSchema = z.object({
       }),
     }),
     installationDir: z.string().optional(),
+    emulatorCacheDir: z.string().optional(),
   }),
   telemetry: z.object({
     enabled: z.boolean(),
@@ -64,6 +65,7 @@ export function GeneralConfig() {
           },
         },
         installationDir: config?.installationDir ?? "",
+        emulatorCacheDir: config?.emulatorCacheDir ?? "",
       },
       telemetry: {
         enabled: telemetry?.enabled ?? false,
@@ -108,6 +110,9 @@ export function GeneralConfig() {
             ...values.config.interface,
           },
           installationDir: values.config.installationDir,
+          emulatorCacheDir: values.config.emulatorCacheDir?.trim()
+            ? values.config.emulatorCacheDir.trim()
+            : undefined,
         };
 
         s.telemetry = {
@@ -174,6 +179,58 @@ export function GeneralConfig() {
                     />
                   </FormControl>
                 </div>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            disabled={!checkIsDesktop()}
+            name="config.emulatorCacheDir"
+            render={({ field, fieldState: { isDirty } }) => (
+              <FormItem className={cn(!checkIsDesktop() && "hidden")}>
+                <FormLabel>Emulator Cache Directory</FormLabel>
+
+                <div className={cn("flex items-center gap-2")}>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+
+                      open({
+                        title: "Select Emulator Cache Directory",
+                        multiple: false,
+                        directory: true,
+                        defaultPath: field.value,
+                      })
+                        .then((result) => {
+                          if (result) {
+                            field.onChange(result);
+                          }
+                        })
+                        .catch((e) => {
+                          console.error(e);
+                        });
+                    }}
+                  >
+                    <FolderOpenIcon className="w-[1rem] h-[1rem]" />
+                  </Button>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      {...field}
+                      placeholder="Defaults to app data / emulator-cache"
+                      className={cn(!isDirty && "text-muted-foreground")}
+                    />
+                  </FormControl>
+                </div>
+
+                <p className="text-sm text-muted-foreground max-w-[45ch]">
+                  Local copy of managed emulator packages synced from your server
+                  before launch. Leave empty to use the default location.
+                </p>
               </FormItem>
             )}
           />

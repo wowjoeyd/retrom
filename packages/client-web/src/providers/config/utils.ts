@@ -50,6 +50,7 @@ export const configSchema = z.object({
       id: z.number(),
     }),
     installationDir: z.string(),
+    emulatorCacheDir: z.string().optional(),
   }),
   flowCompletions: z.object({
     setupComplete: z.boolean(),

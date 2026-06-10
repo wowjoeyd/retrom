@@ -29,6 +29,7 @@ const migrationFns: Record<number, (config: object) => object> = {
   3: migrateV3toV4,
   4: migrateV4toV5,
   5: migrateV5toV6,
+  6: migrateV6toV7,
 };
 
 function migrateV1toV2(oldConfig: Versions.ConfigV1): Versions.ConfigV2 {
@@ -90,4 +91,8 @@ function migrateV5toV6(oldConfig: Versions.ConfigV5): Versions.ConfigV6 {
       installGamesInStandalone: false,
     },
   };
+}
+
+function migrateV6toV7(oldConfig: Versions.ConfigV6): Versions.ConfigV7 {
+  return oldConfig;
 }
