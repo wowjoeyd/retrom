@@ -37,6 +37,7 @@ import { InstallationIndicator } from "@/components/menubar/installation-indicat
 import { NotificationCenter } from "@/components/notification-center";
 import { Toaster } from "@retrom/ui/components/toast";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
+import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 
 export const Route = createFileRoute("/(windowed)/_layout")({
   component: LayoutComponent,
@@ -136,6 +137,7 @@ function LayoutComponent() {
           <UpdatePlatformMetadataModal />
           <ExitModal />
           <ResolveCloudSaveConflictModal />
+          <InstallOnPlayModal />
         </ModalActionProvider>
       )}
 

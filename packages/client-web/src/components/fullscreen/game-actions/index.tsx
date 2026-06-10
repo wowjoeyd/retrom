@@ -9,6 +9,7 @@ import {
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { UninstallGameAction } from "./uninstall-game";
+import { InstallGameAction } from "./install-game";
 import { DeleteGameAction } from "./delete-game";
 import { HotkeyButton } from "../hotkey-button";
 import { useState } from "react";
@@ -91,6 +92,7 @@ export function GameActions() {
 
             <div className="flex flex-col gap-2 h-full">
               <DesktopOnly>
+                <InstallGameAction />
                 <UninstallGameAction />
               </DesktopOnly>
 

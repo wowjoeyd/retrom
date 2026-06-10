@@ -36,11 +36,12 @@ import {
   AccordionTrigger,
 } from "@retrom/ui/components/accordion";
 
-type ConfigSchema = z.infer<typeof configSchema>;
-const configSchema = z.object({
-  executablePath: z.string().min(1, { message: "Executable path is required" }),
+const baseConfigSchema = z.object({
+  executablePath: z.string(),
   saveDataPath: z.string().optional(),
   saveStatesPath: z.string().optional(),
+  linkedPackageId: z.number().optional(),
+  managedPaths: z.boolean().default(false),
 }) satisfies z.ZodObject<
   Record<
     keyof Omit<
@@ -50,6 +51,16 @@ const configSchema = z.object({
     z.ZodType
   >
 >;
+
+const configSchema = baseConfigSchema.refine(
+  (data) => data.managedPaths || (data.executablePath?.length ?? 0) > 0,
+  {
+    message: "Executable path is required when not managed",
+    path: ["executablePath"],
+  },
+);
+
+type ConfigSchema = z.infer<typeof configSchema>;
 
 export function LocalConfigs(props: {
   emulators: Emulator[];
@@ -102,7 +113,9 @@ function LocalConfigRow(props: {
       executablePath: config?.executablePath || "",
       saveDataPath: config?.saveDataPath || "",
       saveStatesPath: config?.saveStatesPath || "",
-    } satisfies Required<ConfigSchema>,
+      linkedPackageId: config?.linkedPackageId ?? undefined,
+      managedPaths: config?.managedPaths ?? false,
+    },
     resolver: zodResolver(configSchema),
     mode: "onSubmit",
     reValidateMode: "onChange",

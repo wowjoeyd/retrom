@@ -7,6 +7,18 @@ export function checkIsDesktop() {
   );
 }
 
+export function isEmulatorPackageSyncEnabled() {
+  const value =
+    import.meta.env.VITE_EMULATOR_PACKAGE_SYNC ??
+    import.meta.env.EMULATOR_PACKAGE_SYNC;
+
+  if (!value) {
+    return true;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
 export function DesktopOnly(props: PropsWithChildren) {
   return checkIsDesktop() ? <> {props.children} </> : <></>;
 }

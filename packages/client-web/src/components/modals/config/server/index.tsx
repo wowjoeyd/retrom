@@ -25,6 +25,9 @@ type ServerTabs = Exclude<keyof ServerConfigJson, "connection">;
 export const serverConfigTabSchema = z
   .enum([
     "contentDirectories",
+    "emulatorPackageDirectories",
+    "customCatalogDir",
+    "emulatorPackages",
     "igdb",
     "steam",
     "saves",
@@ -37,6 +40,18 @@ const tabItems: Record<ServerTabs, { value: ServerTabs; name: string }> = {
   contentDirectories: {
     value: "contentDirectories",
     name: "Content Directories",
+  },
+  emulatorPackageDirectories: {
+    value: "emulatorPackageDirectories",
+    name: "Emulator Roots",
+  },
+  customCatalogDir: {
+    value: "customCatalogDir",
+    name: "Custom Catalog",
+  },
+  emulatorPackages: {
+    value: "emulatorPackages",
+    name: "Emulator Packages",
   },
   metadata: { value: "metadata", name: "Metadata" },
   igdb: { value: "igdb", name: "IGDB" },

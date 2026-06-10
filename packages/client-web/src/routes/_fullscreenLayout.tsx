@@ -18,6 +18,7 @@ import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
 import { configStore } from "@/providers/config";
 import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
+import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 
 declare global {
   export interface HotkeyZones {
@@ -108,6 +109,7 @@ function FullscreenLayout() {
             </div>
 
             <ResolveCloudSaveConflictModal />
+            <InstallOnPlayModal />
           </GroupContextProvider>
         </GamepadProvider>
       </FocusedHotkeyLayerProvider>
