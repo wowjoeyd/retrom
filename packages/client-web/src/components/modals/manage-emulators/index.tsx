@@ -29,6 +29,8 @@ import {
   TabsTrigger,
 } from "@retrom/ui/components/tabs";
 import { LocalConfigs } from "./local-configs";
+import { CatalogTab } from "./catalog-tab";
+import { PackagesTab } from "./packages-tab";
 
 export type PlatformWithMetadata = Platform & { metadata?: PlatformMetadata };
 
@@ -114,8 +116,8 @@ export function ManageEmulatorsModal() {
         <DialogHeader>
           <DialogTitle>Manage Emulators</DialogTitle>
           <DialogDescription className="max-w-[70ch]">
-            Manage existing emulator definitions and/or create new ones.
-            Configure paths to your local emulators in the Local Paths tab.
+            Manage emulator definitions, install packages to your NAS from the
+            catalog, and configure local paths for desktop play.
           </DialogDescription>
         </DialogHeader>
 
@@ -163,8 +165,14 @@ function Content() {
   ) : (
     <Tabs defaultValue="emulators">
       <div className="w-full mb-6">
-        <TabsList className="flex w-full">
-          <TabsTrigger value="emulators" className="w-full">
+        <TabsList className="flex w-full flex-wrap h-auto gap-1">
+          <TabsTrigger value="catalog" className="flex-1 min-w-[7rem]">
+            Catalog
+          </TabsTrigger>
+          <TabsTrigger value="packages" className="flex-1 min-w-[7rem]">
+            Packages
+          </TabsTrigger>
+          <TabsTrigger value="emulators" className="flex-1 min-w-[7rem]">
             All Emulators
           </TabsTrigger>
 
@@ -173,7 +181,7 @@ function Content() {
               <TabsTrigger
                 asChild
                 disabled={!checkIsDesktop()}
-                className="w-full"
+                className="flex-1 min-w-[7rem]"
                 value="local-configs"
               >
                 <TooltipTrigger className="disabled:pointer-events-auto">
@@ -188,6 +196,14 @@ function Content() {
           </TooltipProvider>
         </TabsList>
       </div>
+
+      <TabsContent value="catalog" className="h-fit">
+        <CatalogTab />
+      </TabsContent>
+
+      <TabsContent value="packages" className="h-fit">
+        <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+      </TabsContent>
 
       <TabsContent value="emulators" className={cn("h-fit", "")}>
         <EmulatorList platforms={platforms} emulators={emulators} />

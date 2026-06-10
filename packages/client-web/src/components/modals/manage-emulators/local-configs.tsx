@@ -1,4 +1,5 @@
 import { Button } from "@retrom/ui/components/button";
+import { Checkbox } from "@retrom/ui/components/checkbox";
 import { DialogClose, DialogFooter } from "@retrom/ui/components/dialog";
 import {
   Form,
@@ -15,6 +16,13 @@ import {
   InputGroupAddon,
 } from "@retrom/ui/components/input-group";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@retrom/ui/components/select";
+import {
   Emulator,
   LocalEmulatorConfig,
   LocalEmulatorConfigJson,
@@ -22,6 +30,8 @@ import {
 import { cn } from "@retrom/ui/lib/utils";
 import { useCreateLocalEmulatorConfigs } from "@/mutations/useCreateLocalEmulatorConfig";
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
+import { useLinkEmulatorToPackage } from "@/mutations/useLinkEmulatorToPackage";
+import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
 import { useConfigStore } from "@/providers/config";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -35,6 +45,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@retrom/ui/components/accordion";
+import { SyncStatusBadge } from "./sync-status-badge";
 
 const baseConfigSchema = z.object({
   executablePath: z.string(),
@@ -52,13 +63,18 @@ const baseConfigSchema = z.object({
   >
 >;
 
-const configSchema = baseConfigSchema.refine(
-  (data) => data.managedPaths || (data.executablePath?.length ?? 0) > 0,
-  {
-    message: "Executable path is required when not managed",
-    path: ["executablePath"],
-  },
-);
+const configSchema = baseConfigSchema
+  .refine(
+    (data) => data.managedPaths || (data.executablePath?.length ?? 0) > 0,
+    {
+      message: "Executable path is required when not managed",
+      path: ["executablePath"],
+    },
+  )
+  .refine((data) => !data.managedPaths || data.linkedPackageId !== undefined, {
+    message: "Select a package when using managed paths",
+    path: ["linkedPackageId"],
+  });
 
 type ConfigSchema = z.infer<typeof configSchema>;
 
@@ -108,6 +124,10 @@ function LocalConfigRow(props: {
     throw new Error("Client ID not found");
   }
 
+  const { data: packages } = useEmulatorPackages({
+    selectFn: (data) => data.packages,
+  });
+
   const form = useForm<ConfigSchema>({
     defaultValues: {
       executablePath: config?.executablePath || "",
@@ -121,6 +141,8 @@ function LocalConfigRow(props: {
     reValidateMode: "onChange",
   });
 
+  const managedPaths = form.watch("managedPaths");
+
   const {
     mutateAsync: createConfig,
     isPending: creationPending,
@@ -133,31 +155,73 @@ function LocalConfigRow(props: {
     error: updateError,
   } = useUpdateLocalEmulatorConfig();
 
+  const {
+    mutateAsync: linkToPackage,
+    isPending: linkPending,
+    error: linkError,
+  } = useLinkEmulatorToPackage();
+
   const handleSubmit = useCallback(
     async (values: ConfigSchema) => {
+      if (values.managedPaths && values.linkedPackageId) {
+        const shouldLink =
+          !config ||
+          !config.managedPaths ||
+          config.linkedPackageId !== values.linkedPackageId;
+
+        if (shouldLink) {
+          const res = await linkToPackage({
+            emulatorId: emulator.id,
+            packageId: values.linkedPackageId,
+            clientId,
+            managedPaths: true,
+          });
+
+          form.reset({
+            executablePath: res.localConfig?.executablePath ?? "",
+            saveDataPath: values.saveDataPath,
+            saveStatesPath: values.saveStatesPath,
+            linkedPackageId: res.localConfig?.linkedPackageId ?? undefined,
+            managedPaths: res.localConfig?.managedPaths ?? true,
+          });
+          return;
+        }
+      }
+
       if (config) {
         const res = await updateConfig({
           configs: [
-            { ...values, id: config.id, clientId, emulatorId: emulator.id },
+            {
+              ...values,
+              id: config.id,
+              clientId,
+              emulatorId: emulator.id,
+              executablePath: values.managedPaths
+                ? config.executablePath
+                : values.executablePath,
+            },
           ],
         });
 
         form.reset(res.configsUpdated.at(0));
         return;
-      } else {
-        const res = await createConfig({
-          configs: [{ ...values, clientId, emulatorId: emulator.id }],
-        });
+      }
 
-        form.reset(res.configsCreated.at(0));
+      if (values.managedPaths) {
         return;
       }
+
+      const res = await createConfig({
+        configs: [{ ...values, clientId, emulatorId: emulator.id }],
+      });
+
+      form.reset(res.configsCreated.at(0));
     },
-    [config, createConfig, updateConfig, form, emulator, clientId],
+    [config, createConfig, updateConfig, linkToPackage, form, emulator, clientId],
   );
 
-  const pending = creationPending || updatePending;
-  const error = creationError || updateError;
+  const pending = creationPending || updatePending || linkPending;
+  const error = creationError || updateError || linkError;
 
   const { isDirty } = form.formState;
 
@@ -171,6 +235,7 @@ function LocalConfigRow(props: {
       >
         <span className="flex gap-2 items-baseline">
           <span>{emulator.name}</span>
+          {config?.managedPaths ? <SyncStatusBadge emulatorId={emulator.id} /> : null}
           {isDirty ? (
             <span className="text-sm text-muted-foreground italic">
               (unsaved)
@@ -188,44 +253,111 @@ function LocalConfigRow(props: {
           >
             <FormField
               control={form.control}
+              name="managedPaths"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center gap-3 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        field.onChange(checked === true);
+                        if (!checked) {
+                          form.setValue("linkedPackageId", undefined);
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormLabel className="font-normal">
+                    Managed by package sync
+                  </FormLabel>
+                </FormItem>
+              )}
+            />
+
+            {managedPaths ? (
+              <FormField
+                control={form.control}
+                name="linkedPackageId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Linked package</FormLabel>
+                    <Select
+                      value={
+                        field.value !== undefined ? String(field.value) : ""
+                      }
+                      onValueChange={(value) => field.onChange(Number(value))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select NAS package" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {packages?.map((pkg) => (
+                          <SelectItem key={pkg.id} value={String(pkg.id)}>
+                            {pkg.displayName} ({pkg.version})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+
+            <FormField
+              control={form.control}
               name="executablePath"
               render={({ field, fieldState: { isDirty } }) => (
                 <FormItem className="flex flex-col items-start">
-                  <FormLabel>Executable Path</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <FormLabel>Executable Path</FormLabel>
+                    {managedPaths ? (
+                      <SyncStatusBadge emulatorId={emulator.id} />
+                    ) : null}
+                  </div>
 
                   <FormControl>
                     <InputGroup>
-                      <InputGroupAddon align="inline-start">
-                        <InputGroupButton
-                          variant="secondary"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
+                      {!managedPaths ? (
+                        <InputGroupAddon align="inline-start">
+                          <InputGroupButton
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
 
-                            open({
-                              title: "Select Emulator Executable",
-                              multiple: false,
-                              directory: false,
-                            })
-                              .then((result) => {
-                                if (result) {
-                                  field.onChange(result);
-                                }
+                              open({
+                                title: "Select Emulator Executable",
+                                multiple: false,
+                                directory: false,
                               })
-                              .catch((e) => {
-                                console.error(e);
-                              });
-                          }}
-                        >
-                          <FolderOpenIcon />
-                          Browse
-                        </InputGroupButton>
-                      </InputGroupAddon>
+                                .then((result) => {
+                                  if (result) {
+                                    field.onChange(result);
+                                  }
+                                })
+                                .catch((e) => {
+                                  console.error(e);
+                                });
+                            }}
+                          >
+                            <FolderOpenIcon />
+                            Browse
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      ) : null}
 
                       <InputGroupInput
                         {...field}
+                        readOnly={managedPaths}
                         value={field.value || ""}
-                        placeholder="Enter path to executable"
+                        placeholder={
+                          managedPaths
+                            ? "Synced from NAS package"
+                            : "Enter path to executable"
+                        }
                         className={cn(!isDirty && "text-muted-foreground")}
                       />
                     </InputGroup>

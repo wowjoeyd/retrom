@@ -16,6 +16,9 @@ import { IgdbConfig } from "./igdb-config";
 import { SteamConfig } from "./steam-config";
 import { SavesConfig } from "./saves-config";
 import { LibrariesConfig } from "./libraries-config";
+import { EmulatorPackageRootsConfig } from "./emulator-package-roots-config";
+import { CustomCatalogConfig } from "./custom-catalog-config";
+import { EmulatorPackagesConfig } from "./emulator-packages-config";
 import { TelemetryConfig } from "./telemetry-config";
 import { z } from "zod";
 import { Route as RootRoute } from "@/routes/__root";
@@ -113,6 +116,9 @@ export function ServerConfigTab() {
           {/* <Separator className="mt-4" /> */}
 
           <LibrariesConfig currentConfig={data.config} />
+          <EmulatorPackageRootsConfig currentConfig={data.config} />
+          <CustomCatalogConfig currentConfig={data.config} />
+          <EmulatorPackagesConfig currentConfig={data.config} />
           <MetadataConfig currentConfig={data.config} />
           <IgdbConfig currentConfig={data.config} />
           <SteamConfig currentConfig={data.config} />
