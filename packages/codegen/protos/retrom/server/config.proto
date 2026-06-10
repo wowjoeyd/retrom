@@ -39,6 +39,22 @@ message ContentDirectory {
   optional CustomLibraryDefinition custom_library_definition = 4;
 }
 
+message EmulatorPackageLayoutDefinition {
+  // e.g. "{root}/{packageSlug}/{version}/{file}"
+  string definition = 1;
+}
+
+message EmulatorPackageDirectory {
+  string path = 1;
+  optional IgnorePatterns ignore_patterns = 2;
+  optional EmulatorPackageLayoutDefinition custom_package_layout = 3;
+}
+
+message EmulatorPackagesConfig {
+  // Hours between automatic re-scans; 0 = disabled. Default: 24.
+  optional uint32 rescan_interval_hours = 1;
+}
+
 message IGDBConfig {
   string client_id = 1;
   string client_secret = 2;
@@ -104,4 +120,7 @@ message ServerConfig {
   optional SavesConfig saves = 5;
   optional TelemetryConfig telemetry = 6;
   optional MetadataConfig metadata = 7;
+  repeated EmulatorPackageDirectory emulator_package_directories = 8;
+  optional string custom_catalog_dir = 9;
+  optional EmulatorPackagesConfig emulator_packages = 10;
 }

@@ -118,6 +118,8 @@ message LocalEmulatorConfig {
   optional string nickname = 7;
   optional string save_data_path = 8;
   optional string save_states_path = 9;
+  optional int32 linked_package_id = 10;
+  bool managed_paths = 11;
 }
 
 message NewLocalEmulatorConfig {
@@ -129,6 +131,8 @@ message NewLocalEmulatorConfig {
   optional string nickname = 6;
   optional string save_data_path = 7;
   optional string save_states_path = 8;
+  optional int32 linked_package_id = 9;
+  optional bool managed_paths = 10;
 }
 
 message UpdatedLocalEmulatorConfig {
@@ -141,4 +145,6 @@ message UpdatedLocalEmulatorConfig {
   optional string nickname = 7;
   optional string save_data_path = 8;
   optional string save_states_path = 9;
+  optional int32 linked_package_id = 10;
+  optional bool managed_paths = 11;
 }

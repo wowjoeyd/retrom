@@ -1,3 +1,4 @@
+pub mod emulator_package_status;
 pub mod storage_type;
 pub mod timestamp;
 
@@ -19,6 +20,10 @@ pub mod retrom {
 
         pub mod saves {
             tonic::include_proto!("retrom.client.saves");
+        }
+
+        pub mod emulator_sync {
+            tonic::include_proto!("retrom.client.emulator_sync");
         }
     }
 

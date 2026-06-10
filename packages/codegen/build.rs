@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|path| path.extension() == Some("proto".as_ref()))
         .collect();
 
-    let queryable_models: [ModelDefinitionParams; 13] = [
+    let queryable_models: [ModelDefinitionParams; 15] = [
         ("Platform", "platforms", None, vec![]),
         ("Game", "games", None, vec!["Platform"]),
         (
@@ -114,11 +114,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "LocalEmulatorConfig",
             "local_emulator_configs",
             None,
-            vec!["Emulator", "Client"],
+            vec![
+                "Emulator",
+                "Client",
+                "EmulatorPackage, foreign_key = linked_package_id",
+            ],
+        ),
+        ("EmulatorPackage", "emulator_packages", None, vec![]),
+        (
+            "EmulatorPackageFile",
+            "emulator_package_files",
+            None,
+            vec!["EmulatorPackage, foreign_key = package_id"],
         ),
     ];
 
-    let insertable_models: [ModelDefinitionParams; 11] = [
+    let insertable_models: [ModelDefinitionParams; 13] = [
         ("NewPlatform", "platforms", None, vec![]),
         ("NewGame", "games", None, vec![]),
         ("NewGameFile", "game_files", None, vec![]),
@@ -150,9 +161,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None,
             vec![],
         ),
+        ("NewEmulatorPackage", "emulator_packages", None, vec![]),
+        (
+            "NewEmulatorPackageFile",
+            "emulator_package_files",
+            None,
+            vec![],
+        ),
     ];
 
-    let updatable_models: [ModelDefinitionParams; 15] = [
+    let updatable_models: [ModelDefinitionParams; 17] = [
         ("UpdatedPlatform", "platforms", None, vec![]),
         ("UpdatedGame", "games", None, vec![]),
         ("UpdatedGameFile", "game_files", None, vec![]),
@@ -194,7 +212,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "UpdatedLocalEmulatorConfig",
             "local_emulator_configs",
             None,
-            vec!["Emulator", "Client"],
+            vec![
+                "Emulator",
+                "Client",
+                "EmulatorPackage, foreign_key = linked_package_id",
+            ],
+        ),
+        ("UpdatedEmulatorPackage", "emulator_packages", None, vec![]),
+        (
+            "UpdatedEmulatorPackageFile",
+            "emulator_package_files",
+            None,
+            vec![],
         ),
         (
             "NewGameMetadata",
@@ -244,9 +273,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[serde(alias = \"content_directories\", alias = \"contentDirectories\")]",
         )
         .field_attribute(
+            "retrom.ServerConfig.emulator_package_directories",
+            "#[serde(alias = \"emulator_package_directories\", alias = \"emulatorPackageDirectories\")]",
+        )
+        .field_attribute(
+            "retrom.ServerConfig.custom_catalog_dir",
+            "#[serde(alias = \"custom_catalog_dir\", alias = \"customCatalogDir\")]",
+        )
+        .field_attribute(
+            "retrom.ServerConfig.emulator_packages",
+            "#[serde(alias = \"emulator_packages\", alias = \"emulatorPackages\")]",
+        )
+        .field_attribute(
             "retrom.ContentDirectory.storage_type",
             "#[serde(deserialize_with = \"crate::storage_type::deserialize\", \
                 alias = \"storage_type\", alias = \"storageType\")]",
+        )
+        .field_attribute(
+            "retrom.EmulatorPackage.status",
+            "#[serde(deserialize_with = \"crate::emulator_package_status::deserialize\", \
+                alias = \"status\")]",
         );
 
     for (model_name, table_name, primary_key, belongs_to) in queryable_models.into_iter() {

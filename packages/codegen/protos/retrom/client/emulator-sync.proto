@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package retrom.client.emulator_sync;
+
+import "google/protobuf/timestamp.proto";
+
+enum EmulatorSyncStatus {
+  EMULATOR_SYNC_STATUS_UNSPECIFIED = 0;
+  EMULATOR_SYNC_STATUS_SYNCED = 1;
+  EMULATOR_SYNC_STATUS_SYNCING = 2;
+  EMULATOR_SYNC_STATUS_OUT_OF_DATE = 3;
+  EMULATOR_SYNC_STATUS_NOT_CACHED = 4;
+  EMULATOR_SYNC_STATUS_FAILED = 5;
+}
+
+message EmulatorSyncMetrics {
+  double bytes_per_second = 1;
+  uint64 bytes_transferred = 2;
+  uint64 total_bytes = 3;
+  uint32 percent_complete = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message EmulatorSyncProgressUpdate {
+  int32 emulator_id = 1;
+  EmulatorSyncStatus status = 2;
+  EmulatorSyncMetrics metrics = 3;
+}
+
+message EnsureEmulatorSyncedPayload {
+  int32 emulator_id = 1;
+}
+
+message GetEmulatorSyncStatusPayload {
+  int32 emulator_id = 1;
+}
+
+message GetEmulatorSyncStatusResponse {
+  int32 emulator_id = 1;
+  EmulatorSyncStatus status = 2;
+}
+
+message EmulatorSyncIndex {
+  map<int32, EmulatorSyncStatus> emulators = 1;
+}
