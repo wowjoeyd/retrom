@@ -14,6 +14,7 @@ members = [
 
   "plugins/retrom-plugin-config/",
   "plugins/retrom-plugin-installer/",
+  "plugins/retrom-plugin-emulator-sync/",
   "plugins/retrom-plugin-launcher/",
   "plugins/retrom-plugin-service-client/",
   "plugins/retrom-plugin-standalone/",
@@ -115,6 +116,7 @@ retrom-download = { path = "./packages/retrom-download" }
 retrom-telemetry = { path = "./packages/telemetry" }
 retrom-codegen = { path = "./packages/codegen" }
 retrom-plugin-installer = { path = "./plugins/retrom-plugin-installer" }
+retrom-plugin-emulator-sync = { path = "./plugins/retrom-plugin-emulator-sync" }
 retrom-plugin-launcher = { path = "./plugins/retrom-plugin-launcher" }
 retrom-plugin-service-client = { path = "./plugins/retrom-plugin-service-client" }
 retrom-plugin-steam = { path = "./plugins/retrom-plugin-steam" }
