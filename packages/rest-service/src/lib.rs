@@ -5,6 +5,7 @@ use axum::{
     Extension, Router,
 };
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
+use emulator_package_file::emulator_package_file_routes;
 use file::file_routes;
 use game::game_routes;
 use middleware::{
@@ -19,6 +20,7 @@ use tower_http::{
 };
 use web::web_routes;
 
+pub mod emulator_package_file;
 pub mod error;
 pub mod file;
 pub mod game;
@@ -26,11 +28,21 @@ mod middleware;
 mod public;
 mod web;
 
+fn emulator_packages_enabled() -> bool {
+    std::env::var("RETROM_EMULATOR_PACKAGES_ENABLED")
+        .map(|value| value != "false")
+        .unwrap_or(true)
+}
+
 pub fn rest_service(pool: Arc<Pool>) -> Router {
-    let api_routes = Router::new()
+    let mut api_routes = Router::new()
         .nest("/file", file_routes())
         .nest("/game", game_routes())
         .nest("/public", public_routes());
+
+    if emulator_packages_enabled() {
+        api_routes = api_routes.nest("/emulator-package-file", emulator_package_file_routes());
+    }
 
     Router::new()
         .nest("/rest", api_routes)
