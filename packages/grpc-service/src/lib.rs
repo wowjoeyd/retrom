@@ -124,9 +124,7 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         config_manager.clone(),
     ));
 
-    let emulator_packages_enabled = std::env::var("RETROM_EMULATOR_PACKAGES_ENABLED")
-        .map(|v| v != "false")
-        .unwrap_or(true);
+    let emulator_packages_enabled = emulator_packages::emulator_packages_enabled();
 
     let emulator_package_service = EmulatorPackageServiceServer::new(
         EmulatorPackageServiceHandlers::new(
@@ -184,6 +182,18 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
 
     if emulator_packages_enabled {
         routes_builder.add_service(emulator_package_service);
+
+        let scheduler_pool = library_pool.clone();
+        let scheduler_jobs = job_manager.clone();
+        let scheduler_config = config_manager.clone();
+        tokio::spawn(async move {
+            emulator_packages::run_emulator_package_scheduler(
+                scheduler_pool,
+                scheduler_jobs,
+                scheduler_config,
+            )
+            .await;
+        });
     }
 
     routes_builder

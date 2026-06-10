@@ -31,6 +31,8 @@ import {
 import { LocalConfigs } from "./local-configs";
 import { CatalogTab } from "./catalog-tab";
 import { PackagesTab } from "./packages-tab";
+import { useEmulatorPackagesAvailable } from "@/queries/useEmulatorPackagesAvailable";
+import { isEmulatorPackagesEnabled } from "@/lib/env";
 
 export type PlatformWithMetadata = Platform & { metadata?: PlatformMetadata };
 
@@ -146,10 +148,17 @@ function Content() {
         })),
   });
 
+  const { data: packagesAvailable, status: packagesAvailableStatus } =
+    useEmulatorPackagesAvailable();
+
+  const showPackageTabs =
+    isEmulatorPackagesEnabled() && packagesAvailable === true;
+
   const pending =
     emulatorsStatus === "pending" ||
     platformsStatus === "pending" ||
-    emulatorConfigsStatus === "pending";
+    emulatorConfigsStatus === "pending" ||
+    (isEmulatorPackagesEnabled() && packagesAvailableStatus === "pending");
 
   const error =
     emulatorsStatus === "error" ||
@@ -163,15 +172,19 @@ function Content() {
       An error occurred while fetching data. Please try again.
     </p>
   ) : (
-    <Tabs defaultValue="emulators">
+    <Tabs defaultValue={showPackageTabs ? "catalog" : "emulators"}>
       <div className="w-full mb-6">
         <TabsList className="flex w-full flex-wrap h-auto gap-1">
-          <TabsTrigger value="catalog" className="flex-1 min-w-[7rem]">
-            Catalog
-          </TabsTrigger>
-          <TabsTrigger value="packages" className="flex-1 min-w-[7rem]">
-            Packages
-          </TabsTrigger>
+          {showPackageTabs ? (
+            <>
+              <TabsTrigger value="catalog" className="flex-1 min-w-[7rem]">
+                Catalog
+              </TabsTrigger>
+              <TabsTrigger value="packages" className="flex-1 min-w-[7rem]">
+                Packages
+              </TabsTrigger>
+            </>
+          ) : null}
           <TabsTrigger value="emulators" className="flex-1 min-w-[7rem]">
             All Emulators
           </TabsTrigger>
@@ -197,13 +210,17 @@ function Content() {
         </TabsList>
       </div>
 
-      <TabsContent value="catalog" className="h-fit">
-        <CatalogTab />
-      </TabsContent>
+      {showPackageTabs ? (
+        <>
+          <TabsContent value="catalog" className="h-fit">
+            <CatalogTab />
+          </TabsContent>
 
-      <TabsContent value="packages" className="h-fit">
-        <PackagesTab emulators={emulators} configs={emulatorConfigs} />
-      </TabsContent>
+          <TabsContent value="packages" className="h-fit">
+            <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+          </TabsContent>
+        </>
+      ) : null}
 
       <TabsContent value="emulators" className={cn("h-fit", "")}>
         <EmulatorList platforms={platforms} emulators={emulators} />

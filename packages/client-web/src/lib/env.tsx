@@ -7,6 +7,18 @@ export function checkIsDesktop() {
   );
 }
 
+export function isEmulatorPackagesEnabled() {
+  const value =
+    import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED ??
+    import.meta.env.RETROM_EMULATOR_PACKAGES_ENABLED;
+
+  if (!value) {
+    return true;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
 export function isEmulatorPackageSyncEnabled() {
   const value =
     import.meta.env.VITE_EMULATOR_PACKAGE_SYNC ??
