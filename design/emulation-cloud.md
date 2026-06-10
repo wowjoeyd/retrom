@@ -8,6 +8,7 @@
 | **Status** | Draft |
 | **Repository** | `E:\retrom` (fork: JoeyD551/retrom) |
 | **Design doc path** | `design/emulation-cloud.md` (`docs/` is the upstream wiki submodule) |
+| **Setup guide** | `design/emulation-cloud-setup.md` |
 | **Target deployment** | Proxmox server + UNAS Pro SMB share + Windows desktop client |
 | **Git policy** | Fork-only: push to `origin` (JoeyD551/retrom) only; `upstream` read-only; no upstream PRs |
 | **Switch ROM folder** | `switch` (lowercase basename under `content_directories`) |
