@@ -14,6 +14,8 @@ pub enum Error {
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
+    Download(#[from] retrom_download::DownloadError),
+    #[error(transparent)]
     ToStr(#[from] ToStrError),
     #[error(transparent)]
     ParseInt(#[from] ParseIntError),

@@ -1,6 +1,6 @@
-use futures::TryStreamExt;
 use prost::Message;
-use reqwest::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+use reqwest::header::{HeaderMap, HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN};
+use retrom_download::{stream_to_file, StreamControl};
 use retrom_codegen::{
     retrom::{
         client::installation::{
@@ -18,7 +18,6 @@ use serde::de::DeserializeOwned;
 use std::{collections::HashMap, fs::create_dir_all, path::PathBuf, time::SystemTime};
 use tauri::{ipc::Channel, plugin::PluginApi, AppHandle, Manager, Runtime};
 use tokio::{
-    io::AsyncWriteExt,
     sync::{Mutex, RwLock},
     task::JoinSet,
 };
@@ -173,14 +172,6 @@ impl<R: Runtime> Installer<R> {
 
                         let download_uri = format!("{host}/rest/file/{}", file.id);
 
-                        let res = client
-                            .get(download_uri)
-                            .header(ACCESS_CONTROL_ALLOW_ORIGIN, host)
-                            .send()
-                            .await?;
-
-                        debug!("Downloading file: {:?}", res);
-
                         let game_path = PathBuf::from(&game.path);
                         let prefix = match game.storage_type() {
                             StorageType::MultiFileGame => game_path.clone(),
@@ -200,139 +191,151 @@ impl<R: Runtime> Installer<R> {
                             .expect("could not strip file prefix");
 
                         let absolute_file = output_directory.join(relative_file);
-                        std::fs::create_dir_all(absolute_file.parent().unwrap())?;
 
-                        let mut outfile = tokio::fs::File::create(absolute_file).await?;
-                        let mut stream = res.bytes_stream();
+                        let mut headers = HeaderMap::new();
+                        headers.insert(
+                            ACCESS_CONTROL_ALLOW_ORIGIN,
+                            HeaderValue::from_str(&host).map_err(|why| {
+                                crate::error::Error::InternalError(format!(
+                                    "Invalid download header value: {why}"
+                                ))
+                            })?,
+                        );
 
-                        loop {
-                            if let Some(progress) =
-                                installer.installation_index.read().await.get(&game.id)
-                            {
+                        let app_for_download = app_handle.clone();
+                        let download_result = stream_to_file(
+                            &client,
+                            &download_uri,
+                            &absolute_file,
+                            Some(&headers),
+                            |bytes| {
+                                let installer = app_for_download.installer();
+                                if let Ok(mut progress) = installer.installation_index.try_write()
+                                {
+                                    if let Some(progress) = progress.get_mut(&game_id) {
+                                        if let Some(file) = progress
+                                            .files
+                                            .iter_mut()
+                                            .find(|f| f.file_id == file_id)
+                                        {
+                                            file.bytes_read += bytes;
+                                        }
+                                    }
+                                }
+                            },
+                            || {
+                                let installer = app_for_download.installer();
+                                let Ok(progress) = installer.installation_index.try_read() else {
+                                    return StreamControl::Wait;
+                                };
+
+                                let Some(progress) = progress.get(&game_id) else {
+                                    return StreamControl::Continue;
+                                };
+
                                 match progress.status {
-                                    InstallationStatus::Installing => {}
+                                    InstallationStatus::Installing => StreamControl::Continue,
                                     InstallationStatus::Paused => {
                                         trace!("Installation paused");
-                                        continue;
+                                        StreamControl::Wait
                                     }
                                     InstallationStatus::Installed => {
                                         debug!("Installation already marked as completed");
-                                        break;
+                                        StreamControl::Stop
                                     }
-                                    InstallationStatus::Failed => {
-                                        return Err(crate::error::Error::InstallationAborted);
+                                    InstallationStatus::Failed | InstallationStatus::Aborted => {
+                                        StreamControl::Abort
                                     }
-                                    InstallationStatus::Aborted => {
-                                        return Err(crate::error::Error::InstallationAborted);
-                                    }
-                                    _ => {
-                                        return Err(crate::error::Error::InternalError(
-                                            "Invalid installation status".into(),
-                                        ));
-                                    }
+                                    _ => StreamControl::Abort,
                                 }
+                            },
+                        )
+                        .await;
+
+                        if let Err(err) = download_result {
+                            if matches!(err, retrom_download::DownloadError::Cancelled) {
+                                return Err(crate::error::Error::InstallationAborted);
                             }
 
-                            let chunk = stream.try_next().await;
-                            let bytes = match chunk {
-                                Ok(Some(bytes)) => bytes,
-                                Ok(None) => break,
-                                Err(e) => {
-                                    installer.mark_game_as_failed(game.id).await?;
-                                    return Err(crate::error::Error::from(e));
-                                }
-                            };
+                            installer.mark_game_as_failed(game.id).await?;
+                            return Err(err.into());
+                        }
 
-                            if bytes.is_empty() {
-                                break;
-                            }
+                        debug!("Downloaded file to {:?}", absolute_file);
 
-                            outfile.write_all(&bytes).await?;
+                        let percent_complete =
+                            installer.get_game_installation_percent(game_id).await?;
 
-                            if let Some(progress) =
-                                installer.installation_index.write().await.get_mut(&game_id)
-                            {
-                                if let Some(file) =
-                                    progress.files.iter_mut().find(|f| f.file_id == file_id)
-                                {
-                                    file.bytes_read += bytes.len();
-                                }
-                            }
+                        let previous_metrics = {
+                            let installations_lock = installer.installation_index.read().await;
 
-                            let percent_complete =
-                                installer.get_game_installation_percent(game_id).await?;
+                            let progress = installations_lock.get(&game_id).ok_or(
+                                crate::Error::InternalError(
+                                    "No current installation found for game".into(),
+                                ),
+                            )?;
 
-                            let previous_metrics = {
-                                let installations_lock = installer.installation_index.read().await;
+                            progress.metrics.ok_or(crate::Error::InternalError(
+                                "No installation metrics found".into(),
+                            ))?
+                        };
 
-                                let progress = installations_lock.get(&game_id).ok_or(
-                                    crate::Error::InternalError(
-                                        "No current installation found for game".into(),
-                                    ),
-                                )?;
-
-                                progress.metrics.ok_or(crate::Error::InternalError(
-                                    "No installation metrics found".into(),
+                        if percent_complete > previous_metrics.percent_complete {
+                            let bytes_transferred = installer
+                                .installation_index
+                                .read()
+                                .await
+                                .get(&game_id)
+                                .ok_or(crate::Error::InternalError(
+                                    "No current installation found for game".into(),
                                 ))?
-                            };
+                                .files
+                                .iter()
+                                .map(|f| f.bytes_read)
+                                .sum::<usize>()
+                                as u64;
 
-                            if percent_complete > previous_metrics.percent_complete {
-                                let bytes_transferred = installer
+                            let bytes_diff = bytes_transferred
+                                .saturating_sub(previous_metrics.bytes_transferred)
+                                as f64;
+
+                            let updated_at: Timestamp = SystemTime::now().into();
+
+                            let duration_as_secs = updated_at
+                                .elapsed_since(&previous_metrics.updated_at.unwrap_or_default())
+                                .ok_or(crate::Error::InternalError(
+                                    "Failed to calculate duration since last update".into(),
+                                ))?
+                                .as_secs_f64();
+
+                            if percent_complete > previous_metrics.percent_complete
+                                && duration_as_secs >= 1.0
+                                && bytes_diff > 0.0
+                            {
+                                match installer
                                     .installation_index
-                                    .read()
+                                    .write()
                                     .await
-                                    .get(&game_id)
-                                    .ok_or(crate::Error::InternalError(
-                                        "No current installation found for game".into(),
-                                    ))?
-                                    .files
-                                    .iter()
-                                    .map(|f| f.bytes_read)
-                                    .sum::<usize>()
-                                    as u64;
-
-                                let bytes_diff = bytes_transferred
-                                    .saturating_sub(previous_metrics.bytes_transferred)
-                                    as f64;
-
-                                let updated_at: Timestamp = SystemTime::now().into();
-
-                                let duration_as_secs = updated_at
-                                    .elapsed_since(&previous_metrics.updated_at.unwrap_or_default())
-                                    .ok_or(crate::Error::InternalError(
-                                        "Failed to calculate duration since last update".into(),
-                                    ))?
-                                    .as_secs_f64();
-
-                                if percent_complete > previous_metrics.percent_complete
-                                    && duration_as_secs >= 1.0
-                                    && bytes_diff > 0.0
+                                    .get_mut(&game_id)
                                 {
-                                    match installer
-                                        .installation_index
-                                        .write()
-                                        .await
-                                        .get_mut(&game_id)
-                                    {
-                                        Some(progress) => {
-                                            progress.metrics = Some(InstallationMetrics {
-                                                bytes_transferred,
-                                                percent_complete,
-                                                total_bytes: previous_metrics.total_bytes,
-                                                bytes_per_second: bytes_diff / duration_as_secs,
-                                                updated_at: Some(updated_at),
-                                            });
-                                        }
-                                        None => {
-                                            return Err(crate::Error::InternalError(
-                                                "No current installation found for game".into(),
-                                            ))
-                                        }
+                                    Some(progress) => {
+                                        progress.metrics = Some(InstallationMetrics {
+                                            bytes_transferred,
+                                            percent_complete,
+                                            total_bytes: previous_metrics.total_bytes,
+                                            bytes_per_second: bytes_diff / duration_as_secs,
+                                            updated_at: Some(updated_at),
+                                        });
                                     }
+                                    None => {
+                                        return Err(crate::Error::InternalError(
+                                            "No current installation found for game".into(),
+                                        ))
+                                    }
+                                }
 
-                                    installer.emit_update(game_id).await?;
-                                };
-                            }
+                                installer.emit_update(game_id).await?;
+                            };
                         }
 
                         Ok(())

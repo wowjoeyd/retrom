@@ -9296,6 +9296,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "retrom-download"
+version = "0.8.3"
+dependencies = [
+ "futures",
+ "reqwest 0.12.28",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "retrom-grpc-service"
 version = "0.8.3"
 dependencies = [
@@ -9354,6 +9365,7 @@ dependencies = [
  "prost 0.14.3",
  "reqwest 0.12.28",
  "retrom-codegen",
+ "retrom-download",
  "retrom-plugin-config",
  "retrom-plugin-service-client",
  "retrom-plugin-steam",
