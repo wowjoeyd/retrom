@@ -1,5 +1,6 @@
 use axum::Router;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use emulator_packages::EmulatorPackageServiceHandlers;
 use emulators::EmulatorServiceHandlers;
 use file_explorer::FileExplorerServiceHandlers;
 use games::GameServiceHandlers;
@@ -12,6 +13,7 @@ use retrom_codegen::{
     descriptors::retrom::FILE_DESCRIPTOR_SET,
     retrom::{
         client_service_server::ClientServiceServer,
+        emulator_package_service_server::EmulatorPackageServiceServer,
         emulator_service_server::EmulatorServiceServer,
         file_explorer_service_server::FileExplorerServiceServer,
         game_service_server::GameServiceServer,
@@ -39,6 +41,7 @@ use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub mod clients;
+pub mod emulator_packages;
 pub mod emulators;
 pub mod file_explorer;
 pub mod games;
@@ -121,6 +124,18 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         config_manager.clone(),
     ));
 
+    let emulator_packages_enabled = std::env::var("RETROM_EMULATOR_PACKAGES_ENABLED")
+        .map(|v| v != "false")
+        .unwrap_or(true);
+
+    let emulator_package_service = EmulatorPackageServiceServer::new(
+        EmulatorPackageServiceHandlers::new(
+            library_pool.clone(),
+            job_manager.clone(),
+            config_manager.clone(),
+        ),
+    );
+
     let metadata_service = MetadataServiceServer::new(MetadataServiceHandlers::new(
         shared_pool.clone(),
         igdb_client.clone(),
@@ -165,8 +180,13 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
 
     let reflection_router = reflection_route_builder.routes();
 
+    routes_builder.add_service(library_service);
+
+    if emulator_packages_enabled {
+        routes_builder.add_service(emulator_package_service);
+    }
+
     routes_builder
-        .add_service(library_service)
         .add_service(game_service)
         .add_service(platform_service)
         .add_service(metadata_service)
