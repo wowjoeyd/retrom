@@ -30,6 +30,7 @@ import {
 } from "@retrom/ui/components/tabs";
 import { LocalConfigs } from "./local-configs";
 import { CatalogTab } from "./catalog-tab";
+import { CustomEmulatorTab } from "./custom-emulator-tab";
 import { PackagesTab } from "./packages-tab";
 import { useEmulatorPackagesAvailable } from "@/queries/useEmulatorPackagesAvailable";
 import { isEmulatorPackagesEnabled } from "@/lib/env";
@@ -114,7 +115,7 @@ export function ManageEmulatorsModal() {
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className="w-[min(96vw,48rem)] max-w-[min(96vw,48rem)] sm:max-w-[min(96vw,48rem)] overflow-hidden max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Manage Emulators</DialogTitle>
           <DialogDescription className="max-w-[70ch]">
@@ -183,6 +184,9 @@ function Content() {
               <TabsTrigger value="packages" className="flex-1 min-w-[7rem]">
                 Packages
               </TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1 min-w-[7rem]">
+                Custom
+              </TabsTrigger>
             </>
           ) : null}
           <TabsTrigger value="emulators" className="flex-1 min-w-[7rem]">
@@ -216,8 +220,18 @@ function Content() {
             <CatalogTab />
           </TabsContent>
 
-          <TabsContent value="packages" className="h-fit">
+          <TabsContent
+            value="packages"
+            className="h-fit min-w-0 overflow-x-hidden"
+          >
             <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+          </TabsContent>
+
+          <TabsContent
+            value="custom"
+            className="h-fit min-w-0 overflow-x-hidden"
+          >
+            <CustomEmulatorTab />
           </TabsContent>
         </>
       ) : null}

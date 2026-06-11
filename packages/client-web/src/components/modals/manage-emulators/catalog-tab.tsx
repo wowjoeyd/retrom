@@ -26,33 +26,109 @@ import {
   TableHeader,
   TableRow,
 } from "@retrom/ui/components/table";
-import { EmulatorCatalogEntry } from "@retrom/codegen/retrom/models/emulator-packages_pb";
+import { ScrollArea } from "@retrom/ui/components/scroll-area";
+import {
+  EmulatorCatalogEntry,
+  EmulatorPackage,
+  EmulatorPackageStatus,
+} from "@retrom/codegen/retrom/models/emulator-packages_pb";
 import { useEmulatorCatalog } from "@/queries/useEmulatorCatalog";
+import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
+import { usePlatforms } from "@/queries/usePlatforms";
 import { useServerConfig } from "@/queries/useServerConfig";
 import { useConfig } from "@/providers/config";
 import { useCheckEmulatorPackageDirectoryWritable } from "@/mutations/useCheckEmulatorPackageDirectoryWritable";
 import { useInstallCatalogPackage } from "@/mutations/useInstallCatalogPackage";
-import { LoaderCircleIcon } from "lucide-react";
+import { AlertTriangleIcon, LoaderCircleIcon } from "lucide-react";
 import { operatingSystemDisplayMap } from "./utils";
+import { platformFolderBasename } from "./platform-folder-utils";
 
 export function CatalogTab() {
   const [selectedEntry, setSelectedEntry] =
     useState<EmulatorCatalogEntry | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   const { data: catalog, status: catalogStatus } = useEmulatorCatalog({
     selectFn: (data) => data.entries,
   });
 
+  const { data: installedByCatalogId } = useEmulatorPackages({
+    selectFn: (data) => {
+      const map = new Map<string, EmulatorPackage>();
+
+      for (const pkg of data.packages) {
+        if (!pkg.catalogId) {
+          continue;
+        }
+
+        if (pkg.status === EmulatorPackageStatus.MISSING) {
+          continue;
+        }
+
+        const latestId = data.latestPackageIdBySlug[pkg.packageSlug];
+        const current = map.get(pkg.catalogId);
+
+        if (!current || pkg.id === latestId) {
+          map.set(pkg.catalogId, pkg);
+        }
+      }
+
+      return map;
+    },
+  });
+
+  const { data: platformFolderNames } = usePlatforms({
+    selectFn: (data) =>
+      data.platforms
+        .filter((platform) => !platform.thirdParty)
+        .map((platform) => platformFolderBasename(platform.path)),
+  });
+
   const pending = catalogStatus === "pending";
   const error = catalogStatus === "error";
+
+  const filteredCatalog = useMemo(() => {
+    const list = catalog ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((entry) => {
+      const hay = [
+        entry.displayName,
+        entry.description ?? "",
+        entry.catalogId,
+        ...entry.supportedPlatformFolderNames,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [catalog, search]);
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground max-w-[65ch]">
         Browse built-in emulator catalog entries and install packages to your
-        NAS. Configure emulator package roots in Server Configuration first.
+        NAS. Platform folder names must match subfolders under your configured
+        library roots (e.g. <code className="font-mono text-xs">switch</code>,{" "}
+        <code className="font-mono text-xs">ps3</code>). Detected on this
+        server:{" "}
+        {platformFolderNames?.length ? (
+          <span className="font-mono text-xs">
+            {platformFolderNames.join(", ")}
+          </span>
+        ) : (
+          "none yet — add library roots and scan your library"
+        )}
+        .
       </p>
+
+      <Input
+        placeholder="Search catalog by name, platform, keyword or ID..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="max-w-sm"
+      />
 
       {pending ? (
         <LoaderCircleIcon className="animate-spin h-8 w-8 mx-auto" />
@@ -62,57 +138,80 @@ export function CatalogTab() {
           server?
         </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Platforms</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-end">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {catalog?.map((entry) => (
-              <TableRow key={entry.catalogId}>
-                <TableCell>
-                  <div className="flex flex-col gap-1">
-                    <span className="font-medium">{entry.displayName}</span>
-                    {entry.description ? (
-                      <span className="text-xs text-muted-foreground">
-                        {entry.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm">
-                  {entry.supportedPlatformFolderNames.join(", ")}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {entry.deprecated ? (
-                      <Badge variant="outline">Deprecated</Badge>
-                    ) : null}
-                    {!entry.installable ? (
-                      <Badge variant="secondary">Not installable</Badge>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="text-end">
-                  <Button
-                    size="sm"
-                    disabled={!entry.installable}
-                    onClick={() => {
-                      setSelectedEntry(entry);
-                      setInstallOpen(true);
-                    }}
-                  >
-                    Install to NAS
-                  </Button>
-                </TableCell>
+        <ScrollArea className="max-h-[55vh] rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Platforms</TableHead>
+                <TableHead>NAS install</TableHead>
+                <TableHead className="text-end">Actions</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {filteredCatalog.map((entry) => {
+                const installed = installedByCatalogId?.get(entry.catalogId);
+
+                return (
+                  <TableRow key={entry.catalogId}>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">{entry.displayName}</span>
+                        {entry.description ? (
+                          <span className="text-xs text-muted-foreground">
+                            {entry.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm font-mono">
+                      {entry.supportedPlatformFolderNames.join(", ")}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {installed ? (
+                          <Badge variant="default">
+                            Installed v{installed.version}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Not installed</Badge>
+                        )}
+                        {entry.deprecated ? (
+                          <Badge variant="destructive">Deprecated</Badge>
+                        ) : null}
+                        {!entry.installable ? (
+                          <Badge variant="secondary">Not installable</Badge>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-end">
+                      <Button
+                        size="sm"
+                        disabled={!entry.installable || !!installed}
+                        onClick={() => {
+                          setSelectedEntry(entry);
+                          setInstallOpen(true);
+                        }}
+                      >
+                        {installed ? "Installed" : "Install to NAS"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {filteredCatalog.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={4}
+                    className="text-center text-sm text-muted-foreground py-8"
+                  >
+                    No matching catalog entries.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </ScrollArea>
       )}
 
       {selectedEntry ? (
@@ -142,7 +241,10 @@ function InstallCatalogDialog(props: {
     selectFn: (data) => data.config,
   });
 
-  const roots = serverConfig?.emulatorPackageDirectories ?? [];
+  const roots = useMemo(
+    () => serverConfig?.emulatorPackageDirectories ?? [],
+    [serverConfig],
+  );
   const [directoryIndex, setDirectoryIndex] = useState(0);
   const [subpath, setSubpath] = useState(entry.catalogId);
   const [writeTestResult, setWriteTestResult] = useState<{
@@ -216,6 +318,17 @@ function InstallCatalogDialog(props: {
           </DialogDescription>
         </DialogHeader>
 
+        {entry.deprecated ? (
+          <div className="flex gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <AlertTriangleIcon className="h-5 w-5 shrink-0 text-amber-600" />
+            <p>
+              <strong className="font-medium">Deprecated emulator.</strong> This
+              entry is unmaintained or superseded. Install and use at your own
+              risk — consider Eden or another supported Switch emulator instead.
+            </p>
+          </div>
+        ) : null}
+
         {entry.legalNotice ? (
           <p className="text-sm text-muted-foreground border rounded-md p-3">
             {entry.legalNotice}
@@ -224,8 +337,8 @@ function InstallCatalogDialog(props: {
 
         {noRoots ? (
           <p className="text-sm text-amber-600">
-            No emulator package roots configured. Add one in Server Configuration
-            → Emulator Roots.
+            No emulator package roots configured. Add one in Server
+            Configuration → Emulator Roots.
           </p>
         ) : (
           <div className="flex flex-col gap-4">
@@ -310,9 +423,7 @@ function InstallCatalogDialog(props: {
             disabled={noRoots || installing || !clientId}
             onClick={() => void handleInstall()}
           >
-            {installing ? (
-              <LoaderCircleIcon className="animate-spin" />
-            ) : null}
+            {installing ? <LoaderCircleIcon className="animate-spin" /> : null}
             Install
           </Button>
         </DialogFooter>
