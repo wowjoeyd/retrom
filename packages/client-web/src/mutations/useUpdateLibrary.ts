@@ -79,6 +79,55 @@ export function useUpdateLibrary() {
             await updateSteamInstallations();
           }
 
+          // Automatically download metadata (name, artwork, etc.) for newly discovered
+          // games/platforms by matching cleaned filenames/folder names against IGDB.
+          // Non-overwrite (respects prior manual edits). Requires IGDB credentials in
+          // Server Config; otherwise silently produces no metadata. This makes adding
+          // ROMs name themselves automatically without a separate "Download Metadata" step.
+          try {
+            const metaResp =
+              await retromClient.libraryClient.updateLibraryMetadata({
+                overwrite: false,
+              });
+
+            // Light poll of the spawned metadata jobs so that metadata-related queries
+            // refresh once the IGDB lookups complete.
+            const metaJobIds = [
+              metaResp.gameMetadataJobId,
+              metaResp.platformMetadataJobId,
+              metaResp.extraMetadataJobId,
+              metaResp.steamMetadataJobId,
+            ].filter(Boolean) as string[];
+
+            metaJobIds.forEach((jobId) => {
+              const sub = retromClient.jobClient.getJobSubscription({ jobId });
+              void (async () => {
+                for await (const progress of sub) {
+                  if (progress.job?.status === JobStatus.Success) {
+                    await queryClient
+                      .invalidateQueries({
+                        predicate: (q) =>
+                          [
+                            "game-metadata",
+                            "platform-metadata",
+                            "games",
+                            "platforms",
+                          ].some((k) => q.queryKey.includes(k)),
+                      })
+                      .catch(console.error);
+                  }
+                }
+              })();
+            });
+          } catch (e) {
+            // Non-fatal (e.g. IGDB not configured, or another metadata job running).
+            // Jobs indicator will surface activity if any.
+            console.debug(
+              "Auto metadata fetch after library scan did not start:",
+              e,
+            );
+          }
+
           return invalidate();
         })
         .catch(console.error);
