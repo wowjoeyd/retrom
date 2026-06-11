@@ -217,7 +217,15 @@ function LocalConfigRow(props: {
 
       form.reset(res.configsCreated.at(0));
     },
-    [config, createConfig, updateConfig, linkToPackage, form, emulator, clientId],
+    [
+      config,
+      createConfig,
+      updateConfig,
+      linkToPackage,
+      form,
+      emulator,
+      clientId,
+    ],
   );
 
   const pending = creationPending || updatePending || linkPending;
@@ -235,7 +243,9 @@ function LocalConfigRow(props: {
       >
         <span className="flex gap-2 items-baseline">
           <span>{emulator.name}</span>
-          {config?.managedPaths ? <SyncStatusBadge emulatorId={emulator.id} /> : null}
+          {config?.managedPaths ? (
+            <SyncStatusBadge emulatorId={emulator.id} />
+          ) : null}
           {isDirty ? (
             <span className="text-sm text-muted-foreground italic">
               (unsaved)

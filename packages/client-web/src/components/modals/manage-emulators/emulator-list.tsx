@@ -1,9 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { DialogClose, DialogFooter } from "@retrom/ui/components/dialog";
+import { Input } from "@retrom/ui/components/input";
 import {
   Check,
   ChevronsUpDown,
   LoaderCircleIcon,
+  SearchIcon,
   TrashIcon,
   X,
 } from "lucide-react";
@@ -34,7 +36,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@retrom/ui/components/form";
-import { Input } from "@retrom/ui/components/input";
 import {
   Popover,
   PopoverContent,
@@ -120,6 +121,19 @@ export function EmulatorList(props: {
   const pending = isPending || deletionPending;
   const changeset = form.watch("emulators");
 
+  const [search, setSearch] = useState("");
+
+  const filteredEmulators = useMemo(() => {
+    const list = Object.values(changeset);
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? list.filter((e) => e.name.toLowerCase().includes(q))
+      : list;
+    return filtered
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => Number(a.builtIn) - Number(b.builtIn));
+  }, [changeset, search]);
+
   return (
     <>
       <CreateEmulator
@@ -130,13 +144,19 @@ export function EmulatorList(props: {
           });
         }}
       />
+      <div className="mb-3">
+        <Input
+          placeholder="Search emulators by name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-sm"
+        />
+      </div>
       <Form {...form}>
-        <form>
-          <Accordion type="single" collapsible>
-            {Object.values(changeset)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .sort((a, b) => Number(a.builtIn) - Number(b.builtIn))
-              .map((emulator) => {
+        <form className="flex h-full min-h-0 flex-col">
+          <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto pr-1">
+            <Accordion type="single" collapsible>
+              {filteredEmulators.map((emulator) => {
                 return (
                   <FormField
                     key={emulator.id}
@@ -517,7 +537,8 @@ export function EmulatorList(props: {
                   />
                 );
               })}
-          </Accordion>
+            </Accordion>
+          </div>
         </form>
       </Form>
 

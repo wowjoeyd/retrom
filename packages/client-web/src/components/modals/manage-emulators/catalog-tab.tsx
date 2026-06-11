@@ -26,7 +26,12 @@ import {
   TableHeader,
   TableRow,
 } from "@retrom/ui/components/table";
-import { ScrollArea } from "@retrom/ui/components/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@retrom/ui/components/tooltip";
 import {
   EmulatorCatalogEntry,
   EmulatorPackage,
@@ -106,8 +111,8 @@ export function CatalogTab() {
   }, [catalog, search]);
 
   return (
-    <div className="flex flex-col gap-4 h-full">
-      <p className="text-sm text-muted-foreground max-w-[65ch] shrink-0">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      <p className="text-xs text-muted-foreground max-w-[65ch] shrink-0 leading-snug">
         Browse built-in emulator catalog entries and install packages to your
         NAS. Platform folder names must match subfolders under your configured
         library roots (e.g. <code className="font-mono text-xs">switch</code>,{" "}
@@ -138,14 +143,14 @@ export function CatalogTab() {
           server?
         </p>
       ) : (
-        <ScrollArea className="flex-1 min-h-0 rounded-md border">
-          <Table>
+        <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto pr-1">
+          <Table className="table-fixed w-full">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Platforms</TableHead>
-                <TableHead>NAS install</TableHead>
-                <TableHead className="text-end">Actions</TableHead>
+                <TableHead className="w-[28%]">Name</TableHead>
+                <TableHead className="w-[18%]">Platforms</TableHead>
+                <TableHead className="w-[32%]">NAS install</TableHead>
+                <TableHead className="w-[22%] text-end">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -153,13 +158,13 @@ export function CatalogTab() {
                 const installed = installedByCatalogId?.get(entry.catalogId);
 
                 return (
-                  <TableRow key={entry.catalogId}>
+                  <TableRow key={entry.catalogId} className="min-h-[4.5rem]">
                     <TableCell>
-                      <div className="flex flex-col gap-1 min-h-[2.25rem]">
-                        <span className="font-medium line-clamp-1">
+                      <div className="flex flex-col gap-1 min-h-[3.25rem] py-1">
+                        <span className="font-medium line-clamp-1 text-base">
                           {entry.displayName}
                         </span>
-                        <span className="text-xs text-muted-foreground line-clamp-1">
+                        <span className="text-xs text-muted-foreground line-clamp-2">
                           {entry.description || "\u00A0"}
                         </span>
                       </div>
@@ -168,24 +173,41 @@ export function CatalogTab() {
                       {(() => {
                         const plats = entry.supportedPlatformFolderNames;
                         const display =
-                          plats.length > 5
-                            ? `${plats.slice(0, 4).join(", ")} +${plats.length - 4} more`
+                          plats.length > 4
+                            ? `${plats.slice(0, 3).join(", ")}, ...`
                             : plats.join(", ");
                         return (
-                          <span
-                            className="block truncate max-w-[14ch] lg:max-w-[20ch]"
-                            title={plats.join(", ")}
-                          >
-                            {display}
-                          </span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="block truncate max-w-[14ch] lg:max-w-[20ch] cursor-default">
+                                  {display}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <div className="flex flex-wrap gap-1 text-xs">
+                                  {plats.map((p) => (
+                                    <span
+                                      key={p}
+                                      className="rounded bg-muted px-1.5 py-0.5 font-mono"
+                                    >
+                                      {p}
+                                    </span>
+                                  ))}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         );
                       })()}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1 max-h-[2.25rem] overflow-hidden">
+                      <div className="flex flex-wrap gap-1 max-h-[2.25rem] overflow-hidden min-w-0">
                         {installed ? (
-                          <Badge variant="default">
-                            Installed v{installed.version}
+                          <Badge variant="default" className="max-w-[160px]">
+                            <span className="truncate">
+                              Installed v{installed.version}
+                            </span>
                           </Badge>
                         ) : (
                           <Badge variant="outline">Not installed</Badge>
@@ -225,7 +247,7 @@ export function CatalogTab() {
               )}
             </TableBody>
           </Table>
-        </ScrollArea>
+        </div>
       )}
 
       {selectedEntry ? (

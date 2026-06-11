@@ -115,7 +115,7 @@ export function ManageEmulatorsModal() {
         }
       }}
     >
-      <DialogContent className="w-[min(96vw,48rem)] max-w-[min(96vw,48rem)] sm:max-w-[min(96vw,48rem)] overflow-hidden max-h-[85dvh] flex flex-col">
+      <DialogContent className="w-[min(96vw,48rem)] max-w-[min(96vw,48rem)] sm:max-w-[min(96vw,48rem)] overflow-hidden h-[85dvh] max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Manage Emulators</DialogTitle>
           <DialogDescription className="max-w-[70ch]">
@@ -179,7 +179,7 @@ function Content() {
       defaultValue={showPackageTabs ? "catalog" : "emulators"}
       className="flex flex-col h-full min-h-0"
     >
-      <div className="w-full mb-6 shrink-0">
+      <div className="w-full mb-4 shrink-0">
         <TabsList className="flex w-full flex-wrap h-auto gap-1">
           {showPackageTabs ? (
             <>
@@ -221,33 +221,40 @@ function Content() {
 
       {showPackageTabs ? (
         <>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <TabsContent value="catalog" className="h-full">
-              <CatalogTab />
-            </TabsContent>
+          <TabsContent
+            value="catalog"
+            className="flex-1 min-h-0 overflow-hidden"
+          >
+            <CatalogTab />
+          </TabsContent>
 
-            <TabsContent
-              value="packages"
-              className="h-full min-w-0 overflow-x-hidden"
-            >
-              <PackagesTab emulators={emulators} configs={emulatorConfigs} />
-            </TabsContent>
+          <TabsContent
+            value="packages"
+            className="flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+          </TabsContent>
 
-            <TabsContent
-              value="custom"
-              className="h-full min-w-0 overflow-x-hidden"
-            >
-              <CustomEmulatorTab />
-            </TabsContent>
-          </div>
+          <TabsContent
+            value="custom"
+            className="flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            <CustomEmulatorTab />
+          </TabsContent>
         </>
       ) : null}
 
-      <TabsContent value="emulators" className={cn("h-full", "")}>
+      <TabsContent
+        value="emulators"
+        className={cn("flex-1 min-h-0 overflow-hidden", "")}
+      >
         <EmulatorList platforms={platforms} emulators={emulators} />
       </TabsContent>
 
-      <TabsContent value="local-configs" className="h-full">
+      <TabsContent
+        value="local-configs"
+        className="flex-1 min-h-0 overflow-hidden"
+      >
         <LocalConfigs emulators={emulators} configs={emulatorConfigs} />
       </TabsContent>
     </Tabs>

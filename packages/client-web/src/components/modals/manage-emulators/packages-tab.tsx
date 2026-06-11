@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@retrom/ui/components/dialog";
 import { Checkbox } from "@retrom/ui/components/checkbox";
+import { Input } from "@retrom/ui/components/input";
 import { Label } from "@retrom/ui/components/label";
 import {
   Select,
@@ -32,9 +33,13 @@ import { useUpdateEmulatorPackages } from "@/mutations/useUpdateEmulatorPackages
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
 import { useDeleteEmulatorPackages } from "@/mutations/useDeleteEmulatorPackages";
 import { useConfig } from "@/providers/config";
-import { LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import {
+  LoaderCircleIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { match } from "ts-pattern";
-import { ScrollArea } from "@retrom/ui/components/scroll-area";
 
 const packageStatusLabels: Record<EmulatorPackageStatus, string> = {
   [EmulatorPackageStatus.UNSPECIFIED]: "Unknown",
@@ -70,12 +75,24 @@ export function PackagesTab(props: {
     null,
   );
   const [deleteFiles, setDeleteFiles] = useState(true);
+  const [search, setSearch] = useState("");
 
   const packages = data?.packages ?? [];
   const latestBySlug = useMemo(
     () => data?.latestPackageIdBySlug ?? {},
     [data?.latestPackageIdBySlug],
   );
+
+  const filteredPackages = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return packages;
+    return packages.filter(
+      (p) =>
+        p.displayName.toLowerCase().includes(q) ||
+        p.packageSlug.toLowerCase().includes(q) ||
+        p.rootPath.toLowerCase().includes(q),
+    );
+  }, [packages, search]);
 
   const linkedByPackageId = useMemo(() => {
     const map = new Map<number, LocalEmulatorConfig[]>();
@@ -165,7 +182,7 @@ export function PackagesTab(props: {
   }, [deleteFiles, deletePackages, deleteTarget]);
 
   return (
-    <div className="flex flex-col gap-4 min-w-0 h-full">
+    <div className="flex h-full min-h-0 flex-col gap-4 min-w-0 overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 shrink-0">
         <p className="text-sm text-muted-foreground max-w-[65ch]">
           Emulator binaries stored on your NAS. Catalog installs auto-link the
@@ -188,6 +205,15 @@ export function PackagesTab(props: {
         </Button>
       </div>
 
+      <div className="shrink-0">
+        <Input
+          placeholder="Search packages by name, slug or path..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-sm"
+        />
+      </div>
+
       {pending ? (
         <LoaderCircleIcon className="animate-spin h-8 w-8 mx-auto" />
       ) : error ? (
@@ -195,15 +221,16 @@ export function PackagesTab(props: {
           Failed to load emulator packages. Is emulator package support enabled
           on the server?
         </p>
-      ) : packages.length === 0 ? (
+      ) : filteredPackages.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
-          No packages indexed yet. Install from the Catalog tab or scan existing
-          NAS trees.
+          {packages.length === 0
+            ? "No packages indexed yet. Install from the Catalog tab or scan existing NAS trees."
+            : "No packages match your search."}
         </p>
       ) : (
-        <ScrollArea className="flex-1 min-h-0 rounded-md border p-1">
+        <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto p-1 pr-2">
           <div className="flex flex-col gap-3 min-w-0">
-            {packages.map((pkg) => {
+            {filteredPackages.map((pkg) => {
               const linkedConfigs = linkedByPackageId.get(pkg.id) ?? [];
               const latestId = latestBySlug[pkg.packageSlug];
               const isLatest = latestId === pkg.id;
@@ -315,7 +342,7 @@ export function PackagesTab(props: {
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
       )}
 
       <Dialog
