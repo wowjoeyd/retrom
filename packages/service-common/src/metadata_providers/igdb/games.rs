@@ -128,8 +128,14 @@ impl GameMetadataProvider<IgdbGameSearchQuery> for IGDBProvider {
         game: retrom::Game,
         query: Option<IgdbGameSearchQuery>,
     ) -> Option<NewGameMetadata> {
-        let naive_name = game.path.split('/').next_back().unwrap_or(&game.path);
-        let path = PathBuf::from_str(&game.path).unwrap();
+        // Normalize Windows extended paths (\\?\E:\...) and backslashes so the
+        // search term we send to IGDB (and the fallback) is a clean basename.
+        let normalized = game
+            .path
+            .trim_start_matches("\\\\?\\")
+            .replace('\\', "/");
+        let naive_name = normalized.split('/').next_back().unwrap_or(&game.path);
+        let path = PathBuf::from_str(&normalized).unwrap_or_else(|_| PathBuf::from(&game.path));
         let mut name = path
             .file_stem()
             .and_then(|stem| stem.to_str())

@@ -447,7 +447,11 @@ pub async fn update_metadata(
     let all_steam_apps = match steam_provider.get_owned_games().await {
         Ok(res) => res.response.games,
         Err(e) => {
-            tracing::error!("Failed to get owned games: {}", e);
+            // This is common and non-fatal when Steam integration is not fully
+            // configured, the token is expired, or the user has no Steam games.
+            // It only affects Steam-linked titles; regular emulator ROM metadata
+            // continues via IGDB.
+            tracing::warn!("Failed to get owned Steam games: {}", e);
             vec![]
         }
     };

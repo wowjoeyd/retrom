@@ -46,7 +46,15 @@ export function Image(props: JSX.IntrinsicElements["img"]) {
 }
 
 export function getFileParts(path: string) {
-  const filename = path.split("/").pop() ?? "";
+  if (!path) {
+    return { name: "", extension: "" };
+  }
+
+  // Normalize Windows extended-length paths (\\?\ prefix) and backslashes
+  // so that getFileName / getFileStub always return clean basenames even
+  // when the stored game/platform path comes from canonicalize() on Windows.
+  let normalized = path.replace(/^\\\\\?\\/, "").replace(/\\/g, "/");
+  const filename = normalized.split("/").pop() ?? "";
   const parts = filename.split(".");
 
   // After obtaining the file name without its extension,
