@@ -106,8 +106,8 @@ export function CatalogTab() {
   }, [catalog, search]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground max-w-[65ch]">
+    <div className="flex flex-col gap-4 h-full">
+      <p className="text-sm text-muted-foreground max-w-[65ch] shrink-0">
         Browse built-in emulator catalog entries and install packages to your
         NAS. Platform folder names must match subfolders under your configured
         library roots (e.g. <code className="font-mono text-xs">switch</code>,{" "}
@@ -127,7 +127,7 @@ export function CatalogTab() {
         placeholder="Search catalog by name, platform, keyword or ID..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="max-w-sm"
+        className="max-w-sm shrink-0"
       />
 
       {pending ? (
@@ -138,7 +138,7 @@ export function CatalogTab() {
           server?
         </p>
       ) : (
-        <ScrollArea className="max-h-[55vh] rounded-md border">
+        <ScrollArea className="flex-1 min-h-0 rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -155,20 +155,34 @@ export function CatalogTab() {
                 return (
                   <TableRow key={entry.catalogId}>
                     <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium">{entry.displayName}</span>
-                        {entry.description ? (
-                          <span className="text-xs text-muted-foreground">
-                            {entry.description}
-                          </span>
-                        ) : null}
+                      <div className="flex flex-col gap-1 min-h-[2.25rem]">
+                        <span className="font-medium line-clamp-1">
+                          {entry.displayName}
+                        </span>
+                        <span className="text-xs text-muted-foreground line-clamp-1">
+                          {entry.description || "\u00A0"}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm font-mono">
-                      {entry.supportedPlatformFolderNames.join(", ")}
+                      {(() => {
+                        const plats = entry.supportedPlatformFolderNames;
+                        const display =
+                          plats.length > 5
+                            ? `${plats.slice(0, 4).join(", ")} +${plats.length - 4} more`
+                            : plats.join(", ");
+                        return (
+                          <span
+                            className="block truncate max-w-[14ch] lg:max-w-[20ch]"
+                            title={plats.join(", ")}
+                          >
+                            {display}
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1 max-h-[2.25rem] overflow-hidden">
                         {installed ? (
                           <Badge variant="default">
                             Installed v{installed.version}

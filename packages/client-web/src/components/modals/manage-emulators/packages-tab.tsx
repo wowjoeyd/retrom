@@ -165,8 +165,8 @@ export function PackagesTab(props: {
   }, [deleteFiles, deletePackages, deleteTarget]);
 
   return (
-    <div className="flex flex-col gap-4 min-w-0">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div className="flex flex-col gap-4 min-w-0 h-full">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 shrink-0">
         <p className="text-sm text-muted-foreground max-w-[65ch]">
           Emulator binaries stored on your NAS. Catalog installs auto-link the
           matching emulator definition. Use &quot;Change link&quot; only if you
@@ -201,7 +201,7 @@ export function PackagesTab(props: {
           NAS trees.
         </p>
       ) : (
-        <ScrollArea className="max-h-[55vh] rounded-md border p-1">
+        <ScrollArea className="flex-1 min-h-0 rounded-md border p-1">
           <div className="flex flex-col gap-3 min-w-0">
             {packages.map((pkg) => {
               const linkedConfigs = linkedByPackageId.get(pkg.id) ?? [];

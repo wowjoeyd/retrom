@@ -124,7 +124,9 @@ export function ManageEmulatorsModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <Content />
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <Content />
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -173,8 +175,11 @@ function Content() {
       An error occurred while fetching data. Please try again.
     </p>
   ) : (
-    <Tabs defaultValue={showPackageTabs ? "catalog" : "emulators"}>
-      <div className="w-full mb-6">
+    <Tabs
+      defaultValue={showPackageTabs ? "catalog" : "emulators"}
+      className="flex flex-col h-full min-h-0"
+    >
+      <div className="w-full mb-6 shrink-0">
         <TabsList className="flex w-full flex-wrap h-auto gap-1">
           {showPackageTabs ? (
             <>
@@ -216,31 +221,33 @@ function Content() {
 
       {showPackageTabs ? (
         <>
-          <TabsContent value="catalog" className="h-fit">
-            <CatalogTab />
-          </TabsContent>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <TabsContent value="catalog" className="h-full">
+              <CatalogTab />
+            </TabsContent>
 
-          <TabsContent
-            value="packages"
-            className="h-fit min-w-0 overflow-x-hidden"
-          >
-            <PackagesTab emulators={emulators} configs={emulatorConfigs} />
-          </TabsContent>
+            <TabsContent
+              value="packages"
+              className="h-full min-w-0 overflow-x-hidden"
+            >
+              <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+            </TabsContent>
 
-          <TabsContent
-            value="custom"
-            className="h-fit min-w-0 overflow-x-hidden"
-          >
-            <CustomEmulatorTab />
-          </TabsContent>
+            <TabsContent
+              value="custom"
+              className="h-full min-w-0 overflow-x-hidden"
+            >
+              <CustomEmulatorTab />
+            </TabsContent>
+          </div>
         </>
       ) : null}
 
-      <TabsContent value="emulators" className={cn("h-fit", "")}>
+      <TabsContent value="emulators" className={cn("h-full", "")}>
         <EmulatorList platforms={platforms} emulators={emulators} />
       </TabsContent>
 
-      <TabsContent value="local-configs">
+      <TabsContent value="local-configs" className="h-full">
         <LocalConfigs emulators={emulators} configs={emulatorConfigs} />
       </TabsContent>
     </Tabs>
