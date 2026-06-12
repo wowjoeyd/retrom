@@ -24,7 +24,8 @@
         "archive_type": "7z",
         "strip_components": 0,
         "executable_relative_path": "rpcs3.exe",
-        "preserve_paths": ["config/", "dev_hdd0/", "games/"]
+        "preserve_paths": ["config/", "dev_hdd0/", "games/"],
+        "internal_install_supported": true
       }
     }
   ]

@@ -77,6 +77,8 @@ struct CatalogInstallFile {
     executable_glob: Option<String>,
     #[serde(default)]
     preserve_paths: Vec<String>,
+    #[serde(default)]
+    internal_install_supported: bool,
 }
 
 /// Detect the operating system the Retrom server is running on.
@@ -324,6 +326,7 @@ impl From<CatalogInstallFile> for EmulatorCatalogInstall {
             executable_relative_path: install.executable_relative_path,
             executable_glob: install.executable_glob,
             preserve_paths: install.preserve_paths,
+            internal_install_supported: install.internal_install_supported,
         }
     }
 }

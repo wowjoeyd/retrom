@@ -120,6 +120,11 @@ message EmulatorCatalogInstall {
   optional string executable_relative_path = 3;
   optional string executable_glob = 4;
   repeated string preserve_paths = 5;
+  // For curated emulators that require an "internal install" step inside the emulator
+  // (e.g. RPCS3 PKG install to dev_hdd0, Switch NSP to nand). When true, after raw
+  // Retrom install, an optional post-step can guide/assist placing the file into the
+  // emulator package's user_data subdirs so it appears "installed" on other PCs after sync.
+  optional bool internal_install_supported = 6;
 }
 
 message EmulatorCatalogDefaultProfile {
