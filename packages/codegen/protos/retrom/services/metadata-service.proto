@@ -45,6 +45,7 @@ message GetGameMetadataResponse {
     repeated string video_urls = 4;
     repeated string screenshot_urls = 5;
     repeated string artwork_urls = 6;
+    optional string theme_audio_url = 7;
   }
 
   repeated GameMetadata metadata = 1;

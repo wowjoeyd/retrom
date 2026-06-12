@@ -21,6 +21,12 @@ message UpdateLibraryResponse {
 
 message UpdateLibraryMetadataRequest {
   optional bool overwrite = 1;
+  // If true, re-extract and overwrite existing game theme audio files (the
+  // short soundtrack themes downloaded via yt-dlp). By default we skip
+  // re-downloading if a theme.* file already exists for the game, to avoid
+  // unnecessary network usage and long-running jobs. This is independent of
+  // the general "overwrite" for IGDB/Steam/user metadata.
+  optional bool overwrite_theme_audio = 2;
 }
 
 message UpdateLibraryMetadataResponse {
@@ -28,6 +34,12 @@ message UpdateLibraryMetadataResponse {
   string game_metadata_job_id = 2;
   string extra_metadata_job_id = 3;
   optional string steam_metadata_job_id = 4;
+  // Theme audio extraction (short soundtrack themes via yt-dlp) now runs as its own
+  // background job during metadata updates. This makes new game theme music population
+  // happen seamlessly like other metadata (IGDB, covers, etc.), similar to how Plex
+  // handles background metadata refresh. The client should poll this job and refresh
+  // game metadata queries when it completes so themeAudioUrl becomes available.
+  optional string theme_audio_job_id = 5;
 }
 
 message DeleteLibraryRequest {}
