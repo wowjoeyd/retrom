@@ -11,6 +11,7 @@ Default permissions for the emulator sync plugin
 - `allow-unsubscribe-from-emulator-sync-updates`
 - `allow-abort-emulator-sync`
 - `allow-open-emulator-cache-dir`
+- `allow-analyze-emulator-user-data`
 
 ## Permission Table
 
@@ -43,6 +44,32 @@ Enables the abort_emulator_sync command without any pre-configured scope.
 <td>
 
 Denies the abort_emulator_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:allow-analyze-emulator-user-data`
+
+</td>
+<td>
+
+Enables the analyze_emulator_user_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:deny-analyze-emulator-user-data`
+
+</td>
+<td>
+
+Denies the analyze_emulator_user_data command without any pre-configured scope.
 
 </td>
 </tr>

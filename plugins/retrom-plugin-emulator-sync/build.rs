@@ -6,6 +6,9 @@ const COMMANDS: &[&str] = &[
     "unsubscribe_from_emulator_sync_updates",
     "abort_emulator_sync",
     "open_emulator_cache_dir",
+    "push_emulator_preserve_data",
+    "pull_emulator_user_data",
+    "analyze_emulator_user_data",
 ];
 
 fn main() {
