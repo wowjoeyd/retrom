@@ -1,0 +1,31 @@
+{
+  "catalog_id": "mgba",
+  "display_name": "mGBA",
+  "description": "Game Boy Advance / Game Boy / Game Boy Color emulator",
+  "supported_platform_folder_names": ["gba", "gb", "gbc"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["gba", "gb", "gbc"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "mgba-emu/mgba",
+        "asset_pattern": "mGBA-.*-win64\\.7z",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "7z",
+        "strip_components": 0,
+        "executable_relative_path": "mGBA.exe",
+        "preserve_paths": ["config.ini", "portable.ini", "saves/", "states/"]
+      }
+    }
+  ]
+}

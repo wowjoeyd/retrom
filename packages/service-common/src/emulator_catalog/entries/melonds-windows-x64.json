@@ -1,0 +1,31 @@
+{
+  "catalog_id": "melonds",
+  "display_name": "melonDS",
+  "description": "Nintendo DS emulator",
+  "supported_platform_folder_names": ["nds", "ds"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["nds", "srl"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "melonDS-emu/melonDS",
+        "asset_pattern": "melonDS-.*-windows-x86_64\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "melonDS.exe",
+        "preserve_paths": ["melonDS.ini", "battery/", "savestates/"]
+      }
+    }
+  ]
+}
