@@ -31,11 +31,13 @@ import { cn } from "@retrom/ui/lib/utils";
 import { useCreateLocalEmulatorConfigs } from "@/mutations/useCreateLocalEmulatorConfig";
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
 import { useLinkEmulatorToPackage } from "@/mutations/useLinkEmulatorToPackage";
+import { useSyncEmulatorUserData } from "@/mutations/useSyncEmulatorUserData";
 import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
+import { useModalAction } from "@/providers/modal-action";
 import { useConfigStore } from "@/providers/config";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon, LoaderCircleIcon, SaveIcon } from "lucide-react";
+import { FolderOpenIcon, LoaderCircleIcon, SaveIcon, UploadIcon, DownloadIcon } from "lucide-react";
 import { useCallback } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { z } from "zod";
@@ -53,6 +55,11 @@ const baseConfigSchema = z.object({
   saveStatesPath: z.string().optional(),
   linkedPackageId: z.number().optional(),
   managedPaths: z.boolean().default(false),
+  // Overrides for the package manifest paths. Non-empty values take precedence
+  // for auto upstream (user_data) and local protection (preserve) during sync.
+  // Allows the system to support any emulator by user customization.
+  userDataPathsOverride: z.array(z.string()).default([]),
+  preservePathsOverride: z.array(z.string()).default([]),
 }) satisfies z.ZodObject<
   Record<
     keyof Omit<
@@ -135,6 +142,8 @@ function LocalConfigRow(props: {
       saveStatesPath: config?.saveStatesPath || "",
       linkedPackageId: config?.linkedPackageId ?? undefined,
       managedPaths: config?.managedPaths ?? false,
+      userDataPathsOverride: (config as any)?.userDataPathsOverride ?? [],
+      preservePathsOverride: (config as any)?.preservePathsOverride ?? [],
     },
     resolver: zodResolver(configSchema),
     mode: "onSubmit",
@@ -160,6 +169,13 @@ function LocalConfigRow(props: {
     isPending: linkPending,
     error: linkError,
   } = useLinkEmulatorToPackage();
+
+  const {
+    mutateAsync: syncUserData,
+    isPending: userDataSyncPending,
+  } = useSyncEmulatorUserData();
+
+  const { openModal: openUserDataConflict } = useModalAction("resolveEmulatorUserDataConflict");
 
   const handleSubmit = useCallback(
     async (values: ConfigSchema) => {
@@ -314,6 +330,100 @@ function LocalConfigRow(props: {
                   </FormItem>
                 )}
               />
+            ) : null}
+
+            {managedPaths ? (
+              <>
+                <FormField
+                  control={form.control}
+                  name="userDataPathsOverride"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>User Data Paths Override (one per line)</FormLabel>
+                      <FormControl>
+                        <textarea
+                          className="w-full rounded border p-2 text-sm"
+                          rows={3}
+                          value={(field.value || []).join("\n")}
+                          onChange={(e) => field.onChange(e.target.value.split(/\n+/).map(s => s.trim()).filter(Boolean))}
+                          placeholder="e.g.&#10;dev_hdd0/&#10;games/&#10;keys/"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        If set, these override the package manifest for auto upstream push of firmware, RAPs, installed titles etc.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="preservePathsOverride"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Preserve Paths Override (one per line)</FormLabel>
+                      <FormControl>
+                        <textarea
+                          className="w-full rounded border p-2 text-sm"
+                          rows={3}
+                          value={(field.value || []).join("\n")}
+                          onChange={(e) => field.onChange(e.target.value.split(/\n+/).map(s => s.trim()).filter(Boolean))}
+                          placeholder="e.g.&#10;config/&#10;dev_hdd0/"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        If set, these override for local protection during sync (user mods not overwritten).
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            ) : null}
+
+            {managedPaths ? (
+              <div className="flex flex-col gap-2 rounded border p-3">
+                <div className="text-sm font-medium">User Data Sync</div>
+                <p className="text-xs text-muted-foreground">
+                  Firmware, decryption keys, installed games/ROMs, RAP files etc. (config/ is kept local and PC-specific).
+                  Use Push to promote this PC&apos;s data as the cloud source of truth. Use Pull to reset local from cloud.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => {
+                      void syncUserData({ emulatorId: emulator.id, direction: "push" });
+                    }}
+                  >
+                    <UploadIcon className="mr-1 h-4 w-4" />
+                    Push local to NAS (set as truth)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => {
+                      void syncUserData({ emulatorId: emulator.id, direction: "pull" });
+                    }}
+                  >
+                    <DownloadIcon className="mr-1 h-4 w-4" />
+                    Pull from NAS (reset local)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => openUserDataConflict({ emulatorId: emulator.id })}
+                  >
+                    Resolve conflicts / Smart sync…
+                  </Button>
+                </div>
+              </div>
             ) : null}
 
             <FormField

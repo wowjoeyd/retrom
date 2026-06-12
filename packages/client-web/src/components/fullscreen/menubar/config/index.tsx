@@ -120,7 +120,35 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
     <Sheet
       open={open}
       onOpenChange={(val) => {
-        if (!val) {
+        if (val) {
+          // Re-initialize form with latest values from the store on every open.
+          // This ensures the two config UIs (fullscreen menubar + general config)
+          // always see each other's saved changes for the shared gameMusic settings
+          // (and other fullscreenConfig values).
+          form.reset({
+            interface: {
+              fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+              fullscreenConfig: {
+                gridList: {
+                  columns:
+                    config?.interface?.fullscreenConfig?.gridList?.columns ?? 4,
+                  gap: config?.interface?.fullscreenConfig?.gridList?.gap ?? 20,
+                  imageType:
+                    config?.interface?.fullscreenConfig?.gridList?.imageType ??
+                    "COVER",
+                },
+                gameMusic: {
+                  enabled:
+                    config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
+                  volume: (config?.interface?.fullscreenConfig?.gameMusic?.volume ??
+                    0.3) as number,
+                  fadeDurationMs: (config?.interface?.fullscreenConfig?.gameMusic
+                    ?.fadeDurationMs ?? 700) as number,
+                },
+              },
+            },
+          });
+        } else {
           form.reset();
         }
         setOpen(val);
@@ -277,10 +305,20 @@ function ConfigForm() {
       />
 
       {/* Game music / theme song controls for fullscreen hover/click playback */}
-      <ConfigCheckbox
+      <FormField
+        control={form.control}
         name="interface.fullscreenConfig.gameMusic.enabled"
-        label="Play game music on focus/hover"
-        description="Play main theme / song while hovering or selecting a game (fades in/out)"
+        render={({ field }) => (
+          <FormItem>
+            <ConfigCheckbox
+              checked={field.value}
+              onCheckedChange={field.onChange}
+              label="Play game music on focus/hover"
+            >
+              Play main theme / song while hovering or selecting a game (fades in/out)
+            </ConfigCheckbox>
+          </FormItem>
+        )}
       />
 
       <div className="grid grid-cols-2 gap-4">

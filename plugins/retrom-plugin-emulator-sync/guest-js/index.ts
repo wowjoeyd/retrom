@@ -13,6 +13,9 @@ import {
   GetEmulatorSyncStatusPayloadSchema,
   GetEmulatorSyncStatusResponse,
   GetEmulatorSyncStatusResponseSchema,
+  PushEmulatorPreservePayloadSchema,
+  PushEmulatorPreserveResponse,
+  PushEmulatorPreserveResponseSchema,
 } from "@retrom/codegen/retrom/client/emulator-sync_pb";
 import {
   Channel,
@@ -92,4 +95,30 @@ export async function abortEmulatorSync(emulatorId: number): Promise<void> {
 
 export async function openEmulatorCacheDir(): Promise<void> {
   return invoke("plugin:emulator-sync|open_emulator_cache_dir");
+}
+
+export async function pushEmulatorPreserveData(
+  payload: { emulatorId: number },
+): Promise<PushEmulatorPreserveResponse> {
+  return invoke<number[]>("plugin:emulator-sync|push_emulator_preserve_data", {
+    payload: toBinary(
+      PushEmulatorPreservePayloadSchema,
+      create(PushEmulatorPreservePayloadSchema, { emulatorId: payload.emulatorId }),
+    ),
+  }).then((res) =>
+    fromBinary(PushEmulatorPreserveResponseSchema, new Uint8Array(res)),
+  );
+}
+
+export async function pullEmulatorUserData(
+  payload: { emulatorId: number },
+): Promise<PushEmulatorPreserveResponse> {
+  return invoke<number[]>("plugin:emulator-sync|pull_emulator_user_data", {
+    payload: toBinary(
+      PushEmulatorPreservePayloadSchema,
+      create(PushEmulatorPreservePayloadSchema, { emulatorId: payload.emulatorId }),
+    ),
+  }).then((res) =>
+    fromBinary(PushEmulatorPreserveResponseSchema, new Uint8Array(res)),
+  );
 }
