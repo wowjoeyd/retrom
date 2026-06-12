@@ -148,8 +148,13 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
     // data dir (bin/yt-dlp or .exe) on first service start if missing.
     tokio::spawn(async {
         match retrom_service_common::metadata_providers::soundtrack::ensure_yt_dlp().await {
-            Some(path) => tracing::info!("yt-dlp binary ensured for theme audio extraction at {:?}", path),
-            None => tracing::warn!("Could not ensure yt-dlp binary (theme audio extraction may fall back)"),
+            Some(path) => tracing::info!(
+                "yt-dlp binary ensured for theme audio extraction at {:?}",
+                path
+            ),
+            None => tracing::warn!(
+                "Could not ensure yt-dlp binary (theme audio extraction may fall back)"
+            ),
         }
     });
 

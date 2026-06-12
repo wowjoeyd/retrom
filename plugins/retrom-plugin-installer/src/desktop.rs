@@ -1,6 +1,5 @@
 use prost::Message;
 use reqwest::header::{HeaderMap, HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN};
-use retrom_download::{stream_to_file, StreamControl};
 use retrom_codegen::{
     retrom::{
         client::installation::{
@@ -11,6 +10,7 @@ use retrom_codegen::{
     },
     timestamp::Timestamp,
 };
+use retrom_download::{stream_to_file, StreamControl};
 use retrom_plugin_config::ConfigExt;
 use retrom_plugin_service_client::RetromPluginServiceClientExt;
 use retrom_plugin_steam::SteamExt;
@@ -210,13 +210,10 @@ impl<R: Runtime> Installer<R> {
                             Some(&headers),
                             |bytes| {
                                 let installer = app_for_download.installer();
-                                if let Ok(mut progress) = installer.installation_index.try_write()
-                                {
+                                if let Ok(mut progress) = installer.installation_index.try_write() {
                                     if let Some(progress) = progress.get_mut(&game_id) {
-                                        if let Some(file) = progress
-                                            .files
-                                            .iter_mut()
-                                            .find(|f| f.file_id == file_id)
+                                        if let Some(file) =
+                                            progress.files.iter_mut().find(|f| f.file_id == file_id)
                                         {
                                             file.bytes_read += bytes;
                                         }
@@ -312,12 +309,7 @@ impl<R: Runtime> Installer<R> {
                                 && duration_as_secs >= 1.0
                                 && bytes_diff > 0.0
                             {
-                                match installer
-                                    .installation_index
-                                    .write()
-                                    .await
-                                    .get_mut(&game_id)
-                                {
+                                match installer.installation_index.write().await.get_mut(&game_id) {
                                     Some(progress) => {
                                         progress.metrics = Some(InstallationMetrics {
                                             bytes_transferred,

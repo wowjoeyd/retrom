@@ -31,11 +31,13 @@ import { cn } from "@retrom/ui/lib/utils";
 import { useCreateLocalEmulatorConfigs } from "@/mutations/useCreateLocalEmulatorConfig";
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
 import { useLinkEmulatorToPackage } from "@/mutations/useLinkEmulatorToPackage";
+import { useSyncEmulatorUserData } from "@/mutations/useSyncEmulatorUserData";
 import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
+import { useModalAction } from "@/providers/modal-action";
 import { useConfigStore } from "@/providers/config";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon, LoaderCircleIcon, SaveIcon } from "lucide-react";
+import { FolderOpenIcon, LoaderCircleIcon, SaveIcon, UploadIcon, DownloadIcon } from "lucide-react";
 import { useCallback } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { z } from "zod";
@@ -160,6 +162,13 @@ function LocalConfigRow(props: {
     isPending: linkPending,
     error: linkError,
   } = useLinkEmulatorToPackage();
+
+  const {
+    mutateAsync: syncUserData,
+    isPending: userDataSyncPending,
+  } = useSyncEmulatorUserData();
+
+  const { openModal: openUserDataConflict } = useModalAction("resolveEmulatorUserDataConflict");
 
   const handleSubmit = useCallback(
     async (values: ConfigSchema) => {
@@ -314,6 +323,51 @@ function LocalConfigRow(props: {
                   </FormItem>
                 )}
               />
+            ) : null}
+
+            {managedPaths ? (
+              <div className="flex flex-col gap-2 rounded border p-3">
+                <div className="text-sm font-medium">User Data Sync</div>
+                <p className="text-xs text-muted-foreground">
+                  Firmware, decryption keys, installed games/ROMs, RAP files etc. (config/ is kept local and PC-specific).
+                  Use Push to promote this PC&apos;s data as the cloud source of truth. Use Pull to reset local from cloud.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => {
+                      void syncUserData({ emulatorId: emulator.id, direction: "push" });
+                    }}
+                  >
+                    <UploadIcon className="mr-1 h-4 w-4" />
+                    Push local to NAS (set as truth)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => {
+                      void syncUserData({ emulatorId: emulator.id, direction: "pull" });
+                    }}
+                  >
+                    <DownloadIcon className="mr-1 h-4 w-4" />
+                    Pull from NAS (reset local)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={userDataSyncPending || pending}
+                    onClick={() => openUserDataConflict({ emulatorId: emulator.id })}
+                  >
+                    Resolve conflicts / Smart sync…
+                  </Button>
+                </div>
+              </div>
             ) : null}
 
             <FormField

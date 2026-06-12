@@ -37,6 +37,7 @@ import { InstallationIndicator } from "@/components/menubar/installation-indicat
 import { NotificationCenter } from "@/components/notification-center";
 import { Toaster } from "@retrom/ui/components/toast";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
+import { ResolveEmulatorUserDataConflictModal } from "@/components/modals/resolve-emulator-user-data-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 
 export const Route = createFileRoute("/(windowed)/_layout")({
@@ -137,6 +138,7 @@ function LayoutComponent() {
           <UpdatePlatformMetadataModal />
           <ExitModal />
           <ResolveCloudSaveConflictModal />
+          <ResolveEmulatorUserDataConflictModal />
           <InstallOnPlayModal />
         </ModalActionProvider>
       )}

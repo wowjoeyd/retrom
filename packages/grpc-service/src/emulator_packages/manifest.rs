@@ -27,6 +27,10 @@ pub struct PackageManifest {
     #[serde(default)]
     pub files: Vec<ManifestFileEntry>,
     #[serde(default)]
+    pub preserve_paths: Vec<String>,
+    #[serde(default)]
+    pub user_data_paths: Vec<String>,
+    #[serde(default)]
     pub retrom: Option<ManifestRetromMeta>,
 }
 

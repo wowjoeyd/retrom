@@ -6,46 +6,7 @@
   },
   "references": [
     {
-      "path": "./plugins/retrom-plugin-service-client"
-    },
-    {
-      "path": "./plugins/retrom-plugin-standalone"
-    },
-    {
-      "path": "./plugins/retrom-plugin-installer"
-    },
-    {
-      "path": "./plugins/retrom-plugin-launcher"
-    },
-    {
-      "path": "./plugins/retrom-plugin-config"
-    },
-    {
-      "path": "./plugins/retrom-plugin-steam"
-    },
-    {
-      "path": "./packages/client-web"
-    },
-    {
-      "path": "./packages/codegen"
-    },
-    {
       "path": "./packages/configs"
-    },
-    {
-      "path": "./packages/ui"
-    },
-    {
-      "path": "./packages/flatpak-release"
-    },
-    {
-      "path": "./packages/nix-release"
-    },
-    {
-      "path": "./plugins/retrom-plugin-webdav-client"
-    },
-    {
-      "path": "./plugins/retrom-plugin-save-manager"
     }
   ]
 }

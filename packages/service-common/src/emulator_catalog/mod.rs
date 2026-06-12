@@ -77,6 +77,8 @@ struct CatalogInstallFile {
     executable_glob: Option<String>,
     #[serde(default)]
     preserve_paths: Vec<String>,
+    #[serde(default)]
+    user_data_paths: Vec<String>,
 }
 
 /// Detect the operating system the Retrom server is running on.
@@ -324,6 +326,7 @@ impl From<CatalogInstallFile> for EmulatorCatalogInstall {
             executable_relative_path: install.executable_relative_path,
             executable_glob: install.executable_glob,
             preserve_paths: install.preserve_paths,
+            user_data_paths: install.user_data_paths,
         }
     }
 }
@@ -386,7 +389,8 @@ mod tests {
                 "archive_type": "7z",
                 "strip_components": 0,
                 "executable_relative_path": "rpcs3.exe",
-                "preserve_paths": ["config/"]
+                "preserve_paths": ["config/"],
+                "user_data_paths": ["dev_hdd0/", "games/"]
               }
             }"#,
         )

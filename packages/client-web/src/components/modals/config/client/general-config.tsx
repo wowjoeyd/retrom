@@ -338,21 +338,24 @@ export function GeneralConfig() {
             control={form.control}
             name="config.interface.fullscreenConfig.gameMusic.enabled"
             render={({ field }) => (
-              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                <div className="space-y-0.5">
-                  <FormLabel htmlFor="fullscreen-game-music-enabled">
-                    Play game music on focus/hover
-                  </FormLabel>
-                  <p className="text-sm text-muted-foreground">
-                    Play a game's main theme when selecting or hovering it in fullscreen (loops the extracted soundtrack or uploaded audio).
-                  </p>
-                </div>
+              <FormItem>
                 <FormControl>
-                  <Checkbox
-                    id="fullscreen-game-music-enabled"
-                    checked={field.value}
-                    onCheckedChange={(val) => field.onChange(!!val)}
-                  />
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="fullscreen-game-music-enabled"
+                      checked={field.value}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="fullscreen-game-music-enabled">
+                        Play game music on focus/hover
+                      </label>
+
+                      <p className="text-sm text-muted-foreground">
+                        Play a game's main theme when selecting or hovering it in fullscreen (loops the extracted soundtrack or uploaded audio).
+                      </p>
+                    </div>
+                  </div>
                 </FormControl>
               </FormItem>
             )}

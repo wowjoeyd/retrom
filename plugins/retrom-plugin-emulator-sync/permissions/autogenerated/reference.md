@@ -11,6 +11,8 @@ Default permissions for the emulator sync plugin
 - `allow-unsubscribe-from-emulator-sync-updates`
 - `allow-abort-emulator-sync`
 - `allow-open-emulator-cache-dir`
+- `allow-push-emulator-preserve-data`
+- `allow-pull-emulator-user-data`
 
 ## Permission Table
 
@@ -147,6 +149,58 @@ Enables the open_emulator_cache_dir command without any pre-configured scope.
 <td>
 
 Denies the open_emulator_cache_dir command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:allow-pull-emulator-user-data`
+
+</td>
+<td>
+
+Enables the pull_emulator_user_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:deny-pull-emulator-user-data`
+
+</td>
+<td>
+
+Denies the pull_emulator_user_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:allow-push-emulator-preserve-data`
+
+</td>
+<td>
+
+Enables the push_emulator_preserve_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:deny-push-emulator-preserve-data`
+
+</td>
+<td>
+
+Denies the push_emulator_preserve_data command without any pre-configured scope.
 
 </td>
 </tr>

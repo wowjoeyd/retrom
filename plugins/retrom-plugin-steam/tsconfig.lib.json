@@ -4,9 +4,6 @@
   "references": [
     {
       "path": "../../packages/configs/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/codegen/tsconfig.lib.json"
     }
   ]
 }

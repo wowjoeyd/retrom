@@ -29,6 +29,12 @@ use tauri::{ipc::Channel, plugin::PluginApi, AppHandle, Runtime};
 use tokio::sync::RwLock;
 pub const MANIFEST_FILE_NAME: &str = "retrom-emulator-package.json";
 
+#[derive(Default)]
+pub struct PreservePushResult {
+    pub files_uploaded: u32,
+    pub bytes_uploaded: u64,
+}
+
 type EmulatorId = i32;
 
 #[derive(Debug, Clone)]
@@ -50,6 +56,8 @@ pub struct EmulatorSyncManager<R: Runtime> {
 struct PackageManifest {
     #[serde(default)]
     preserve_paths: Vec<String>,
+    #[serde(default)]
+    user_data_paths: Vec<String>,
 }
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -152,6 +160,46 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .await?
             .into_inner();
         Ok(response.files)
+    }
+
+    async fn fetch_and_write_manifest(
+        &self,
+        package: &EmulatorPackage,
+        cache_root: &Path,
+    ) -> crate::Result<()> {
+        let host = self.service_host().await?;
+        let manifest_url = format!(
+            "{host}/rest/emulator-package-file/{}/manifest",
+            package.id
+        );
+
+        let resp = self
+            .http_client
+            .get(&manifest_url)
+            .send()
+            .await
+            .map_err(|e| {
+                crate::Error::Internal(format!("Failed to fetch manifest for package {}: {e}", package.id))
+            })?;
+
+        if !resp.status().is_success() {
+            return Err(crate::Error::Internal(format!(
+                "Manifest fetch for package {} returned status {}",
+                package.id,
+                resp.status()
+            )));
+        }
+
+        let bytes = resp.bytes().await.map_err(|e| {
+            crate::Error::Internal(format!("Failed to read manifest bytes: {e}"))
+        })?;
+
+        let dest = cache_root.join(MANIFEST_FILE_NAME);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&dest, &bytes)?;
+        Ok(())
     }
 
     async fn latest_package_id_for_slug(&self, slug: &str) -> crate::Result<Option<i32>> {
@@ -273,9 +321,23 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         abort_flag: Arc<AtomicBool>,
     ) -> crate::Result<PathBuf> {
         let package = self.resolve_package(linked_package_id).await?;
-        let remote_files = self.get_package_files(package.id).await?;
         let cache_root = self.cache_root_for_package(&package).await?;
+
+        // Always fetch the latest manifest first so preserve_paths / user_data_paths
+        // are available for decisions.
+        self.fetch_and_write_manifest(&package, &cache_root).await?;
+
+        let remote_files = self.get_package_files(package.id).await?;
         let total_bytes: u64 = remote_files.iter().map(|file| file.byte_size as u64).sum();
+
+        // Automatic cloud sync *up* for shareable user data (firmware, keys, RAPs,
+        // installed games/roms inside the emulator, etc.). After the user has used
+        // the explicit push to promote a local setup as the NAS source of truth,
+        // subsequent launches will push any new local changes in the user_data paths.
+        // This makes "rom installs, rap files, etc." flow to the server like other
+        // cloud sync, while PC-specific config (if excluded from user_data_paths in
+        // the catalog) stays local.
+        let _ = self.push_preserve_data(emulator_id).await;
 
         self.set_progress(
             emulator_id,
@@ -303,6 +365,16 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         let mut synced_files = load_sync_state(&cache_root)?
             .map(|state| state.files)
             .unwrap_or_default();
+
+        // Track files that the server package has ever declared for this version.
+        // This is used by prune to only remove "stale package files" (things that
+        // used to be part of the declared emulator package on the NAS) rather than
+        // blindly deleting any local file not present in the current remote list.
+        // Result: files the running emulator or user creates (firmware, new RAPs,
+        // installed games, keys, etc. in dirs the catalog didn't perfectly anticipate)
+        // survive repeated syncs, while still allowing the package definition to
+        // drive cleanup of obsolete declared files on updates.
+        let previous_known: HashSet<String> = synced_files.keys().cloned().collect();
 
         for file in &remote_files {
             if abort_flag.load(Ordering::Relaxed) {
@@ -365,7 +437,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         }
 
         let preserve_paths = self.read_preserve_paths(&cache_root)?;
-        self.prune_stale_files(&cache_root, &remote_files, &preserve_paths)?;
+        self.prune_stale_files(&cache_root, &remote_files, &preserve_paths, &previous_known)?;
 
         save_sync_state(
             &cache_root,
@@ -456,11 +528,46 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         Ok(manifest.preserve_paths)
     }
 
+    /// Returns the paths to treat as shareable user data for cloud sync / push
+    /// (firmware, keys, RAPs, installed games etc.). Falls back to preserve_paths
+    /// for packages created before user_data_paths was added.
+    fn read_user_data_paths(&self, cache_root: &Path) -> crate::Result<Vec<String>> {
+        let manifest_path = cache_root.join(MANIFEST_FILE_NAME);
+        if !manifest_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let data = std::fs::read_to_string(manifest_path)?;
+        let manifest: PackageManifest = serde_json::from_str(&data)?;
+        if !manifest.user_data_paths.is_empty() {
+            Ok(manifest.user_data_paths)
+        } else {
+            Ok(manifest.preserve_paths)
+        }
+    }
+
+    // Small sha helper for push comparisons (mirrors server emit + client needs).
+    fn sha256_file(path: &Path) -> std::io::Result<String> {
+        use sha2::{Digest, Sha256};
+        let mut file = std::fs::File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = std::io::Read::read(&mut file, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
     fn prune_stale_files(
         &self,
         cache_root: &Path,
         remote_files: &[EmulatorPackageFile],
         preserve_paths: &[String],
+        previous_known_package_files: &HashSet<String>,
     ) -> crate::Result<()> {
         let remote_paths: HashSet<String> = remote_files
             .iter()
@@ -491,7 +598,15 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 continue;
             }
 
-            if !remote_paths.contains(&relative) {
+            // Only prune files that the server package previously declared for this
+            // exact version. Purely local creations (firmware blobs, new keys, RAPs,
+            // game installs, emulator-generated caches, etc. that were never part of
+            // the NAS package manifest) are left alone. This is the key to making
+            // real-world "install once, it stays" work without requiring perfect
+            // preserve_paths coverage in every catalog entry.
+            if previous_known_package_files.contains(&relative)
+                && !remote_paths.contains(&relative)
+            {
                 std::fs::remove_file(path)?;
             }
         }
@@ -542,6 +657,227 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .get_emulator_cache_dir()
             .await
             .map_err(Into::into)
+    }
+
+    /// Pushes local files under the package's user_data_paths (or preserve_paths
+    /// fallback) from the client cache up to the NAS package tree.
+    ///
+    /// This is the "promote my local setup as the cloud source of truth" action for
+    /// the shareable assets (firmware, decryption keys, RAPs, installed titles/games,
+    /// etc.). Config/ and other PC-specific settings are intentionally left out when
+    /// the catalog uses separate user_data_paths.
+    ///
+    /// Only files whose local content sha differs from (or is absent in) the current
+    /// indexed remote files are uploaded. The upload handler keeps the DB file list
+    /// live so other clients see the changes on their next ensure without a full rescan.
+    pub async fn push_preserve_data(&self, emulator_id: EmulatorId) -> crate::Result<PreservePushResult> {
+        let local_config = self.get_local_config(emulator_id).await?;
+        if !local_config.managed_paths {
+            return Ok(PreservePushResult::default());
+        }
+
+        let Some(linked_package_id) = local_config.linked_package_id else {
+            return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
+        };
+
+        let package = self.resolve_package(linked_package_id).await?;
+        let cache_root = self.cache_root_for_package(&package).await?;
+
+        // Ensure we have up-to-date manifest (also ensures cache has it)
+        self.fetch_and_write_manifest(&package, &cache_root).await?;
+
+        let push_paths = self.read_user_data_paths(&cache_root)?;
+        if push_paths.is_empty() {
+            return Ok(PreservePushResult::default());
+        }
+
+        let remote_files = self.get_package_files(package.id).await?;
+        let remote_sha: HashMap<String, String> = remote_files
+            .into_iter()
+            .map(|f| (f.relative_path, f.sha256))
+            .collect();
+
+        let host = self.service_host().await?;
+
+        let mut uploaded: u32 = 0;
+        let mut bytes: u64 = 0;
+
+        // Walk only under the shareable user data paths (firmware, keys, raps, games etc.)
+        for entry in walkdir::WalkDir::new(&cache_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(&cache_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if relative == SYNC_STATE_FILE_NAME || relative == MANIFEST_FILE_NAME {
+                continue;
+            }
+
+            let is_user_data = push_paths
+                .iter()
+                .any(|prefix| relative.starts_with(prefix.trim_end_matches('/')));
+            if !is_user_data {
+                continue;
+            }
+
+            let local_sha = Self::sha256_file(path).map_err(|e| {
+                crate::Error::Internal(format!("sha for {}: {e}", relative))
+            })?;
+
+            let needs_push = match remote_sha.get(&relative) {
+                Some(r) if r == &local_sha => false,
+                _ => true,
+            };
+
+            if needs_push {
+                let upload_url = format!(
+                    "{host}/rest/emulator-package-file/preserve/{}",
+                    package.id
+                );
+
+                let content = std::fs::read(path)?;
+                let resp = self
+                    .http_client
+                    .post(&upload_url)
+                    .query(&[("relative_path", &relative)])
+                    .body(content.clone())
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        crate::Error::Internal(format!("upload {} failed: {e}", relative))
+                    })?;
+
+                if !resp.status().is_success() {
+                    return Err(crate::Error::Internal(format!(
+                        "upload {} rejected: {}",
+                        relative,
+                        resp.status()
+                    )));
+                }
+
+                uploaded += 1;
+                bytes = bytes.saturating_add(content.len() as u64);
+            }
+        }
+
+        // Deletion support in up-sync (push local as truth): if a user data file
+        // is present in the cloud index but no longer exists locally, delete it
+        // on the NAS so the cloud exactly matches this local instance.
+        for (rel, _) in &remote_sha {
+            let is_user_data = push_paths
+                .iter()
+                .any(|prefix| rel.starts_with(prefix.trim_end_matches('/')));
+            if is_user_data && !cache_root.join(rel).exists() {
+                let delete_url = format!(
+                    "{host}/rest/emulator-package-file/preserve/{}",
+                    package.id
+                );
+                let _ = self
+                    .http_client
+                    .delete(&delete_url)
+                    .query(&[("relative_path", rel.as_str())])
+                    .send()
+                    .await;
+            }
+        }
+
+        Ok(PreservePushResult {
+            files_uploaded: uploaded,
+            bytes_uploaded: bytes,
+        })
+    }
+
+    /// Pulls cloud user data into local cache (overwrites local versions) and
+    /// removes local files under user data paths that no longer exist on the cloud.
+    /// Supports "force cloud" / reset local from NAS.
+    pub async fn pull_user_data(&self, emulator_id: EmulatorId) -> crate::Result<PreservePushResult> {
+        let local_config = self.get_local_config(emulator_id).await?;
+        if !local_config.managed_paths {
+            return Ok(PreservePushResult::default());
+        }
+
+        let Some(linked_package_id) = local_config.linked_package_id else {
+            return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
+        };
+
+        let package = self.resolve_package(linked_package_id).await?;
+        let cache_root = self.cache_root_for_package(&package).await?;
+
+        self.fetch_and_write_manifest(&package, &cache_root).await?;
+
+        let pull_paths = self.read_user_data_paths(&cache_root)?;
+        if pull_paths.is_empty() {
+            return Ok(PreservePushResult::default());
+        }
+
+        let remote_files = self.get_package_files(package.id).await?;
+        let host = self.service_host().await?;
+
+        let mut pulled: u32 = 0;
+        let mut bytes_pulled: u64 = 0;
+
+        let cloud_user_rels: HashSet<String> = remote_files
+            .iter()
+            .filter(|f| pull_paths.iter().any(|p| f.relative_path.starts_with(p.trim_end_matches('/'))))
+            .map(|f| f.relative_path.clone())
+            .collect();
+
+        // Ensure all cloud user data files are downloaded to local (force match cloud)
+        for f in &remote_files {
+            if !pull_paths.iter().any(|p| f.relative_path.starts_with(p.trim_end_matches('/'))) {
+                continue;
+            }
+            let dest = cache_root.join(&f.relative_path);
+            let download_uri = format!("{host}/rest/emulator-package-file/{}", f.id);
+            let downloaded = stream_to_file(
+                &self.http_client,
+                &download_uri,
+                &dest,
+                None,
+                |_| {},
+                || StreamControl::Continue,
+            )
+            .await?;
+            pulled += 1;
+            bytes_pulled = bytes_pulled.saturating_add(downloaded);
+        }
+
+        // Remove local user data files not present in cloud (to match exactly)
+        for entry in walkdir::WalkDir::new(&cache_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(&cache_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if relative == SYNC_STATE_FILE_NAME || relative == MANIFEST_FILE_NAME {
+                continue;
+            }
+
+            if pull_paths.iter().any(|p| relative.starts_with(p.trim_end_matches('/')))
+                && !cloud_user_rels.contains(&relative)
+            {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+
+        Ok(PreservePushResult {
+            files_uploaded: pulled,
+            bytes_uploaded: bytes_pulled,
+        })
     }
 
     pub(crate) async fn set_progress(

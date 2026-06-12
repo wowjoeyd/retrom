@@ -1,8 +1,8 @@
+use crate::retrom_dirs::RetromDirs;
 use regex::Regex;
+use sha2::Digest;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use crate::retrom_dirs::RetromDirs;
-use sha2::Digest;
 use tokio::fs;
 use tokio::process::Command;
 use tracing::{debug, warn};
@@ -80,7 +80,13 @@ fn score_title(title: &str, game_name: &str) -> i32 {
         }
     }
 
-    for term in ["soundtrack", "ost", "original soundtrack", "music", "official audio"] {
+    for term in [
+        "soundtrack",
+        "ost",
+        "original soundtrack",
+        "music",
+        "official audio",
+    ] {
         if title.contains(term) {
             score += 30;
         }
@@ -92,7 +98,13 @@ fn score_title(title: &str, game_name: &str) -> i32 {
     }
 
     // Strong penalty for long-form / compilation content (we only want short themes <=10min for extraction).
-    if title.contains("hour") || title.contains("compilation") || title.contains("full ost") || title.contains("complete ") || title.contains("1 hour") || title.contains("full soundtrack") {
+    if title.contains("hour")
+        || title.contains("compilation")
+        || title.contains("full ost")
+        || title.contains("complete ")
+        || title.contains("1 hour")
+        || title.contains("full soundtrack")
+    {
         score -= 80;
     }
 
@@ -229,7 +241,8 @@ async fn probe_video_duration_secs(video_id: &str) -> Option<u32> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() || stdout.eq_ignore_ascii_case("na") || stdout.eq_ignore_ascii_case("live") {
+    if stdout.is_empty() || stdout.eq_ignore_ascii_case("na") || stdout.eq_ignore_ascii_case("live")
+    {
         return None;
     }
 
@@ -279,7 +292,9 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
 
         debug!(
             "soundtrack search query '{}' for '{}' produced {} candidates",
-            query, normalized_name, candidates.len()
+            query,
+            normalized_name,
+            candidates.len()
         );
 
         // Only consider positively scored (good title match). Then probe the top few
@@ -346,7 +361,10 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
             normalized_name, url, score, dur
         );
     } else {
-        debug!("no short soundtrack candidate found for query name '{}'", normalized_name);
+        debug!(
+            "no short soundtrack candidate found for query name '{}'",
+            normalized_name
+        );
     }
 
     best.map(|(url, _score, _dur)| url)
@@ -411,7 +429,11 @@ pub fn find_theme_audio_file(cache_dir: &Path) -> Option<PathBuf> {
 ///
 /// yt-dlp binary is auto-downloaded (to data/bin) if missing.
 /// Safe to call repeatedly; skips if a theme.* audio file already present.
-pub async fn try_extract_theme_audio(video_id: &str, cache_dir: PathBuf, force: bool) -> Option<PathBuf> {
+pub async fn try_extract_theme_audio(
+    video_id: &str,
+    cache_dir: PathBuf,
+    force: bool,
+) -> Option<PathBuf> {
     let yt_dlp_path = ensure_yt_dlp().await?;
 
     if !force {
@@ -420,7 +442,10 @@ pub async fn try_extract_theme_audio(video_id: &str, cache_dir: PathBuf, force: 
         }
     } else if find_theme_audio_file(&cache_dir).is_some() {
         // When forcing overwrite, clean up any existing theme.* files first so we re-download fresh.
-        debug!("force overwrite requested for theme audio {} - removing existing files", video_id);
+        debug!(
+            "force overwrite requested for theme audio {} - removing existing files",
+            video_id
+        );
         if let Ok(entries) = std::fs::read_dir(&cache_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
@@ -448,7 +473,10 @@ pub async fn try_extract_theme_audio(video_id: &str, cache_dir: PathBuf, force: 
     }
 
     if let Err(e) = fs::create_dir_all(&cache_dir).await {
-        warn!("Failed to create cache dir for theme audio {}: {}", video_id, e);
+        warn!(
+            "Failed to create cache dir for theme audio {}: {}",
+            video_id, e
+        );
         return None;
     }
 
@@ -548,12 +576,20 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
         ("macos", "x86_64") => ("yt-dlp_macos", "yt-dlp_macos.sha256"),
         ("macos", "aarch64") => ("yt-dlp_macos_aarch64", "yt-dlp_macos_aarch64.sha256"),
         _ => {
-            warn!("Unsupported platform for automatic yt-dlp download: {}/{}", std::env::consts::OS, std::env::consts::ARCH);
+            warn!(
+                "Unsupported platform for automatic yt-dlp download: {}/{}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            );
             return None;
         }
     };
 
-    let exe_name = if std::env::consts::OS == "windows" { "yt-dlp.exe" } else { "yt-dlp" };
+    let exe_name = if std::env::consts::OS == "windows" {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
     let exe_path = bin_dir.join(exe_name);
 
     if exe_path.exists() {
@@ -582,7 +618,10 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
             }
         },
         Err(e) => {
-            warn!("GitHub API request for yt-dlp release failed: {}. Will try direct download.", e);
+            warn!(
+                "GitHub API request for yt-dlp release failed: {}. Will try direct download.",
+                e
+            );
             serde_json::json!({})
         }
     };
@@ -594,14 +633,23 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
         .unwrap_or(&[]);
 
     // Find the binary asset
-    let bin_asset = assets.iter().find(|a| {
-        a.get("name").and_then(|n| n.as_str()) == Some(asset)
-    });
+    let bin_asset = assets
+        .iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset));
 
     let bin_url = if let Some(ba) = bin_asset {
-        ba.get("browser_download_url").and_then(|u| u.as_str()).unwrap_or(&format!("https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}", asset)).to_string()
+        ba.get("browser_download_url")
+            .and_then(|u| u.as_str())
+            .unwrap_or(&format!(
+                "https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}",
+                asset
+            ))
+            .to_string()
     } else {
-        format!("https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}", asset)
+        format!(
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}",
+            asset
+        )
     };
 
     // Prefer digest from GitHub asset metadata (format "sha256:xxx")
@@ -612,7 +660,10 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
 
-    debug!("Downloading yt-dlp from {} (seamless first-use setup)", bin_url);
+    debug!(
+        "Downloading yt-dlp from {} (seamless first-use setup)",
+        bin_url
+    );
 
     let bin_bytes = match client.get(&bin_url).send().await {
         Ok(resp) => match resp.bytes().await {
@@ -632,9 +683,15 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
 
     if expected_sha.is_empty() {
         // Fallback to downloading the .sha256 sidecar if no digest in API
-        let sha_url = format!("https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}", sha_asset);
+        let sha_url = format!(
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/{}",
+            sha_asset
+        );
         let sha_text = match client.get(&sha_url).send().await {
-            Ok(r) => match r.text().await { Ok(t) => t, Err(_) => String::new() },
+            Ok(r) => match r.text().await {
+                Ok(t) => t,
+                Err(_) => String::new(),
+            },
             Err(_) => String::new(),
         };
         expected_sha = sha_text
@@ -645,10 +702,15 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
     }
 
     if !expected_sha.is_empty() && actual_sha != expected_sha {
-        warn!("yt-dlp SHA256 mismatch (expected {}, got {}) — using binary anyway for usability", expected_sha, actual_sha);
+        warn!(
+            "yt-dlp SHA256 mismatch (expected {}, got {}) — using binary anyway for usability",
+            expected_sha, actual_sha
+        );
         // Proceed anyway (better UX than failing extraction entirely on transient GitHub issues)
     } else if expected_sha.is_empty() {
-        warn!("Could not obtain SHA256 for yt-dlp verification (proceeding with downloaded binary)");
+        warn!(
+            "Could not obtain SHA256 for yt-dlp verification (proceeding with downloaded binary)"
+        );
     }
 
     if let Err(e) = fs::write(&exe_path, &bin_bytes).await {

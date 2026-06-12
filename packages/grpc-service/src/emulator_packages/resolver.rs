@@ -228,31 +228,87 @@ fn inventory_files(
     package_root: &Path,
     manifest: &PackageManifest,
 ) -> Result<Vec<ResolvedPackageFile>, ResolverError> {
-    if manifest.files.is_empty() {
-        return walk_inventory(package_root);
-    }
+    let preserve = &manifest.preserve_paths;
 
-    manifest
-        .files
-        .iter()
-        .map(|entry| {
-            let absolute = package_root.join(&entry.relative_path);
-            let metadata = std::fs::metadata(&absolute).ok();
-            Ok(ResolvedPackageFile {
-                relative_path: entry.relative_path.clone(),
-                byte_size: metadata
-                    .as_ref()
-                    .map(|m| m.len() as i64)
-                    .unwrap_or(entry.size.unwrap_or(0) as i64),
-                sha256: entry.sha256.clone(),
-                absolute_path: absolute.to_string_lossy().to_string(),
+    let mut files: Vec<ResolvedPackageFile> = if manifest.files.is_empty() {
+        walk_inventory(package_root)?
+    } else {
+        manifest
+            .files
+            .iter()
+            .map(|entry| {
+                let absolute = package_root.join(&entry.relative_path);
+                let metadata = std::fs::metadata(&absolute).ok();
+                Ok(ResolvedPackageFile {
+                    relative_path: entry.relative_path.clone(),
+                    byte_size: metadata
+                        .as_ref()
+                        .map(|m| m.len() as i64)
+                        .unwrap_or(entry.size.unwrap_or(0) as i64),
+                    sha256: entry.sha256.clone(),
+                    absolute_path: absolute.to_string_lossy().to_string(),
+                    file_modified_at: metadata
+                        .and_then(|m| m.modified().ok())
+                        .unwrap_or(SystemTime::UNIX_EPOCH),
+                    optional: entry.optional.unwrap_or(false),
+                })
+            })
+            .collect::<Result<Vec<_>, ResolverError>>()?
+    };
+
+    // Supplement with any *current* files found under preserve_paths on disk.
+    // This is the key to making "user data" (firmware, RAPs, keys, installed games
+    // placed into the NAS package's preserve dirs) visible to the indexer and thus
+    // syncable to other clients' caches. Core non-preserve files stay pinned to the
+    // manifest snapshot for the version.
+    if !preserve.is_empty() {
+        let existing_rels: std::collections::HashSet<String> =
+            files.iter().map(|f| f.relative_path.clone()).collect();
+
+        for entry in walkdir::WalkDir::new(package_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            if path.file_name().and_then(|n| n.to_str()) == Some(super::manifest::MANIFEST_FILE_NAME) {
+                continue;
+            }
+
+            let relative = path
+                .strip_prefix(package_root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+
+            if existing_rels.contains(&relative) {
+                continue;
+            }
+
+            let is_under_preserve = preserve.iter().any(|prefix| {
+                let p = prefix.trim_end_matches('/');
+                relative == p || relative.starts_with(&format!("{}/", p))
+            });
+            if !is_under_preserve {
+                continue;
+            }
+
+            let metadata = entry.metadata().ok();
+            let sha = sha256_file(path).unwrap_or_default();
+            files.push(ResolvedPackageFile {
+                relative_path: relative,
+                byte_size: metadata.as_ref().map(|m| m.len() as i64).unwrap_or(0),
+                sha256: sha,
+                absolute_path: path.to_string_lossy().to_string(),
                 file_modified_at: metadata
                     .and_then(|m| m.modified().ok())
                     .unwrap_or(SystemTime::UNIX_EPOCH),
-                optional: entry.optional.unwrap_or(false),
-            })
-        })
-        .collect()
+                optional: false,
+            });
+        }
+    }
+
+    Ok(files)
 }
 
 fn walk_inventory(package_root: &Path) -> Result<Vec<ResolvedPackageFile>, ResolverError> {

@@ -6,24 +6,6 @@
   "references": [
     {
       "path": "../../packages/configs/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-steam/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-service-client/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-save-manager/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-installer/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-config/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/codegen/tsconfig.lib.json"
     }
   ]
 }

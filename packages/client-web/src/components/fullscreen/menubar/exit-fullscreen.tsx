@@ -15,6 +15,7 @@ import { MenuEntryButton } from "./menu-entry-button";
 import { HotkeyButton } from "../hotkey-button";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer } from "../focus-container";
+import { gameMusicPlayer } from "@/components/fullscreen/grid-game-list";
 
 declare global {
   export interface HotkeyZones {
@@ -27,6 +28,8 @@ export function ExitFullscreen(props: ComponentProps<typeof SheetTrigger>) {
   const [open, setOpen] = useState(false);
 
   const exit = useCallback(() => {
+    // Stop theme music (with fade) before leaving fullscreen.
+    gameMusicPlayer.stop(300);
     return navigate({ to: "/home" });
   }, [navigate]);
 

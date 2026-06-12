@@ -109,7 +109,8 @@ function GameComponent() {
   }
 
   useEffect(() => {
-    if (enabled && metaData) {
+    let didPlay = false;
+    if (enabled && metaData && musicSourceUrl) {
       // Pass only audio candidates -- no YT for previews.
       const audioCandidates = allVideoUrls.filter(isAudioUrl);
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
@@ -119,10 +120,20 @@ function GameComponent() {
         fade,
         metaData.name,
         audioCandidates,
+        gameIdNumber,
       );
+      didPlay = true;
     }
     return () => {
-      if (enabled) gameMusicPlayer.stop(fade, musicSourceUrl);
+      // Only stop from cleanups of effect setups that actually initiated playback.
+      // This prevents "pending data" effect runs (where metaData was falsy) from
+      // registering a cleanup that would stop the music (from hover or previous)
+      // when the query later resolves and re-runs the effect. Combined with the
+      // same-gameId guard in playForGame, this allows hover -> click-same to
+      // continue the song seamlessly without restart.
+      if (enabled && didPlay) {
+        gameMusicPlayer.stop(fade, musicSourceUrl, gameIdNumber);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

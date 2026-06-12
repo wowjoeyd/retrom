@@ -27,7 +27,10 @@ use retrom_service_common::{
     media_cache::{cacheable_media::CacheableMetadata, get_public_url, MediaCache},
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
-        soundtrack::{extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file, try_extract_theme_audio},
+        soundtrack::{
+            extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file,
+            try_extract_theme_audio,
+        },
         steam::provider::SteamWebApiProvider,
         GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
     },
@@ -561,15 +564,17 @@ impl MetadataService for MetadataServiceHandlers {
                             meta.game_id,
                             public
                         );
-                        let entry = media_paths.entry(meta.game_id).or_insert_with(|| MediaPaths {
-                            cover_url: None,
-                            background_url: None,
-                            icon_url: None,
-                            video_urls: vec![],
-                            screenshot_urls: vec![],
-                            artwork_urls: vec![],
-                            theme_audio_url: None,
-                        });
+                        let entry = media_paths
+                            .entry(meta.game_id)
+                            .or_insert_with(|| MediaPaths {
+                                cover_url: None,
+                                background_url: None,
+                                icon_url: None,
+                                video_urls: vec![],
+                                screenshot_urls: vec![],
+                                artwork_urls: vec![],
+                                theme_audio_url: None,
+                            });
                         entry.theme_audio_url = Some(public);
                     }
                 }
@@ -635,12 +640,14 @@ impl MetadataService for MetadataServiceHandlers {
                     if let Some(vid) = extract_video_id_from_url(first) {
                         if let Some(cache_dir) = metadata.get_cache_dir() {
                             if find_theme_audio_file(&cache_dir).is_none() {
-                                let job_name = format!("Extract Theme Audio For Game {}", metadata.game_id);
+                                let job_name =
+                                    format!("Extract Theme Audio For Game {}", metadata.game_id);
                                 let extract_task = async move {
                                     let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
                                     Ok::<(), ()>(())
                                 };
-                                let _ = job_manager.spawn(&job_name, vec![extract_task], None).await;
+                                let _ =
+                                    job_manager.spawn(&job_name, vec![extract_task], None).await;
                             }
                         }
                     }

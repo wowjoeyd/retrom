@@ -1,3 +1,19 @@
+## Unreleased (emulation-cloud fixes)
+
+### Bug Fixes
+
+- **Emulator sync no longer resets user data on every launch** (RPCS3 and others): the package `manifest` (containing `preserve_paths`) is now always fetched via a new REST endpoint (`/rest/emulator-package-file/{packageId}/manifest`) and written to the local cache root *before* `ensure_emulator_synced` runs its hash checks, downloads, or `prune_stale_files`. This activates the intended protection for directories like `dev_hdd0/`, `games/`, `config/`, etc. User-added firmware, RAPs, decryption keys, and installed game files under preserve paths are no longer pruned (because they weren't in the vanilla manifest at catalog install time) or overwritten.
+
+- NAS scans now pick up *current* files living under `preserve_paths` on disk (in addition to the pinned manifest file list from install time) and index them with fresh SHA256s. "Save to NAS": drop (or copy from a client's `emulator-cache/<slug>/<ver>/...`) completed setup data into the package dir on your server/NAS, run **Update Emulator Packages**, and other PCs will receive the shared assets on their next pre-launch sync. Existing local copies on a PC are still kept (client-wins for preserve files that are present locally).
+
+- New first-class "push to NAS" API: `pushEmulatorPreserveData({emulatorId})` (and Tauri command) walks the client's local preserve subtrees for a managed package and uploads any files whose content differs from (or are absent on) the server-indexed version. Enables "I set up firmware/keys/RAPs/games on this PC, now make it the canonical shared one" without manual SMB copy. Uploads are restricted to declared preserve prefixes on the server. Follow with a server package update scan for other clients to see them.
+
+- Supporting REST additions: manifest download (for clients) + `POST /rest/emulator-package-file/preserve/{packageId}?relative_path=...` (body = raw bytes) used by the push flow.
+
+The design intent is preserved and now actually works:
+- Different PCs can have local config tweaks (graphics, etc.) because once a preserve file exists locally we never clobber it from the NAS version.
+- The things you care about persisting (games, RAPs, keys, firmware) survive repeated syncs and can be made available to your whole "emulation cloud" by pushing/copying to the NAS package tree.
+
 ## [0.8.3](https://github.com/JMBeresford/retrom/compare/v0.8.2...v0.8.3) (2026-06-07)
 
 ### Features

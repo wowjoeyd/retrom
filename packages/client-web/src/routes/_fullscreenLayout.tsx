@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { FullscreenMenubar } from "../components/fullscreen/menubar";
+import { GameMusicNowPlaying, gameMusicPlayer } from "../components/fullscreen/grid-game-list";
 import { cn } from "@retrom/ui/lib/utils";
 import { z } from "zod";
 import { GroupContextProvider } from "@/providers/fullscreen/group-context";
@@ -18,6 +19,7 @@ import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
 import { configStore } from "@/providers/config";
 import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
+import { ResolveEmulatorUserDataConflictModal } from "@/components/modals/resolve-emulator-user-data-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 
 declare global {
@@ -71,6 +73,15 @@ export const Route = createFileRoute("/_fullscreenLayout")({
 function FullscreenLayout() {
   const container = useRef<HTMLDivElement>(null);
 
+  // Stop any game theme music when leaving fullscreen entirely (e.g. navigate to /home
+  // via the exit menu, or other route changes out of _fullscreenLayout). This must
+  // happen on unmount to cover all exit paths (menu, hotkeys, direct nav, browser back).
+  useEffect(() => {
+    return () => {
+      gameMusicPlayer.stop(300);
+    };
+  }, []);
+
   useHotkeys({
     handlers: {
       UP: {
@@ -106,9 +117,12 @@ function FullscreenLayout() {
               <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
                 <Outlet />
               </div>
+
+              <GameMusicNowPlaying />
             </div>
 
             <ResolveCloudSaveConflictModal />
+            <ResolveEmulatorUserDataConflictModal />
             <InstallOnPlayModal />
           </GroupContextProvider>
         </GamepadProvider>

@@ -2,7 +2,9 @@ mod download;
 mod emit_manifest;
 mod safe_extract;
 
-use emit_manifest::{emit_manifest, ensure_preserve_paths, find_previous_version_dir, EmitManifestParams};
+use emit_manifest::{
+    emit_manifest, ensure_preserve_paths, find_previous_version_dir, EmitManifestParams,
+};
 use glob::Pattern;
 use retrom_codegen::retrom::{
     emulator::OperatingSystem, EmulatorCatalogEntry, EmulatorCatalogInstall,
@@ -85,11 +87,7 @@ pub async fn install_catalog_package(
     let extract_dir = temp_dir.path().join("extract");
     std::fs::create_dir_all(&extract_dir)?;
 
-    safe_extract_archive(
-        &downloaded.path,
-        &target.install.archive_type,
-        &extract_dir,
-    )?;
+    safe_extract_archive(&downloaded.path, &target.install.archive_type, &extract_dir)?;
 
     apply_strip_components(&extract_dir, target.install.strip_components)?;
 
@@ -106,12 +104,26 @@ pub async fn install_catalog_package(
         std::fs::rename(entry.path(), dest)?;
     }
 
+    // Migrate user-provided cloud data (firmware, keys, RAPs, installed games, etc.)
+    // from the previous package version on the NAS into this new version.
+    // This ensures that "cloud" user assets survive emulator updates on the server,
+    // and clients syncing the new version will receive the data (while PC-specific
+    // config stays local and is not force-migrated as truth).
+    let user_data_paths = if target.install.user_data_paths.is_empty() {
+        &target.install.preserve_paths
+    } else {
+        &target.install.user_data_paths
+    };
+
     if let Some(previous) = find_previous_version_dir(&slug_root, &downloaded.version) {
-        for preserve in &target.install.preserve_paths {
-            let prev_path = previous.join(preserve);
-            let dest_path = package_root.join(preserve);
-            if prev_path.is_dir() && !dest_path.exists() {
-                std::fs::create_dir_all(&dest_path)?;
+        for p in user_data_paths {
+            let prev_path = previous.join(p);
+            let dest_path = package_root.join(p);
+            if prev_path.is_dir() {
+                // Recursively copy contents so the actual assets travel with the new version.
+                let _ = copy_dir_contents(&prev_path, &dest_path);
+            } else if !dest_path.exists() {
+                let _ = std::fs::create_dir_all(&dest_path);
             }
         }
     }
@@ -154,8 +166,9 @@ fn resolve_executable_relative(
     }
 
     if let Some(glob_pattern) = install.executable_glob.as_ref() {
-        let pattern = Pattern::new(glob_pattern)
-            .map_err(|why| InstallError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, why)))?;
+        let pattern = Pattern::new(glob_pattern).map_err(|why| {
+            InstallError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
+        })?;
 
         for entry in WalkDir::new(package_root)
             .follow_links(false)
@@ -197,6 +210,25 @@ fn normalize_rel_path(package_root: &Path, absolute: &Path) -> String {
         .unwrap_or(absolute)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+/// Recursively copy the *contents* of src dir into dest (merging).
+/// Creates dest if needed. Used to migrate user data (firmware etc.) across
+/// emulator package versions on the NAS without losing the cloud assets.
+fn copy_dir_contents(src: &Path, dest: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_contents(&src_path, &dest_path)?;
+        } else {
+            // Overwrite is fine; this is the "promoted" data from previous version.
+            std::fs::copy(&src_path, &dest_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn os_string(os: OperatingSystem) -> &'static str {

@@ -8,4 +8,6 @@ permissions = [
   "allow-unsubscribe-from-emulator-sync-updates",
   "allow-abort-emulator-sync",
   "allow-open-emulator-cache-dir",
+  "allow-push-emulator-preserve-data",
+  "allow-pull-emulator-user-data",
 ]

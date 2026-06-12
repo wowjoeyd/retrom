@@ -120,6 +120,13 @@ message EmulatorCatalogInstall {
   optional string executable_relative_path = 3;
   optional string executable_glob = 4;
   repeated string preserve_paths = 5;
+  // Paths under which user-provided assets (firmware, keys, RAPs, installed titles/games,
+  // etc.) live. These are the parts that get treated as "cloud source of truth" for sharing
+  // across PCs: explicit push promotes local to NAS, ongoing changes can sync up, and they
+  // are migrated forward when a new emulator package version is installed on the server.
+  // "config/" and similar PC-specific settings should generally stay out of this list
+  // (they can still be in preserve_paths for local protection).
+  repeated string user_data_paths = 6;
 }
 
 message EmulatorCatalogDefaultProfile {

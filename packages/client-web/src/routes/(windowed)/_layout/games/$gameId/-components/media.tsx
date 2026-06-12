@@ -459,16 +459,14 @@ function ThemePlayer(props: {
     );
   }
 
-  const isMagicTheme = !!themeUrl && themeUrl.endsWith("/theme");
-  const themeExts = [
-    { ext: "m4a", type: "audio/mp4" },
-    { ext: "webm", type: "audio/webm" },
-    { ext: "opus", type: "audio/ogg" },
-    { ext: "ogg", type: "audio/ogg" },
-    { ext: "mp3", type: "audio/mpeg" },
-    { ext: "flac", type: "audio/flac" },
-    { ext: "wav", type: "audio/wav" },
-  ];
+  // We no longer need client-side ext probing or multiple sources for the
+  // "magic" bare theme path. The server-side public handler now supports
+  // requesting the bare "media/games/{id}/theme" (or theme.EXT) and will
+  // on-demand locate the game's extracted theme file (via the same
+  // find_theme_audio_file used by metadata) and serve its bytes with the
+  // correct Content-Type. This makes the fallback consistent and eliminates
+  // the 404 probe spam for non-matching exts. The provided themeUrl is used
+  // as-is (bare magic or exact with .ext from server response).
 
   return (
     <div
@@ -506,15 +504,9 @@ function ThemePlayer(props: {
             </a>
           )}
         </div>
-        {isMagicTheme ? (
-          <audio controls loop className="w-full">
-            {themeExts.map(({ ext, type }) => (
-              <source key={ext} src={`${themeUrl}.${ext}`} type={type} />
-            ))}
-          </audio>
-        ) : (
-          <audio src={themeUrl} controls loop className="w-full" />
-        )}
+        {/* Direct src using the (possibly magic bare) themeUrl.
+            Server handles the bare path by serving the actual theme file if present. */}
+        <audio key={themeUrl} src={themeUrl} controls loop className="w-full" />
       </div>
     </div>
   );

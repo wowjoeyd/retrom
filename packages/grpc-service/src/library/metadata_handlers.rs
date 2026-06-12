@@ -16,9 +16,9 @@ use retrom_codegen::retrom::{
 use retrom_db::schema;
 use retrom_service_common::media_cache::cacheable_media::CacheableMetadata;
 use retrom_service_common::metadata_providers::{
-    igdb::provider::IgdbSearchData, GameMetadataProvider, MetadataProvider,
-    PlatformMetadataProvider,
+    igdb::provider::IgdbSearchData,
     soundtrack::{extract_video_id_from_url, find_theme_audio_file, try_extract_theme_audio},
+    GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
 };
 use retrom_service_common::retrom_dirs::RetromDirs;
 use std::{
