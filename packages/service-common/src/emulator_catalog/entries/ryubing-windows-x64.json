@@ -24,7 +24,8 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "Ryubing.exe",
-        "preserve_paths": ["portable/", "games/"]
+        "preserve_paths": ["portable/", "games/"],
+        "internal_install_supported": true
       }
     },
     {

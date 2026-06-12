@@ -22,7 +22,7 @@ import {
 } from "@retrom/plugin-installer";
 import { useMutation } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 declare global {
   namespace RetromModals {
@@ -70,6 +70,7 @@ async function waitForGameInstalled(gameId: number) {
 export function InstallOnPlayModal() {
   const { modalState, closeModal } = useModalAction("installOnPlay");
   const { game, gameName, onInstalled, onClose, open } = modalState ?? {};
+  const [showPostStep, setShowPostStep] = useState(false);
 
   const { mutateAsync: installAndWait, status } = useMutation({
     mutationFn: async () => {
@@ -79,7 +80,7 @@ export function InstallOnPlayModal() {
 
       await installGameCommand({ gameId: game.id });
       await waitForGameInstalled(game.id);
-      await onInstalled?.();
+      setShowPostStep(true);
     },
   });
 
@@ -118,6 +119,23 @@ export function InstallOnPlayModal() {
             </div>
             <Progress value={progress.percentComplete} className="h-1" />
           </div>
+        ) : showPostStep ? (
+          <div className="flex flex-col gap-3 py-2">
+            <p className="max-w-[45ch] text-sm text-muted-foreground">
+              Raw files installed. For curated emulators like RPCS3 or Switch forks
+              that require an "internal install" (e.g. PKG/NSP into the emulator's
+              virtual FS), launch the emulator now to complete it inside the app.
+              The installed state will be captured in the emulator package and
+              synced to other PCs.
+            </p>
+            <Button
+              onClick={() => {
+                onInstalled?.().then(handleClose).catch(console.error);
+              }}
+            >
+              Launch emulator to complete internal install
+            </Button>
+          </div>
         ) : (
           <p className="max-w-[45ch] text-sm text-muted-foreground">
             Files will be copied from your library to this device. You can play
@@ -127,24 +145,35 @@ export function InstallOnPlayModal() {
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="secondary" disabled={isInstalling}>
+            <Button variant="secondary" disabled={isInstalling || showPostStep}>
               Cancel
             </Button>
           </DialogClose>
 
-          <Button
-            className="relative"
-            disabled={isInstalling || !game}
-            onClick={() => {
-              installAndWait().then(handleClose).catch(console.error);
-            }}
-          >
-            {isInstalling ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              "Install and Play"
-            )}
-          </Button>
+          {!showPostStep && (
+            <Button
+              className="relative"
+              disabled={isInstalling || !game}
+              onClick={() => {
+                installAndWait().catch(console.error);
+              }}
+            >
+              {isInstalling ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                "Install and Play"
+              )}
+            </Button>
+          )}
+          {showPostStep && (
+            <Button
+              onClick={() => {
+                onInstalled?.().then(handleClose).catch(console.error);
+              }}
+            >
+              Launch emulator to complete internal install
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
