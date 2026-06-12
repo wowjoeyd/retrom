@@ -43,3 +43,23 @@ message GetEmulatorSyncStatusResponse {
 message EmulatorSyncIndex {
   map<int32, EmulatorSyncStatus> emulators = 1;
 }
+
+message PushEmulatorPreservePayload {
+  int32 emulator_id = 1;
+}
+
+message PushEmulatorPreserveResponse {
+  int32 emulator_id = 1;
+  uint32 files_uploaded = 2;
+  uint64 bytes_uploaded = 3;
+}
+
+message PullEmulatorUserDataPayload {
+  int32 emulator_id = 1;
+}
+
+message PullEmulatorUserDataResponse {
+  int32 emulator_id = 1;
+  uint32 files_uploaded = 2;
+  uint64 bytes_uploaded = 3;
+}

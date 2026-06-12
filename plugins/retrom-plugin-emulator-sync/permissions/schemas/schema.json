@@ -355,6 +355,30 @@
           "markdownDescription": "Denies the open_emulator_cache_dir command without any pre-configured scope."
         },
         {
+          "description": "Enables the pull_emulator_user_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pull-emulator-user-data",
+          "markdownDescription": "Enables the pull_emulator_user_data command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pull_emulator_user_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pull-emulator-user-data",
+          "markdownDescription": "Denies the pull_emulator_user_data command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the push_emulator_preserve_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-push-emulator-preserve-data",
+          "markdownDescription": "Enables the push_emulator_preserve_data command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the push_emulator_preserve_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-push-emulator-preserve-data",
+          "markdownDescription": "Denies the push_emulator_preserve_data command without any pre-configured scope."
+        },
+        {
           "description": "Enables the subscribe_to_emulator_sync_updates command without any pre-configured scope.",
           "type": "string",
           "const": "allow-subscribe-to-emulator-sync-updates",

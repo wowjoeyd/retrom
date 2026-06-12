@@ -33,8 +33,10 @@ CREATE TABLE emulator_package_files (
 );
 
 ALTER TABLE local_emulator_configs
-    ADD COLUMN linked_package_id INT REFERENCES emulator_packages(id) ON DELETE SET NULL,
-    ADD COLUMN managed_paths BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS linked_package_id INT REFERENCES emulator_packages(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS managed_paths BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS user_data_paths_override TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS preserve_paths_override TEXT[] NOT NULL DEFAULT '{}';
 
 CREATE INDEX idx_emulator_package_files_package_id_is_deleted
     ON emulator_package_files (package_id, is_deleted);

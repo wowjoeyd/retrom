@@ -154,6 +154,58 @@ Denies the open_emulator_cache_dir command without any pre-configured scope.
 <tr>
 <td>
 
+`retrom-plugin-emulator-sync:allow-pull-emulator-user-data`
+
+</td>
+<td>
+
+Enables the pull_emulator_user_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:deny-pull-emulator-user-data`
+
+</td>
+<td>
+
+Denies the pull_emulator_user_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:allow-push-emulator-preserve-data`
+
+</td>
+<td>
+
+Enables the push_emulator_preserve_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-emulator-sync:deny-push-emulator-preserve-data`
+
+</td>
+<td>
+
+Denies the push_emulator_preserve_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `retrom-plugin-emulator-sync:allow-subscribe-to-emulator-sync-updates`
 
 </td>

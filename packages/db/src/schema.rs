@@ -164,6 +164,8 @@ diesel::table! {
         save_states_path -> Nullable<Text>,
         linked_package_id -> Nullable<Int4>,
         managed_paths -> Bool,
+        user_data_paths_override -> Array<Text>,
+        preserve_paths_override -> Array<Text>,
     }
 }
 
