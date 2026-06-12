@@ -1,0 +1,31 @@
+{
+  "catalog_id": "ppsspp",
+  "display_name": "PPSSPP",
+  "description": "PlayStation Portable emulator",
+  "supported_platform_folder_names": ["psp"],
+  "operating_systems": ["WINDOWS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["iso", "cso", "pbp", "elf", "prx"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "hrydgard/ppsspp",
+        "asset_pattern": "PPSSPP-v.*-Windows-x64\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "PPSSPPWindows64.exe",
+        "preserve_paths": ["memstick/", "PSP/"]
+      }
+    }
+  ]
+}
