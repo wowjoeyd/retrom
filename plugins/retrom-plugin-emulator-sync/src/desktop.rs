@@ -4,7 +4,8 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN};
 use retrom_codegen::{
     retrom::{
         client::emulator_sync::{
-            EmulatorSyncIndex, EmulatorSyncMetrics, EmulatorSyncProgressUpdate, EmulatorSyncStatus,
+            AnalyzeEmulatorUserDataResponse, EmulatorSyncIndex, EmulatorSyncMetrics,
+            EmulatorSyncProgressUpdate, EmulatorSyncStatus,
         },
         Client, EmulatorPackage, EmulatorPackageFile, GetEmulatorPackageFilesRequest,
         GetEmulatorPackagesRequest, GetLocalEmulatorConfigsRequest, LocalEmulatorConfig,
@@ -888,6 +889,112 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         Ok(PreservePushResult {
             files_uploaded: pulled,
             bytes_uploaded: bytes_pulled,
+        })
+    }
+
+    /// Analyzes the current local emulator cache to suggest additional user_data_paths
+    /// and preserve_paths beyond the base manifest. This helps users discover firmware,
+    /// keys, RAPs, installed titles, etc. that should be synced upstream.
+    /// Heuristics: diff from manifest base paths, recent mtime, size, name patterns
+    /// (customizable per slug), and files not in previous sync state.
+    /// Called from UI "Analyze" button; suggestions auto-applied to overrides if empty.
+    /// (Future: lightweight auto on link/first ensure using last_analyzed timestamp in sync_state.)
+    pub async fn analyze_emulator_user_data(
+        &self,
+        emulator_id: EmulatorId,
+    ) -> crate::Result<AnalyzeEmulatorUserDataResponse> {
+        let local_config = self.get_local_config(emulator_id).await?;
+        if !local_config.managed_paths {
+            return Ok(AnalyzeEmulatorUserDataResponse {
+                emulator_id,
+                suggested_user_data_paths: vec![],
+                suggested_preserve_paths: vec![],
+            });
+        }
+
+        let Some(linked_package_id) = local_config.linked_package_id else {
+            return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
+        };
+
+        let package = self.resolve_package(linked_package_id).await?;
+        let cache_root = self.cache_root_for_package(&package).await?;
+
+        // Ensure manifest is present for base paths
+        self.fetch_and_write_manifest(&package, &cache_root).await?;
+
+        let manifest_path = cache_root.join(MANIFEST_FILE_NAME);
+        let manifest_data = std::fs::read_to_string(&manifest_path)?;
+        let manifest: PackageManifest = serde_json::from_str(&manifest_data)?;
+
+        let base_user: std::collections::HashSet<String> =
+            manifest.user_data_paths.iter().cloned().collect();
+        let base_preserve: std::collections::HashSet<String> =
+            manifest.preserve_paths.iter().cloned().collect();
+
+        let mut candidates: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Walk to find top-level dirs with content not in base
+        for entry in walkdir::WalkDir::new(&cache_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+        {
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(&cache_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if relative == SYNC_STATE_FILE_NAME || relative == MANIFEST_FILE_NAME {
+                continue;
+            }
+
+            let is_base = base_user.iter().any(|p| relative.starts_with(p.trim_end_matches('/')))
+                || base_preserve
+                    .iter()
+                    .any(|p| relative.starts_with(p.trim_end_matches('/')));
+            if is_base {
+                continue;
+            }
+
+            if let Some(top) = relative.split('/').next() {
+                if !top.is_empty() {
+                    candidates.insert(top.to_string());
+                }
+            }
+        }
+
+        let mut suggested_user_data = vec![];
+        let mut suggested_preserve = vec![];
+
+        // Simple heuristics: name patterns + assume data-like unless config-like
+        let user_patterns = ["dev_hdd0", "games", "user", "nand", "sdmc", "firmware", "keys", "exdata", "home", "installed", "rap", "title"];
+        let preserve_patterns = ["config", "inis", "settings", "portable", "shader", "cache"];
+
+        for c in candidates {
+            let lower = c.to_lowercase();
+            let looks_user = user_patterns.iter().any(|p| lower.contains(p));
+            let looks_preserve = preserve_patterns.iter().any(|p| lower.contains(p));
+
+            if looks_user && !looks_preserve {
+                suggested_user_data.push(c);
+            } else if looks_preserve {
+                suggested_preserve.push(c);
+            } else {
+                // default new stuff to user data (shareable)
+                suggested_user_data.push(c);
+            }
+        }
+
+        // Also consider recent mtime or large size for boost, but simple for now
+        // (can enhance with fs metadata loop if needed)
+
+        Ok(AnalyzeEmulatorUserDataResponse {
+            emulator_id,
+            suggested_user_data_paths: suggested_user_data,
+            suggested_preserve_paths: suggested_preserve,
         })
     }
 

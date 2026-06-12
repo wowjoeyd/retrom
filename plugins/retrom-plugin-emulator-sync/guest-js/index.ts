@@ -5,6 +5,9 @@ import {
   toBinary,
 } from "@bufbuild/protobuf";
 import {
+  AnalyzeEmulatorUserDataPayloadSchema,
+  AnalyzeEmulatorUserDataResponse,
+  AnalyzeEmulatorUserDataResponseSchema,
   EnsureEmulatorSyncedPayloadSchema,
   EmulatorSyncIndex,
   EmulatorSyncIndexSchema,
@@ -120,5 +123,18 @@ export async function pullEmulatorUserData(
     ),
   }).then((res) =>
     fromBinary(PushEmulatorPreserveResponseSchema, new Uint8Array(res)),
+  );
+}
+
+export async function analyzeEmulatorUserData(
+  payload: { emulatorId: number },
+): Promise<AnalyzeEmulatorUserDataResponse> {
+  return invoke<number[]>("plugin:emulator-sync|analyze_emulator_user_data", {
+    payload: toBinary(
+      AnalyzeEmulatorUserDataPayloadSchema,
+      create(AnalyzeEmulatorUserDataPayloadSchema, { emulatorId: payload.emulatorId }),
+    ),
+  }).then((res) =>
+    fromBinary(AnalyzeEmulatorUserDataResponseSchema, new Uint8Array(res)),
   );
 }
