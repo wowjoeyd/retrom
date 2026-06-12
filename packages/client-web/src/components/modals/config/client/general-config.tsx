@@ -12,7 +12,11 @@ import {
 import { Input } from "@retrom/ui/components/input";
 import { TabsContent } from "@retrom/ui/components/tabs";
 import { useToast } from "@retrom/ui/hooks/use-toast";
-import { checkIsDesktop } from "@/lib/env";
+import {
+  checkIsDesktop,
+  isEmulatorPackageSyncEnabled,
+  isEnhancedEmulatorUserDataEnabled,
+} from "@/lib/env";
 import { InferSchema } from "@/lib/utils";
 import { cn } from "@retrom/ui/lib/utils";
 import { useConfigStore } from "@/providers/config";
@@ -20,12 +24,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "@tanstack/react-router";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpenIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { migrateInstallationDir } from "@retrom/plugin-installer";
 import { z } from "zod";
 import { RetromClientConfig } from "@retrom/codegen/retrom/client/client-config_pb";
 import { RawMessage } from "@/utils/protos";
+import {
+  emulatorUserDataAutoSyncEnabled,
+  setEmulatorUserDataAutoSyncEnabled,
+} from "@/components/emulator-user-data-auto-sync";
 
 type ConfigSchema = z.infer<typeof configSchema>;
 const configSchema = z.object({
@@ -56,6 +64,15 @@ export function GeneralConfig() {
   const configStore = useConfigStore();
   const { config, telemetry } = configStore();
   const { toast } = useToast();
+  const [autoSyncUserData, setAutoSyncUserData] = useState(false);
+  const showEmulatorUserDataAutoSync =
+    checkIsDesktop() &&
+    isEmulatorPackageSyncEnabled() &&
+    isEnhancedEmulatorUserDataEnabled();
+
+  useEffect(() => {
+    setAutoSyncUserData(emulatorUserDataAutoSyncEnabled());
+  }, []);
 
   const form = useForm<ConfigSchema>({
     resolver: zodResolver(configSchema),
@@ -273,6 +290,34 @@ export function GeneralConfig() {
               </FormItem>
             )}
           />
+
+          {showEmulatorUserDataAutoSync ? (
+            <FormItem>
+              <FormControl>
+                <div className="flex items-top gap-2">
+                  <Checkbox
+                    id="emulator-user-data-auto-sync"
+                    checked={autoSyncUserData}
+                    onCheckedChange={(val) => {
+                      const enabled = val === true;
+                      setAutoSyncUserData(enabled);
+                      setEmulatorUserDataAutoSyncEnabled(enabled);
+                    }}
+                  />
+                  <div className={cn("grid gap-1 leading-none")}>
+                    <label htmlFor="emulator-user-data-auto-sync">
+                      Sync emulator user data on app start
+                    </label>
+
+                    <p className="text-sm text-muted-foreground max-w-[45ch]">
+                      Low-frequency background push for managed emulator firmware,
+                      keys, RAPs, and installed emulator-side content.
+                    </p>
+                  </div>
+                </div>
+              </FormControl>
+            </FormItem>
+          ) : null}
 
           <FormField
             control={form.control}

@@ -326,7 +326,7 @@ impl From<CatalogInstallFile> for EmulatorCatalogInstall {
             executable_relative_path: install.executable_relative_path,
             executable_glob: install.executable_glob,
             preserve_paths: install.preserve_paths,
-            internal_install_supported: install.internal_install_supported,
+            internal_install_supported: Some(install.internal_install_supported),
         }
     }
 }

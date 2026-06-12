@@ -4,6 +4,7 @@ import { DialogClose, DialogFooter } from "@retrom/ui/components/dialog";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -36,10 +37,11 @@ import { analyzeEmulatorUserData } from "@retrom/plugin-emulator-sync";
 import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
 import { useModalAction } from "@/providers/modal-action";
 import { useConfigStore } from "@/providers/config";
+import { toast } from "@retrom/ui/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpenIcon, LoaderCircleIcon, SaveIcon, UploadIcon, DownloadIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { z } from "zod";
 import {
@@ -202,7 +204,7 @@ function LocalConfigRow(props: {
         description: (e as Error)?.message || "Could not analyze emulator cache",
       });
     }
-  }, [emulator.id, form, toast]);
+  }, [emulator.id, form]);
 
   const handleSubmit = useCallback(
     async (values: ConfigSchema) => {
