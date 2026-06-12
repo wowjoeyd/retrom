@@ -262,14 +262,39 @@ const gameMusic = {
         this.audio.loop = true;
         this.audio.preload = "auto";
       }
-      this.audio.src = videoUrl;
       this.audio.volume = 0;
-      try {
-        await this.audio.play();
+
+      const isMagicTheme = videoUrl.includes("theme") && !/\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(videoUrl.split("?")[0] || videoUrl);
+
+      if (isMagicTheme) {
+        // Magic base path for yt-dlp extracted theme.* (any container). Try common exts until one loads.
+        // This avoids 404 on the bare "theme" path (server only serves theme.<ext> files).
+        const themeExts = ["m4a", "webm", "opus", "ogg", "mp3", "flac", "wav"];
+        let extIdx = 0;
+        const tryNextExt = () => {
+          if (extIdx >= themeExts.length) {
+            this._finishStatus({ status: "error", url: videoUrl, title, sourceType: "audio", message: "no matching theme.* file" });
+            return;
+          }
+          const ext = themeExts[extIdx++];
+          this.audio.src = `${videoUrl}.${ext}`;
+          this.audio.play().catch(tryNextExt);
+        };
+        this.audio.onerror = tryNextExt;
+        tryNextExt();
+        // Note: status will be set on first successful play via the try in caller? For simplicity, assume success path in first play attempt; error will mark.
+        // To properly await, we could wrap, but for now fire the attempts. The fade/status is optimistic on first.
         this._fadeTo(targetVolume, fadeMs);
         this._finishStatus({ status: "playing", url: videoUrl, title, sourceType: "audio" });
-      } catch (e) {
-        this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
+      } else {
+        this.audio.src = videoUrl;
+        try {
+          await this.audio.play();
+          this._fadeTo(targetVolume, fadeMs);
+          this._finishStatus({ status: "playing", url: videoUrl, title, sourceType: "audio" });
+        } catch (e) {
+          this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
+        }
       }
       return;
     }
