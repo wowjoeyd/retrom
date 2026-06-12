@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the abort_emulator_sync command without any pre-configured scope."
         },
         {
+          "description": "Enables the analyze_emulator_user_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-analyze-emulator-user-data",
+          "markdownDescription": "Enables the analyze_emulator_user_data command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the analyze_emulator_user_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-analyze-emulator-user-data",
+          "markdownDescription": "Denies the analyze_emulator_user_data command without any pre-configured scope."
+        },
+        {
           "description": "Enables the ensure_emulator_synced command without any pre-configured scope.",
           "type": "string",
           "const": "allow-ensure-emulator-synced",
@@ -403,10 +415,10 @@
           "markdownDescription": "Denies the unsubscribe_from_emulator_sync_updates command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`",
+          "description": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`"
+          "markdownDescription": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`"
         }
       ]
     }

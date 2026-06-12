@@ -1,9 +1,8 @@
 use crate::EmulatorSyncExt;
 use prost::Message;
 use retrom_codegen::retrom::client::emulator_sync::{
-    AnalyzeEmulatorUserDataPayload, AnalyzeEmulatorUserDataResponse, EnsureEmulatorSyncedPayload,
-    GetEmulatorSyncStatusPayload, GetEmulatorSyncStatusResponse, PushEmulatorPreservePayload,
-    PushEmulatorPreserveResponse,
+    AnalyzeEmulatorUserDataPayload, EnsureEmulatorSyncedPayload, GetEmulatorSyncStatusPayload,
+    GetEmulatorSyncStatusResponse, PushEmulatorPreservePayload, PushEmulatorPreserveResponse,
 };
 use tauri::{ipc::Channel, AppHandle, Runtime};
 use tauri_plugin_opener::OpenerExt;
