@@ -27,13 +27,13 @@ use retrom_service_common::{
     media_cache::{cacheable_media::CacheableMetadata, get_public_url, MediaCache},
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
-        soundtrack::{extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file, try_extract_theme_audio},
+        soundtrack::{extract_video_id_from_url, find_theme_audio_file, try_extract_theme_audio},
         steam::provider::SteamWebApiProvider,
         GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
     },
     retrom_dirs::RetromDirs,
 };
-use std::{collections::HashMap, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{error, Instrument, Level};
@@ -48,7 +48,6 @@ pub struct MetadataServiceHandlers {
     media_cache: Arc<MediaCache>,
     job_manager: Arc<JobManager>,
     config_manager: Arc<retrom_service_common::config::ServerConfigManager>,
-    soundtrack_lookup_cache: Arc<RwLock<HashMap<i32, Option<String>>>>,
 }
 
 impl MetadataServiceHandlers {
@@ -67,231 +66,6 @@ impl MetadataServiceHandlers {
             media_cache,
             job_manager,
             config_manager,
-            soundtrack_lookup_cache: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-}
-
-fn is_probable_soundtrack_url(url: &str) -> bool {
-    let url = url.to_ascii_lowercase();
-
-    url.contains("youtu.be/")
-        || url.contains("youtube.com/watch")
-        || url.contains("music.youtube.com/")
-}
-
-fn should_lookup_soundtrack(metadata: &retrom::GameMetadata) -> bool {
-    metadata
-        .video_urls
-        .as_slice()
-        .first()
-        .is_none_or(|url| !is_probable_soundtrack_url(url))
-}
-
-fn cleaned_game_path_name(game: &Game) -> Option<String> {
-    let normalized = game.path.trim_start_matches("\\\\?\\").replace('\\', "/");
-    let basename = normalized.split('/').next_back()?.trim();
-    let stem = basename
-        .rsplit_once('.')
-        .map(|(stem, _)| stem)
-        .unwrap_or(basename);
-    let mut name = stem.to_string();
-
-    for (open, close) in [('(', ')'), ('[', ']'), ('{', '}')] {
-        while let Some(begin) = name.find(open) {
-            let end = name[begin..]
-                .find(close)
-                .map(|idx| begin + idx)
-                .unwrap_or_else(|| name.len().saturating_sub(1));
-
-            name.replace_range(begin..=end, "");
-        }
-    }
-
-    let name = name
-        .chars()
-        .map(|c| match c {
-            ':' | '-' | '_' | '.' => ' ',
-            _ => c,
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    (!name.is_empty()).then_some(name)
-}
-
-fn soundtrack_query_name(
-    metadata: &retrom::GameMetadata,
-    games_by_id: &HashMap<i32, &Game>,
-) -> Option<String> {
-    metadata
-        .name
-        .as_ref()
-        .map(|name| name.trim())
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            games_by_id
-                .get(&metadata.game_id)
-                .and_then(|game| cleaned_game_path_name(game))
-        })
-}
-
-fn insert_soundtrack_url(metadata: &mut retrom::GameMetadata, url: String) -> bool {
-    if metadata.video_urls.as_slice().first() == Some(&url) {
-        return false;
-    }
-
-    metadata.video_urls.retain(|existing| existing != &url);
-    metadata.video_urls.insert(0, url);
-
-    true
-}
-
-impl MetadataServiceHandlers {
-    async fn hydrate_soundtrack_urls(&self, metadata: &mut [retrom::GameMetadata], games: &[Game]) {
-        let games_by_id: HashMap<i32, &Game> = games.iter().map(|game| (game.id, game)).collect();
-        let mut updates = vec![];
-
-        for metadata_row in metadata.iter_mut() {
-            let had_soundtrack = metadata_row
-                .video_urls
-                .as_slice()
-                .first()
-                .map_or(false, |u| is_probable_soundtrack_url(u));
-
-            if !should_lookup_soundtrack(metadata_row) {
-                if had_soundtrack {
-                    tracing::info!(
-                        "game {} already has soundtrack url in video_urls[0]; will (re)attempt short yt-dlp theme extraction if needed (prefer up-front via Update Library Metadata job)",
-                        metadata_row.game_id
-                    );
-                    // Lightweight ensure / backfill. The real up-front work (search + short filter + extract)
-                    // is now integrated into the metadata update/refresh jobs so that "downloads" happen
-                    // when the user expects heavy work and files become persistent metadata on NAS.
-                    // The try_extract has pre-flight duration guard + the scrape now only picks shorts.
-                    if let Some(cache_dir) = metadata_row.get_cache_dir() {
-                        if let Some(first) = metadata_row.video_urls.as_slice().first() {
-                            if let Some(vid) = extract_video_id_from_url(first) {
-                                // In the lazy Get path we never force re-extract (only explicit metadata refresh paths do).
-                                let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-
-            let cached_url = self
-                .soundtrack_lookup_cache
-                .read()
-                .await
-                .get(&metadata_row.game_id)
-                .cloned();
-
-            if let Some(cached_url) = cached_url {
-                if let Some(url) = cached_url {
-                    if insert_soundtrack_url(metadata_row, url.clone()) {
-                        updates.push((metadata_row.game_id, metadata_row.video_urls.clone()));
-                    }
-                    // Extract for this cached soundtrack url.
-                    if let Some(cache_dir) = metadata_row.get_cache_dir() {
-                        if let Some(vid) = extract_video_id_from_url(&url) {
-                            let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
-                        }
-                    }
-                }
-
-                continue;
-            }
-
-            let Some(query_name) = soundtrack_query_name(metadata_row, &games_by_id) else {
-                tracing::info!(
-                    "game {} has no usable name for soundtrack search (skipping)",
-                    metadata_row.game_id
-                );
-                continue;
-            };
-
-            tracing::info!(
-                "searching YouTube for soundtrack for game {} using query name '{}' (prefer substantial themes <=10min; ~6min chunks for satisfying loops)",
-                metadata_row.game_id,
-                query_name
-            );
-
-            let soundtrack_url = find_soundtrack_url(&query_name).await;
-
-            // Only cache successful finds (Some(url)). Do not permanently remember
-            // "None" (no good soundtrack found this time). This lets future
-            // GetGameMetadata calls (e.g. when the user opens fullscreen or refreshes
-            // metadata for the game) re-try the search. The YT scraper is brittle and
-            // a previous transient failure (or page structure change) shouldn't stick.
-            if soundtrack_url.is_some() {
-                self.soundtrack_lookup_cache
-                    .write()
-                    .await
-                    .insert(metadata_row.game_id, soundtrack_url.clone());
-            }
-
-            if let Some(soundtrack_url) = soundtrack_url {
-                tracing::info!(
-                    "found soundtrack URL for game {}: {} (will extract substantial theme chunk + persist; primary work in UpdateLibraryMetadata jobs)",
-                    metadata_row.game_id,
-                    soundtrack_url
-                );
-                if insert_soundtrack_url(metadata_row, soundtrack_url.clone()) {
-                    updates.push((metadata_row.game_id, metadata_row.video_urls.clone()));
-                }
-
-                // Best-effort ensure for this Get. The heavy/primary "up-front during metadata refresh"
-                // path (with full job observability) is in library/metadata_handlers.
-                // Extraction is now always length-guarded.
-                if let Some(cache_dir) = metadata_row.get_cache_dir() {
-                    if let Some(vid) = extract_video_id_from_url(&soundtrack_url) {
-                        tracing::info!(
-                            "attempting (ensure) yt-dlp short theme audio extract for game {} (video id {})",
-                            metadata_row.game_id,
-                            vid
-                        );
-                        let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
-                    }
-                }
-            } else {
-                tracing::info!(
-                    "no short soundtrack URL found by search for game {} (query '{}') — no theme audio will be available until a manual (short) video url is added or search improves. Run Update Library Metadata to populate up-front.",
-                    metadata_row.game_id,
-                    query_name
-                );
-            }
-        }
-
-        if updates.is_empty() {
-            return;
-        }
-
-        let Ok(mut conn) = self.db_pool.get().await else {
-            tracing::warn!("Failed to get database connection for soundtrack metadata update");
-            return;
-        };
-
-        for (game_id, video_urls) in updates {
-            if let Err(why) = diesel::update(schema::game_metadata::table)
-                .filter(schema::game_metadata::game_id.eq(game_id))
-                .set((
-                    schema::game_metadata::video_urls.eq(video_urls),
-                    schema::game_metadata::updated_at.eq(Some(Timestamp::from(SystemTime::now()))),
-                ))
-                .execute(&mut conn)
-                .await
-            {
-                tracing::warn!(
-                    "Failed to persist soundtrack URL for game {}: {}",
-                    game_id,
-                    why
-                );
-            }
         }
     }
 }
@@ -312,7 +86,7 @@ impl MetadataService for MetadataServiceHandlers {
             }
         };
 
-        let mut metadata = match retrom_db::schema::game_metadata::table
+        let metadata = match retrom_db::schema::game_metadata::table
             .filter(retrom_db::schema::game_metadata::game_id.eq_any(&game_ids))
             .load::<retrom::GameMetadata>(&mut conn)
             .instrument(tracing::info_span!("load_game_metadata"))
@@ -334,8 +108,6 @@ impl MetadataService for MetadataServiceHandlers {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         drop(conn);
-
-        self.hydrate_soundtrack_urls(&mut metadata, &games).await;
 
         let mut conn = self
             .db_pool
@@ -556,20 +328,22 @@ impl MetadataService for MetadataServiceHandlers {
             if let Some(cache_dir) = meta.get_cache_dir() {
                 if let Some(theme_path) = find_theme_audio_file(&cache_dir) {
                     if let Ok(public) = get_public_url(&theme_path) {
-                        tracing::info!(
+                        tracing::debug!(
                             "including extracted theme audio in mediaPaths for game {}: {}",
                             meta.game_id,
                             public
                         );
-                        let entry = media_paths.entry(meta.game_id).or_insert_with(|| MediaPaths {
-                            cover_url: None,
-                            background_url: None,
-                            icon_url: None,
-                            video_urls: vec![],
-                            screenshot_urls: vec![],
-                            artwork_urls: vec![],
-                            theme_audio_url: None,
-                        });
+                        let entry = media_paths
+                            .entry(meta.game_id)
+                            .or_insert_with(|| MediaPaths {
+                                cover_url: None,
+                                background_url: None,
+                                icon_url: None,
+                                video_urls: vec![],
+                                screenshot_urls: vec![],
+                                artwork_urls: vec![],
+                                theme_audio_url: None,
+                            });
                         entry.theme_audio_url = Some(public);
                     }
                 }
@@ -635,12 +409,14 @@ impl MetadataService for MetadataServiceHandlers {
                     if let Some(vid) = extract_video_id_from_url(first) {
                         if let Some(cache_dir) = metadata.get_cache_dir() {
                             if find_theme_audio_file(&cache_dir).is_none() {
-                                let job_name = format!("Extract Theme Audio For Game {}", metadata.game_id);
+                                let job_name =
+                                    format!("Extract Theme Audio For Game {}", metadata.game_id);
                                 let extract_task = async move {
                                     let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
                                     Ok::<(), ()>(())
                                 };
-                                let _ = job_manager.spawn(&job_name, vec![extract_task], None).await;
+                                let _ =
+                                    job_manager.spawn(&job_name, vec![extract_task], None).await;
                             }
                         }
                     }

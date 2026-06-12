@@ -1,8 +1,12 @@
 mod download;
 mod emit_manifest;
+mod fs_util;
 mod safe_extract;
 
-use emit_manifest::{emit_manifest, ensure_preserve_paths, find_previous_version_dir, EmitManifestParams};
+use emit_manifest::{
+    emit_manifest, ensure_preserve_paths, find_previous_version_dir, EmitManifestParams,
+};
+use fs_util::move_path;
 use glob::Pattern;
 use retrom_codegen::retrom::{
     emulator::OperatingSystem, EmulatorCatalogEntry, EmulatorCatalogInstall,
@@ -56,7 +60,7 @@ pub struct InstallCatalogResult {
 pub async fn install_catalog_package(
     params: InstallCatalogParams,
 ) -> Result<InstallCatalogResult, InstallError> {
-    if !params.entry.installable || params.entry.deprecated {
+    if !params.entry.installable {
         return Err(InstallError::NotInstallable);
     }
 
@@ -77,60 +81,70 @@ pub async fn install_catalog_package(
     let slug_root = params.install_root.join(&subpath).join(&package_slug);
     let package_root = slug_root.join(&downloaded.version);
 
-    if package_root.exists() {
-        std::fs::remove_dir_all(&package_root)?;
-    }
-    std::fs::create_dir_all(&package_root)?;
+    let install_result = (|| {
+        if package_root.exists() {
+            std::fs::remove_dir_all(&package_root)?;
+        }
+        std::fs::create_dir_all(&package_root)?;
 
-    let extract_dir = temp_dir.path().join("extract");
-    std::fs::create_dir_all(&extract_dir)?;
+        let extract_dir = temp_dir.path().join("extract");
+        std::fs::create_dir_all(&extract_dir)?;
 
-    safe_extract_archive(
-        &downloaded.path,
-        &target.install.archive_type,
-        &extract_dir,
-    )?;
+        safe_extract_archive(&downloaded.path, &target.install.archive_type, &extract_dir)?;
 
-    apply_strip_components(&extract_dir, target.install.strip_components)?;
+        apply_strip_components(&extract_dir, target.install.strip_components)?;
 
-    for entry in std::fs::read_dir(&extract_dir)? {
-        let entry = entry?;
-        let dest = package_root.join(entry.file_name());
-        if dest.exists() {
-            if dest.is_dir() {
-                std::fs::remove_dir_all(&dest)?;
-            } else {
-                std::fs::remove_file(&dest)?;
+        for entry in std::fs::read_dir(&extract_dir)? {
+            let entry = entry?;
+            let dest = package_root.join(entry.file_name());
+            if dest.exists() {
+                if dest.is_dir() {
+                    std::fs::remove_dir_all(&dest)?;
+                } else {
+                    std::fs::remove_file(&dest)?;
+                }
+            }
+            move_path(&entry.path(), &dest)?;
+        }
+
+        if let Some(previous) = find_previous_version_dir(&slug_root, &downloaded.version) {
+            for preserve in &target.install.preserve_paths {
+                let prev_path = previous.join(preserve);
+                let dest_path = package_root.join(preserve);
+                if prev_path.is_dir() && !dest_path.exists() {
+                    std::fs::create_dir_all(&dest_path)?;
+                }
             }
         }
-        std::fs::rename(entry.path(), dest)?;
-    }
 
-    if let Some(previous) = find_previous_version_dir(&slug_root, &downloaded.version) {
-        for preserve in &target.install.preserve_paths {
-            let prev_path = previous.join(preserve);
-            let dest_path = package_root.join(preserve);
-            if prev_path.is_dir() && !dest_path.exists() {
-                std::fs::create_dir_all(&dest_path)?;
+        ensure_preserve_paths(&package_root, &target.install.preserve_paths)?;
+
+        let executable_rel =
+            resolve_executable_relative(&package_root, target.install, params.target_os)?;
+
+        emit_manifest(EmitManifestParams {
+            package_root: &package_root,
+            package_slug: &package_slug,
+            display_name: &params.entry.display_name,
+            version: &downloaded.version,
+            catalog_id: &params.entry.catalog_id,
+            os: os_string(params.target_os),
+            install: target.install,
+            executable_rel: &executable_rel,
+        })?;
+
+        Ok::<String, InstallError>(executable_rel)
+    })();
+
+    let executable_rel = match install_result {
+        Ok(executable_rel) => executable_rel,
+        Err(why) => {
+            if package_root.exists() {
+                let _ = std::fs::remove_dir_all(&package_root);
             }
+            return Err(why);
         }
-    }
-
-    ensure_preserve_paths(&package_root, &target.install.preserve_paths)?;
-
-    let executable_rel =
-        resolve_executable_relative(&package_root, target.install, params.target_os)?;
-
-    emit_manifest(EmitManifestParams {
-        package_root: &package_root,
-        package_slug: &package_slug,
-        display_name: &params.entry.display_name,
-        version: &downloaded.version,
-        catalog_id: &params.entry.catalog_id,
-        os: os_string(params.target_os),
-        install: target.install,
-        executable_rel: &executable_rel,
-    })?;
+    };
 
     Ok(InstallCatalogResult {
         package_root,
@@ -154,8 +168,9 @@ fn resolve_executable_relative(
     }
 
     if let Some(glob_pattern) = install.executable_glob.as_ref() {
-        let pattern = Pattern::new(glob_pattern)
-            .map_err(|why| InstallError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, why)))?;
+        let pattern = Pattern::new(glob_pattern).map_err(|why| {
+            InstallError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, why))
+        })?;
 
         for entry in WalkDir::new(package_root)
             .follow_links(false)

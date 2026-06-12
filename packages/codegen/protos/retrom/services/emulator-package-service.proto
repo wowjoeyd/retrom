@@ -14,6 +14,7 @@ service EmulatorPackageService {
       returns (CheckEmulatorPackageDirectoryWritableResponse);
   rpc InstallCatalogPackage(InstallCatalogPackageRequest) returns (InstallCatalogPackageResponse);
   rpc LinkEmulatorToPackage(LinkEmulatorToPackageRequest) returns (LinkEmulatorToPackageResponse);
+  rpc DeleteEmulatorPackages(DeleteEmulatorPackagesRequest) returns (DeleteEmulatorPackagesResponse);
 }
 
 message GetEmulatorPackagesRequest {
@@ -80,4 +81,13 @@ message LinkEmulatorToPackageRequest {
 
 message LinkEmulatorToPackageResponse {
   LocalEmulatorConfig local_config = 1;
+}
+
+message DeleteEmulatorPackagesRequest {
+  repeated int32 package_ids = 1;
+  optional bool delete_files = 2;
+}
+
+message DeleteEmulatorPackagesResponse {
+  repeated int32 deleted_package_ids = 1;
 }

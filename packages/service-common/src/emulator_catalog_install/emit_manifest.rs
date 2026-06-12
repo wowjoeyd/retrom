@@ -1,5 +1,5 @@
-use retrom_codegen::retrom::EmulatorCatalogInstall;
 use rayon::prelude::*;
+use retrom_codegen::retrom::EmulatorCatalogInstall;
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
@@ -146,7 +146,10 @@ fn sha256_file(path: &Path) -> Result<String, ManifestEmitError> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-pub fn ensure_preserve_paths(package_root: &Path, preserve_paths: &[String]) -> Result<(), ManifestEmitError> {
+pub fn ensure_preserve_paths(
+    package_root: &Path,
+    preserve_paths: &[String],
+) -> Result<(), ManifestEmitError> {
     for path in preserve_paths {
         std::fs::create_dir_all(package_root.join(path))?;
     }

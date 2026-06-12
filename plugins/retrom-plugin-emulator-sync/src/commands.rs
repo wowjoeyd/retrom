@@ -105,9 +105,7 @@ pub async fn push_emulator_preserve_data<R: Runtime>(
     let payload = PushEmulatorPreservePayload::decode(payload.as_slice())?;
     let manager = app_handle.emulator_sync();
 
-    let result = manager
-        .push_preserve_data(payload.emulator_id)
-        .await?;
+    let result = manager.push_preserve_data(payload.emulator_id).await?;
 
     Ok(PushEmulatorPreserveResponse {
         emulator_id: payload.emulator_id,

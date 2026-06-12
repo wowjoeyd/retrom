@@ -1,11 +1,12 @@
 {
   "catalog_id": "citron",
   "display_name": "Citron",
-  "description": "Nintendo Switch emulator (maintained fork)",
+  "description": "Nintendo Switch emulator (deprecated/unmaintained fork)",
   "supported_platform_folder_names": ["switch"],
-  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
+  "operating_systems": ["WINDOWS", "LINUX_X86_64"],
   "installable": true,
-  "deprecated": false,
+  "deprecated": true,
+  "legal_notice": "Citron is no longer maintained. You may encounter bugs, compatibility issues, or missing fixes, and it is not recommended unless you specifically need this fork.",
   "default_profile": {
     "name": "Default",
     "supported_extensions": ["nsp", "xci", "nca"],
@@ -29,26 +30,11 @@
       }
     },
     {
-      "operating_system": "MACOS",
-      "upstream": {
-        "type": "github_release",
-        "repo": "citron-neo/emulator",
-        "asset_pattern": "Citron-macos-nightly-.*\\.zip",
-        "manifest_version_from": "tag"
-      },
-      "install": {
-        "archive_type": "zip",
-        "strip_components": 0,
-        "executable_relative_path": "citron.app/Contents/MacOS/citron",
-        "preserve_paths": ["user/", "nand/", "sdmc/"]
-      }
-    },
-    {
       "operating_system": "LINUX_X86_64",
       "upstream": {
         "type": "github_release",
         "repo": "citron-neo/emulator",
-        "asset_pattern": "Citron-linux-nightly-.*-x64.*\\.AppImage",
+        "asset_pattern": "citron_nightly-.*-linux-x86_64\\.AppImage",
         "manifest_version_from": "tag"
       },
       "install": {

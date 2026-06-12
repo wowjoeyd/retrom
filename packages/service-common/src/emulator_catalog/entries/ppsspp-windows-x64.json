@@ -3,7 +3,7 @@
   "display_name": "PPSSPP",
   "description": "PlayStation Portable emulator",
   "supported_platform_folder_names": ["psp"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -24,6 +24,36 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "PPSSPPWindows64.exe",
+        "preserve_paths": ["memstick/", "PSP/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "hrydgard/ppsspp",
+        "asset_pattern": "PPSSPPSDL-macOS-v.*\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "PPSSPPSDL.app/Contents/MacOS/PPSSPPSDL",
+        "preserve_paths": ["memstick/", "PSP/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "hrydgard/ppsspp",
+        "asset_pattern": "PPSSPP-v.*-anylinux-x86_64\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "PPSSPP*.AppImage",
         "preserve_paths": ["memstick/", "PSP/"]
       }
     }

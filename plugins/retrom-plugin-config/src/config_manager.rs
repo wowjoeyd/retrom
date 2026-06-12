@@ -113,9 +113,7 @@ impl<R: Runtime> ConfigManager<R> {
         match dir.try_exists() {
             Ok(true) => Ok(dir),
             Ok(false) => {
-                tracing::warn!(
-                    "Cannot access emulator cache directory; creating missing path"
-                );
+                tracing::warn!("Cannot access emulator cache directory; creating missing path");
                 std::fs::create_dir_all(&dir)?;
                 Ok(dir)
             }

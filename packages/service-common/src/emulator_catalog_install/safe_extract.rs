@@ -98,7 +98,8 @@ fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<(), ExtractErr
 
 fn extract_tar_zst(archive_path: &Path, dest_dir: &Path) -> Result<(), ExtractError> {
     let file = std::fs::File::open(archive_path)?;
-    let decompressor = zstd::Decoder::new(file).map_err(|why| ExtractError::Tar(why.to_string()))?;
+    let decompressor =
+        zstd::Decoder::new(file).map_err(|why| ExtractError::Tar(why.to_string()))?;
     extract_tar_stream(decompressor, dest_dir)
 }
 
@@ -115,10 +116,12 @@ fn extract_tar_stream<R: Read>(reader: R, dest_dir: &Path) -> Result<(), Extract
             .map_err(|why| ExtractError::Tar(why.to_string()))?
             .to_path_buf();
 
-        if entry_path
-            .components()
-            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-        {
+        if entry_path.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
             return Err(ExtractError::ZipSlip(entry_path));
         }
 

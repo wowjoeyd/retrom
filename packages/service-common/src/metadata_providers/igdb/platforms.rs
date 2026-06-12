@@ -1,6 +1,5 @@
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
-use crate::metadata_providers::{MetadataProvider, PlatformMetadataProvider};
 use super::provider::{IGDBProvider, IgdbSearchData};
+use crate::metadata_providers::{MetadataProvider, PlatformMetadataProvider};
 use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
 use deunicode::deunicode;
 use retrom_codegen::{
@@ -13,6 +12,7 @@ use retrom_codegen::{
         GetIgdbSearchRequest, IgdbFields, IgdbFilters, IgdbPlatformSearchQuery, IgdbSearch,
     },
 };
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use tracing::{debug, instrument, Level};
 
 impl IGDBProvider {
@@ -54,10 +54,7 @@ impl PlatformMetadataProvider<IgdbPlatformSearchQuery> for IGDBProvider {
             .path
             .trim_start_matches("\\\\?\\")
             .replace('\\', "/");
-        let naive_name = normalized
-            .split('/')
-            .next_back()
-            .unwrap_or(&platform.path);
+        let naive_name = normalized.split('/').next_back().unwrap_or(&platform.path);
 
         let path = PathBuf::from_str(&normalized).unwrap_or_else(|_| PathBuf::from(&platform.path));
         let mut name = path

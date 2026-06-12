@@ -1,4 +1,5 @@
 mod catalog;
+mod delete_packages;
 mod install_job;
 mod layout_parser;
 mod manifest;

@@ -32,7 +32,7 @@
       "upstream": {
         "type": "github_release",
         "repo": "stenzek/duckstation",
-        "asset_pattern": "duckstation-mac-universal-release\\.zip",
+        "asset_pattern": "duckstation-mac-release\\.zip",
         "manifest_version_from": "tag"
       },
       "install": {
@@ -47,13 +47,13 @@
       "upstream": {
         "type": "github_release",
         "repo": "stenzek/duckstation",
-        "asset_pattern": "duckstation-x64-release\\.tar\\.zst",
+        "asset_pattern": "DuckStation-x64\\.AppImage",
         "manifest_version_from": "tag"
       },
       "install": {
-        "archive_type": "tar_zst",
+        "archive_type": "appimage",
         "strip_components": 0,
-        "executable_relative_path": "duckstation-qt-x64",
+        "executable_glob": "DuckStation*.AppImage",
         "preserve_paths": ["memcards/", "savestates/", "settings/"]
       }
     }

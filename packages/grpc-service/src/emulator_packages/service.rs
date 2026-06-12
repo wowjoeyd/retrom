@@ -4,11 +4,12 @@ use diesel_async::RunQueryDsl;
 use retrom_codegen::retrom::{
     emulator_package_service_server::EmulatorPackageService,
     CheckEmulatorPackageDirectoryWritableRequest, CheckEmulatorPackageDirectoryWritableResponse,
-    GetEmulatorCatalogRequest, GetEmulatorCatalogResponse, GetEmulatorPackageFilesRequest,
-    GetEmulatorPackageFilesResponse, GetEmulatorPackagesRequest, GetEmulatorPackagesResponse,
-    InstallCatalogPackageRequest, InstallCatalogPackageResponse, LinkEmulatorToPackageRequest,
-    LinkEmulatorToPackageResponse, LocalEmulatorConfig, NewLocalEmulatorConfig,
-    UpdateEmulatorPackagesRequest, UpdateEmulatorPackagesResponse, UpdatedLocalEmulatorConfig,
+    DeleteEmulatorPackagesRequest, DeleteEmulatorPackagesResponse, GetEmulatorCatalogRequest,
+    GetEmulatorCatalogResponse, GetEmulatorPackageFilesRequest, GetEmulatorPackageFilesResponse,
+    GetEmulatorPackagesRequest, GetEmulatorPackagesResponse, InstallCatalogPackageRequest,
+    InstallCatalogPackageResponse, LinkEmulatorToPackageRequest, LinkEmulatorToPackageResponse,
+    LocalEmulatorConfig, NewLocalEmulatorConfig, UpdateEmulatorPackagesRequest,
+    UpdateEmulatorPackagesResponse, UpdatedLocalEmulatorConfig,
 };
 use retrom_db::{schema, Pool};
 use retrom_service_common::config::ServerConfigManager;
@@ -273,6 +274,23 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
 
         Ok(Response::new(LinkEmulatorToPackageResponse {
             local_config: Some(local_config),
+        }))
+    }
+
+    async fn delete_emulator_packages(
+        &self,
+        request: Request<DeleteEmulatorPackagesRequest>,
+    ) -> Result<Response<DeleteEmulatorPackagesResponse>, Status> {
+        let request = request.into_inner();
+        let deleted_package_ids = super::delete_packages::delete_emulator_packages(
+            self.db_pool.clone(),
+            request.package_ids,
+            request.delete_files.unwrap_or(false),
+        )
+        .await?;
+
+        Ok(Response::new(DeleteEmulatorPackagesResponse {
+            deleted_package_ids,
         }))
     }
 }

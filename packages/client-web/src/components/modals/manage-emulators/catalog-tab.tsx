@@ -359,8 +359,9 @@ function InstallCatalogDialog(props: {
             <AlertTriangleIcon className="h-5 w-5 shrink-0 text-amber-600" />
             <p>
               <strong className="font-medium">Deprecated emulator.</strong> This
-              entry is unmaintained or superseded. Install and use at your own
-              risk — consider Eden or another supported Switch emulator instead.
+              entry is unmaintained or superseded. Install and use it only if
+              you specifically need this emulator; bugs and compatibility issues
+              may not be fixed.
             </p>
           </div>
         ) : null}

@@ -47,7 +47,7 @@
       "upstream": {
         "type": "github_release",
         "repo": "PCSX2/pcsx2",
-        "asset_pattern": "pcsx2-.*-linux-x64-Qt\\.AppImage",
+        "asset_pattern": "pcsx2-v.*-linux-appimage-x64-Qt\\.AppImage",
         "manifest_version_from": "tag"
       },
       "install": {

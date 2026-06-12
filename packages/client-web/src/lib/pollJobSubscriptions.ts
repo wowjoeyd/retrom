@@ -6,6 +6,7 @@ export async function pollJobSubscriptions(
   retromClient: RetromClient,
   jobIds: string[],
   onComplete?: (jobName: string) => void,
+  onFailure?: (jobName: string) => void,
 ) {
   const subscriptions = jobIds.map((jobId) =>
     retromClient.jobClient.getJobSubscription({ jobId }),
@@ -16,6 +17,11 @@ export async function pollJobSubscriptions(
       for await (const progress of subscription) {
         if (progress.job?.status === JobStatus.Success) {
           onComplete?.(progress.job.name);
+        }
+
+        if (progress.job?.status === JobStatus.Failure) {
+          onFailure?.(progress.job.name);
+          throw new Error(`Job failed: ${progress.job.name}`);
         }
       }
     }),

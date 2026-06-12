@@ -3,7 +3,7 @@
   "display_name": "melonDS",
   "description": "Nintendo DS emulator",
   "supported_platform_folder_names": ["nds", "ds"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -24,6 +24,36 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "melonDS.exe",
+        "preserve_paths": ["melonDS.ini", "battery/", "savestates/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "melonDS-emu/melonDS",
+        "asset_pattern": "melonDS-.*-macOS-universal\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "melonDS.app/Contents/MacOS/melonDS",
+        "preserve_paths": ["melonDS.ini", "battery/", "savestates/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "melonDS-emu/melonDS",
+        "asset_pattern": "melonDS-.*-appimage-x86_64\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "melonDS*.AppImage",
         "preserve_paths": ["melonDS.ini", "battery/", "savestates/"]
       }
     }

@@ -1,0 +1,49 @@
+{
+  "catalog_id": "cemu",
+  "display_name": "Cemu",
+  "description": "Nintendo Wii U emulator",
+  "supported_platform_folder_names": ["wiiu", "wii-u"],
+  "operating_systems": ["WINDOWS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "legal_notice": "Cemu does not include Wii U system files, keys, firmware, games, or updates. Use only files you legally dumped from your own hardware.",
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["wud", "wux", "rpx", "wua"],
+    "custom_args": ["-g", "{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "cemu-project/Cemu",
+        "asset_pattern": "cemu-.*-windows-x64\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "Cemu.exe",
+        "preserve_paths": ["controllerProfiles/", "graphicPacks/", "mlc01/", "settings.xml"],
+        "internal_install_supported": true
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "cemu-project/Cemu",
+        "asset_pattern": "Cemu-.*-x86_64\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "Cemu*.AppImage",
+        "preserve_paths": ["controllerProfiles/", "graphicPacks/", "mlc01/", "settings.xml"],
+        "internal_install_supported": true
+      }
+    }
+  ]
+}

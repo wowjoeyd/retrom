@@ -10,6 +10,9 @@ use tracing::warn;
 pub use platform_resolve::resolve_platform_ids_for_catalog_entry;
 
 const BUILTIN_CATALOG: &[(&str, &str)] = &[
+    ("azahar", include_str!("entries/azahar-windows-x64.json")),
+    ("bizhawk", include_str!("entries/bizhawk-windows-x64.json")),
+    ("cemu", include_str!("entries/cemu-windows-x64.json")),
     ("rpcs3", include_str!("entries/rpcs3-windows-x64.json")),
     ("pcsx2", include_str!("entries/pcsx2-windows-x64.json")),
     (
@@ -18,7 +21,12 @@ const BUILTIN_CATALOG: &[(&str, &str)] = &[
     ),
     ("eden", include_str!("entries/eden-windows-x64.json")),
     ("citron", include_str!("entries/citron-windows-x64.json")),
+    ("flycast", include_str!("entries/flycast-windows-x64.json")),
+    ("melonds", include_str!("entries/melonds-windows-x64.json")),
+    ("mgba", include_str!("entries/mgba-windows-x64.json")),
+    ("ppsspp", include_str!("entries/ppsspp-windows-x64.json")),
     ("ryubing", include_str!("entries/ryubing-windows-x64.json")),
+    ("xemu", include_str!("entries/xemu-windows-x64.json")),
 ];
 
 #[derive(Debug, serde::Deserialize)]
@@ -363,7 +371,7 @@ mod tests {
 
         assert_eq!(switch_entries.len(), 3);
         assert!(switch_entries.iter().all(|entry| entry.installable));
-        assert!(switch_entries.iter().all(|entry| !entry.deprecated));
+        assert!(switch_entries.iter().any(|entry| entry.deprecated));
     }
 
     #[test]

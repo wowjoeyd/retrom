@@ -14,7 +14,7 @@
     "psx",
     "ps1"
   ],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -51,6 +51,21 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "EmuHawk.exe",
+        "preserve_paths": ["config.ini", "Firmware/", "Movies/", "SaveRAM/", "SaveStates/", "Shaders/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "TASEmulators/BizHawk",
+        "asset_pattern": "BizHawk-.*-linux-x64\\.tar\\.gz",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "tar_gz",
+        "strip_components": 0,
+        "executable_relative_path": "EmuHawkMono.sh",
         "preserve_paths": ["config.ini", "Firmware/", "Movies/", "SaveRAM/", "SaveStates/", "Shaders/"]
       }
     }

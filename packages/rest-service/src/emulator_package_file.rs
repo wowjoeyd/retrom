@@ -24,7 +24,10 @@ use tokio_util::io::ReaderStream;
 pub fn emulator_package_file_routes() -> Router {
     Router::new()
         .route("/{fileId}", get(emulator_package_file_handler))
-        .route("/{packageId}/manifest", get(emulator_package_manifest_handler))
+        .route(
+            "/{packageId}/manifest",
+            get(emulator_package_manifest_handler),
+        )
         .route(
             "/preserve/{packageId}",
             post(upload_preserve_file_handler).delete(delete_preserve_file_handler),

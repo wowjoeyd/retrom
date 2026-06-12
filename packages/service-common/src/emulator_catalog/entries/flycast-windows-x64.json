@@ -3,7 +3,7 @@
   "display_name": "Flycast",
   "description": "Sega Dreamcast / Naomi / Atomiswave emulator",
   "supported_platform_folder_names": ["dreamcast", "dc"],
-  "operating_systems": ["WINDOWS"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
@@ -24,6 +24,36 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "flycast.exe",
+        "preserve_paths": ["data/", "reicast/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "flyinghead/flycast",
+        "asset_pattern": "flycast-macOS-.*\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "Flycast.app/Contents/MacOS/flycast",
+        "preserve_paths": ["data/", "reicast/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "flyinghead/flycast",
+        "asset_pattern": "flycast-x86_64\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "flycast*.AppImage",
         "preserve_paths": ["data/", "reicast/"]
       }
     }

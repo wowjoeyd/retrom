@@ -26,9 +26,19 @@ export function useInstallCatalogPackage() {
     onSuccess: async ({ jobId }) => {
       toast({ title: "Installing emulator package to NAS…" });
 
-      await pollJobSubscriptions(retromClient, [jobId], (jobName) => {
-        toast({ title: `Job complete: ${jobName}` });
-      });
+      await pollJobSubscriptions(
+        retromClient,
+        [jobId],
+        (jobName) => {
+          toast({ title: `Job complete: ${jobName}` });
+        },
+        (jobName) => {
+          toast({
+            title: `Job failed: ${jobName}`,
+            variant: "destructive",
+          });
+        },
+      );
 
       await queryClient.invalidateQueries({
         predicate: (query) =>
