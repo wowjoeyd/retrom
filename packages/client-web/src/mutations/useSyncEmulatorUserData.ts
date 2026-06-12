@@ -11,6 +11,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "@retrom/ui/hooks/use-toast";
+import { setLastEmulatorUserDataSync } from "@/components/emulator-user-data-auto-sync";
 
 export type UserDataSyncDirection = "push" | "pull";
 
@@ -58,6 +59,7 @@ export function useSyncEmulatorUserData(
           ),
       }),
     onSuccess: (data, variables, context) => {
+      setLastEmulatorUserDataSync(variables.emulatorId);
       toast({
         title:
           variables.direction === "push"

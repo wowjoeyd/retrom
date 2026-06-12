@@ -130,7 +130,9 @@ export function InstallOnPlayModal() {
             </p>
             <Button
               onClick={() => {
-                onInstalled?.().then(handleClose).catch(console.error);
+                Promise.resolve(onInstalled?.())
+                  .then(handleClose)
+                  .catch(console.error);
               }}
             >
               Launch emulator to complete internal install
@@ -168,7 +170,9 @@ export function InstallOnPlayModal() {
           {showPostStep && (
             <Button
               onClick={() => {
-                onInstalled?.().then(handleClose).catch(console.error);
+                Promise.resolve(onInstalled?.())
+                  .then(handleClose)
+                  .catch(console.error);
               }}
             >
               Launch emulator to complete internal install

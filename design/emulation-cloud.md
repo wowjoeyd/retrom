@@ -4,7 +4,7 @@
 |-------|-------|
 | **Author** | JoeyD551 (design draft) |
 | **Date** | 2026-06-10 |
-| **Revision** | 3 (re-review e0696f1c) |
+| **Revision** | 4 (user data production hardening) |
 | **Status** | Draft |
 | **Repository** | `E:\retrom` (fork: JoeyD551/retrom) |
 | **Design doc path** | `design/emulation-cloud.md` (`docs/` is the upstream wiki submodule) |
@@ -23,6 +23,11 @@ This design extends Retrom from a ROM library manager with manually configured e
 The core addition is an **Emulator Package** abstraction: a versioned, manifest-described directory tree on the NAS that the server indexes (mirroring today's ROM `content_directories` → `game_files` pipeline) and the client syncs in full before launch (never executing from UNC). A built-in **catalog** ships metadata and upstream download URLs only—users initiate installs to their NAS. Play flow gains a **ROM install prompt** when the user clicks Play on a non-installed game; emulator sync runs in the UI layer (mirroring save sync) with progress toasts before launch.
 
 ---
+
+Production hardening adds emulator user-data sync on top of package binaries:
+declared `user_data_paths` can push firmware, keys, RAPs, and emulator-internal
+installed content upstream, while `sync_state.json` tracks user-data metadata so
+unchanged files do not need to be re-hashed on every Play.
 
 ## Background & Motivation
 

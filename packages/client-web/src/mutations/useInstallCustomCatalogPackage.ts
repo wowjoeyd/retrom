@@ -1,9 +1,12 @@
-import { InstallCustomCatalogPackageRequestSchema } from "@retrom/codegen/retrom/services/emulator-package-service_pb";
 import { pollJobSubscriptions } from "@/lib/pollJobSubscriptions";
 import { useRetromClient } from "@/providers/retrom-client";
 import { useToast } from "@retrom/ui/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MessageInitShape } from "@bufbuild/protobuf";
+
+type InstallCustomCatalogPackageRequest = Record<string, unknown>;
+type InstallCustomCatalogPackageResponse = {
+  jobId: string;
+};
 
 export function useInstallCustomCatalogPackage() {
   const { toast } = useToast();
@@ -11,12 +14,13 @@ export function useInstallCustomCatalogPackage() {
   const retromClient = useRetromClient();
 
   return useMutation({
-    mutationFn: (
-      request: MessageInitShape<
-        typeof InstallCustomCatalogPackageRequestSchema
-      >,
-    ) =>
-      retromClient.emulatorPackageClient.installCustomCatalogPackage(request),
+    mutationFn: (request: InstallCustomCatalogPackageRequest) => {
+      const client = retromClient.emulatorPackageClient as any;
+      if (typeof client.installCustomCatalogPackage !== "function") {
+        throw new Error("Custom emulator package install is not supported by this server build");
+      }
+      return client.installCustomCatalogPackage(request) as Promise<InstallCustomCatalogPackageResponse>;
+    },
     onError: (err) => {
       toast({
         title: "Custom emulator install failed",
@@ -24,7 +28,7 @@ export function useInstallCustomCatalogPackage() {
         description: err.message,
       });
     },
-    onSuccess: async ({ jobId }) => {
+    onSuccess: async ({ jobId }: InstallCustomCatalogPackageResponse) => {
       toast({ title: "Installing custom emulator package to NAS…" });
 
       await pollJobSubscriptions(retromClient, [jobId], (jobName) => {

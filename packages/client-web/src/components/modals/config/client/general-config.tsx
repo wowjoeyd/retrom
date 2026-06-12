@@ -65,6 +65,7 @@ export function GeneralConfig() {
   const { config, telemetry } = configStore();
   const { toast } = useToast();
   const [autoSyncUserData, setAutoSyncUserData] = useState(false);
+  const fullscreenConfig = config?.interface?.fullscreenConfig as any;
   const showEmulatorUserDataAutoSync =
     checkIsDesktop() &&
     isEmulatorPackageSyncEnabled() &&
@@ -86,9 +87,9 @@ export function GeneralConfig() {
               config?.interface?.fullscreenConfig?.windowedFullscreenMode ??
               !checkIsDesktop(),
             gameMusic: {
-              enabled: config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
-              volume: config?.interface?.fullscreenConfig?.gameMusic?.volume ?? 0.3,
-              fadeDurationMs: config?.interface?.fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
+              enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
+              volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
+              fadeDurationMs: fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
             },
           },
         },

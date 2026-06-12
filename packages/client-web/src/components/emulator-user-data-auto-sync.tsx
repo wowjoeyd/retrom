@@ -10,6 +10,8 @@ import { useEffect, useRef } from "react";
 
 export const EMULATOR_USER_DATA_AUTO_SYNC_KEY =
   "retrom-emulator-user-data-auto-sync";
+const lastUserDataSyncKey = (emulatorId: number) =>
+  `retrom-emulator-user-data-last-sync-${emulatorId}`;
 
 export function emulatorUserDataAutoSyncEnabled() {
   return localStorage.getItem(EMULATOR_USER_DATA_AUTO_SYNC_KEY) === "true";
@@ -17,6 +19,14 @@ export function emulatorUserDataAutoSyncEnabled() {
 
 export function setEmulatorUserDataAutoSyncEnabled(enabled: boolean) {
   localStorage.setItem(EMULATOR_USER_DATA_AUTO_SYNC_KEY, String(enabled));
+}
+
+export function getLastEmulatorUserDataSync(emulatorId: number) {
+  return localStorage.getItem(lastUserDataSyncKey(emulatorId));
+}
+
+export function setLastEmulatorUserDataSync(emulatorId: number, value = new Date()) {
+  localStorage.setItem(lastUserDataSyncKey(emulatorId), value.toISOString());
 }
 
 export function EmulatorUserDataAutoSync() {
@@ -46,7 +56,13 @@ export function EmulatorUserDataAutoSync() {
       configs.data.map((config) =>
         pushEmulatorPreserveData({ emulatorId: config.emulatorId }),
       ),
-    ).finally(() => {
+    ).then((results) => {
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled" && configs.data?.[index]) {
+          setLastEmulatorUserDataSync(configs.data[index].emulatorId);
+        }
+      });
+    }).finally(() => {
       void queryClient.invalidateQueries({
         predicate: (query) =>
           ["emulator-sync-status", "emulator-packages"].some((key) =>
