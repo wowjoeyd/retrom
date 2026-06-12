@@ -63,3 +63,13 @@ message PullEmulatorUserDataResponse {
   uint32 files_uploaded = 2;
   uint64 bytes_uploaded = 3;
 }
+
+message AnalyzeEmulatorUserDataPayload {
+  int32 emulator_id = 1;
+}
+
+message AnalyzeEmulatorUserDataResponse {
+  int32 emulator_id = 1;
+  repeated string suggested_user_data_paths = 2;
+  repeated string suggested_preserve_paths = 3;
+}

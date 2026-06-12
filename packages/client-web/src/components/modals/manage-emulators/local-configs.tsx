@@ -32,6 +32,7 @@ import { useCreateLocalEmulatorConfigs } from "@/mutations/useCreateLocalEmulato
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
 import { useLinkEmulatorToPackage } from "@/mutations/useLinkEmulatorToPackage";
 import { useSyncEmulatorUserData } from "@/mutations/useSyncEmulatorUserData";
+import { analyzeEmulatorUserData } from "@retrom/plugin-emulator-sync";
 import { useEmulatorPackages } from "@/queries/useEmulatorPackages";
 import { useModalAction } from "@/providers/modal-action";
 import { useConfigStore } from "@/providers/config";
@@ -176,6 +177,32 @@ function LocalConfigRow(props: {
   } = useSyncEmulatorUserData();
 
   const { openModal: openUserDataConflict } = useModalAction("resolveEmulatorUserDataConflict");
+
+  const [suggestedUser, setSuggestedUser] = useState<string[]>([]);
+  const [suggestedPreserve, setSuggestedPreserve] = useState<string[]>([]);
+
+  const handleAnalyze = useCallback(async () => {
+    try {
+      const res = await analyzeEmulatorUserData({ emulatorId: emulator.id });
+      const u = res.suggestedUserDataPaths || [];
+      const p = res.suggestedPreservePaths || [];
+      setSuggestedUser(u);
+      setSuggestedPreserve(p);
+
+      // Auto-apply to overrides if currently empty (non-destructive suggestion)
+      if ((form.getValues("userDataPathsOverride") || []).length === 0 && u.length > 0) {
+        form.setValue("userDataPathsOverride", u);
+      }
+      if ((form.getValues("preservePathsOverride") || []).length === 0 && p.length > 0) {
+        form.setValue("preservePathsOverride", p);
+      }
+    } catch (e) {
+      toast({
+        title: "Analyze failed",
+        description: (e as Error)?.message || "Could not analyze emulator cache",
+      });
+    }
+  }, [emulator.id, form, toast]);
 
   const handleSubmit = useCallback(
     async (values: ConfigSchema) => {
@@ -378,6 +405,20 @@ function LocalConfigRow(props: {
                     </FormItem>
                   )}
                 />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAnalyze}
+                  disabled={pending}
+                >
+                  Analyze current cache for suggestions
+                </Button>
+                {(suggestedUser.length > 0 || suggestedPreserve.length > 0) && (
+                  <div className="text-xs text-muted-foreground">
+                    Suggested: user_data=[{suggestedUser.join(", ")}] preserve=[{suggestedPreserve.join(", ")}] (applied to empty fields)
+                  </div>
+                )}
               </>
             ) : null}
 

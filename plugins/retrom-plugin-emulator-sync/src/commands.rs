@@ -1,8 +1,9 @@
 use crate::EmulatorSyncExt;
 use prost::Message;
 use retrom_codegen::retrom::client::emulator_sync::{
-    EnsureEmulatorSyncedPayload, GetEmulatorSyncStatusPayload, GetEmulatorSyncStatusResponse,
-    PushEmulatorPreservePayload, PushEmulatorPreserveResponse,
+    AnalyzeEmulatorUserDataPayload, AnalyzeEmulatorUserDataResponse, EnsureEmulatorSyncedPayload,
+    GetEmulatorSyncStatusPayload, GetEmulatorSyncStatusResponse, PushEmulatorPreservePayload,
+    PushEmulatorPreserveResponse,
 };
 use tauri::{ipc::Channel, AppHandle, Runtime};
 use tauri_plugin_opener::OpenerExt;
@@ -134,4 +135,20 @@ pub async fn pull_emulator_user_data<R: Runtime>(
         bytes_uploaded: result.bytes_uploaded,
     }
     .encode_to_vec())
+}
+
+#[instrument(skip_all)]
+#[tauri::command]
+pub async fn analyze_emulator_user_data<R: Runtime>(
+    app_handle: AppHandle<R>,
+    payload: Vec<u8>,
+) -> crate::Result<Vec<u8>> {
+    let payload = AnalyzeEmulatorUserDataPayload::decode(payload.as_slice())?;
+    let manager = app_handle.emulator_sync();
+
+    let response = manager
+        .analyze_emulator_user_data(payload.emulator_id)
+        .await?;
+
+    Ok(response.encode_to_vec())
 }
