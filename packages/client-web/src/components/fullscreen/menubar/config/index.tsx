@@ -46,6 +46,11 @@ const formSchema = z.object({
         gap: z.coerce.number().min(10).max(250),
         imageType: z.enum(["COVER", "BACKGROUND"]),
       }),
+      gameMusic: z.object({
+        enabled: z.boolean().optional(),
+        volume: z.coerce.number().min(0).max(1),
+        fadeDurationMs: z.coerce.number().min(100).max(5000),
+      }).optional(),
     }),
   }),
 }) satisfies z.ZodSchema<RetromClientConfig_ConfigJson, z.ZodTypeDef, unknown>;
@@ -71,6 +76,11 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
             imageType:
               config?.interface?.fullscreenConfig?.gridList?.imageType ??
               "COVER",
+          },
+          gameMusic: {
+            enabled: config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
+            volume: (config?.interface?.fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
+            fadeDurationMs: (config?.interface?.fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
           },
         },
       },
@@ -264,6 +274,58 @@ function ConfigForm() {
           </FormItem>
         )}
       />
+
+      {/* Game music / theme song controls for fullscreen hover/click playback */}
+      <ConfigCheckbox
+        name="interface.fullscreenConfig.gameMusic.enabled"
+        label="Play game music on focus/hover"
+        description="Play main theme / song while hovering or selecting a game (fades in/out)"
+      />
+
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          control={form.control}
+          name="interface.fullscreenConfig.gameMusic.volume"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel htmlFor="config-menu-game-music-volume" className="text-xs">
+                Music volume
+              </FormLabel>
+              <ConfigInput
+                id="config-menu-game-music-volume"
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                {...field}
+                onChange={(e) => field.onChange(parseFloat(e.target.value))}
+              />
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="interface.fullscreenConfig.gameMusic.fadeDurationMs"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel htmlFor="config-menu-game-music-fade" className="text-xs">
+                Fade duration (ms)
+              </FormLabel>
+              <ConfigInput
+                id="config-menu-game-music-fade"
+                type="number"
+                step="50"
+                min="100"
+                max="5000"
+                {...field}
+              />
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
     </div>
   );
 }

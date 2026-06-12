@@ -5,9 +5,7 @@ use retrom_service_common::config::ServerConfigManager;
 use std::{sync::Arc, time::Duration};
 use tonic::Code;
 
-pub fn rescan_interval_hours(
-    config: &retrom_codegen::retrom::ServerConfig,
-) -> u32 {
+pub fn rescan_interval_hours(config: &retrom_codegen::retrom::ServerConfig) -> u32 {
     config
         .emulator_packages
         .as_ref()
@@ -27,9 +25,7 @@ pub async fn run(
         let interval_hours = rescan_interval_hours(&config);
 
         if interval_hours == 0 {
-            tracing::debug!(
-                "Emulator package rescan scheduler idle (rescan_interval_hours=0)"
-            );
+            tracing::debug!("Emulator package rescan scheduler idle (rescan_interval_hours=0)");
             tokio::time::sleep(Duration::from_secs(300)).await;
             continue;
         }
@@ -53,7 +49,9 @@ pub async fn run(
                     );
                 }
                 Err(status) if status.code() == Code::AlreadyExists => {
-                    tracing::debug!("Scheduled emulator package rescan skipped: scan already running");
+                    tracing::debug!(
+                        "Scheduled emulator package rescan skipped: scan already running"
+                    );
                 }
                 Err(status) if status.code() == Code::FailedPrecondition => {
                     tracing::debug!(

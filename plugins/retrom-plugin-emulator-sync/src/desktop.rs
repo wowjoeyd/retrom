@@ -8,7 +8,7 @@ use retrom_codegen::{
         },
         Client, EmulatorPackage, EmulatorPackageFile, GetEmulatorPackageFilesRequest,
         GetEmulatorPackagesRequest, GetLocalEmulatorConfigsRequest, LocalEmulatorConfig,
-        UpdatedLocalEmulatorConfig, UpdateLocalEmulatorConfigsRequest,
+        UpdateLocalEmulatorConfigsRequest, UpdatedLocalEmulatorConfig,
     },
     timestamp::Timestamp,
 };
@@ -100,7 +100,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         })
     }
 
-    async fn get_local_config(&self, emulator_id: EmulatorId) -> crate::Result<LocalEmulatorConfig> {
+    async fn get_local_config(
+        &self,
+        emulator_id: EmulatorId,
+    ) -> crate::Result<LocalEmulatorConfig> {
         let client_id = self.client_id().await?;
         let mut emulator_client = self.app_handle.get_emulator_client().await;
         let response = emulator_client
@@ -194,12 +197,15 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             }
         }
 
-        let cache_root = self
-            .cache_root_for_package(&package)
-            .await?;
+        let cache_root = self.cache_root_for_package(&package).await?;
         let remote_files = self.get_package_files(package.id).await?;
 
-        if self.files_need_sync(&cache_root, linked_package_id, &package.version, &remote_files)? {
+        if self.files_need_sync(
+            &cache_root,
+            linked_package_id,
+            &package.version,
+            &remote_files,
+        )? {
             Ok(EmulatorSyncStatus::NotCached)
         } else {
             Ok(EmulatorSyncStatus::Synced)
@@ -371,7 +377,8 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         )?;
 
         let executable = cache_root.join(&package.executable_rel);
-        self.update_executable_path(local_config, &executable).await?;
+        self.update_executable_path(local_config, &executable)
+            .await?;
 
         self.set_progress(
             emulator_id,
@@ -498,9 +505,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .config_manager()
             .get_emulator_cache_dir()
             .await?;
-        let cache_root = cache_dir
-            .join(&package.package_slug)
-            .join(&package.version);
+        let cache_root = cache_dir.join(&package.package_slug).join(&package.version);
         std::fs::create_dir_all(&cache_root)?;
         Ok(cache_root)
     }

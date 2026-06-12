@@ -4,10 +4,7 @@ use retrom_codegen::retrom::{
     emulator::OperatingSystem, EmulatorCatalogDefaultProfile, EmulatorCatalogEntry,
     EmulatorCatalogInstall, EmulatorCatalogTarget, EmulatorCatalogUpstream,
 };
-use std::{
-    collections::HashMap,
-    path::Path,
-};
+use std::{collections::HashMap, path::Path};
 use tracing::warn;
 
 pub use platform_resolve::resolve_platform_ids_for_catalog_entry;
@@ -164,14 +161,19 @@ fn parse_catalog_entry(json: &str) -> Result<EmulatorCatalogEntry, serde_json::E
     Ok(file.into())
 }
 
-fn enrich_catalog_entry(mut entry: EmulatorCatalogEntry, host_os: OperatingSystem) -> EmulatorCatalogEntry {
-    entry.recommended_operating_system =
-        Some(recommend_target_os(&entry, host_os) as i32);
+fn enrich_catalog_entry(
+    mut entry: EmulatorCatalogEntry,
+    host_os: OperatingSystem,
+) -> EmulatorCatalogEntry {
+    entry.recommended_operating_system = Some(recommend_target_os(&entry, host_os) as i32);
     entry
 }
 
 /// Pick the best install target for the given host OS.
-pub fn recommend_target_os(entry: &EmulatorCatalogEntry, host_os: OperatingSystem) -> OperatingSystem {
+pub fn recommend_target_os(
+    entry: &EmulatorCatalogEntry,
+    host_os: OperatingSystem,
+) -> OperatingSystem {
     if resolve_target_for_os(entry, host_os).is_some() {
         return host_os;
     }
@@ -271,10 +273,7 @@ impl From<CatalogEntryFile> for EmulatorCatalogEntry {
         let (upstream, install) = if let Some(first) = targets.first() {
             (first.upstream.clone(), first.install.clone())
         } else {
-            (
-                file.upstream.map(Into::into),
-                file.install.map(Into::into),
-            )
+            (file.upstream.map(Into::into), file.install.map(Into::into))
         };
 
         Self {
@@ -415,10 +414,7 @@ mod tests {
         assert!(pcsx2.targets.len() >= 2);
         let host = host_operating_system();
         let recommended = recommend_target_os(pcsx2, host);
-        assert_eq!(
-            pcsx2.recommended_operating_system,
-            Some(recommended as i32)
-        );
+        assert_eq!(pcsx2.recommended_operating_system, Some(recommended as i32));
         assert!(resolve_target_for_os(pcsx2, recommended).is_some());
     }
 

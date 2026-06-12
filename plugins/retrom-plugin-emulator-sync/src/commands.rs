@@ -16,9 +16,7 @@ pub async fn ensure_emulator_synced<R: Runtime>(
     let payload = EnsureEmulatorSyncedPayload::decode(payload.as_slice())?;
     let manager = app_handle.emulator_sync();
 
-    let executable = manager
-        .ensure_emulator_synced(payload.emulator_id)
-        .await?;
+    let executable = manager.ensure_emulator_synced(payload.emulator_id).await?;
 
     Ok(executable.to_string_lossy().to_string())
 }
@@ -45,7 +43,9 @@ pub async fn get_emulator_sync_status<R: Runtime>(
 
 #[instrument(skip_all)]
 #[tauri::command]
-pub async fn get_emulator_sync_index<R: Runtime>(app_handle: AppHandle<R>) -> crate::Result<Vec<u8>> {
+pub async fn get_emulator_sync_index<R: Runtime>(
+    app_handle: AppHandle<R>,
+) -> crate::Result<Vec<u8>> {
     let manager = app_handle.emulator_sync();
     let index = manager.get_emulator_sync_index().await?;
     Ok(index.encode_to_vec())
@@ -80,7 +80,10 @@ pub async fn abort_emulator_sync<R: Runtime>(
     app_handle: AppHandle<R>,
     emulator_id: i32,
 ) -> crate::Result<()> {
-    app_handle.emulator_sync().abort_emulator_sync(emulator_id).await
+    app_handle
+        .emulator_sync()
+        .abort_emulator_sync(emulator_id)
+        .await
 }
 
 #[instrument(skip(app))]

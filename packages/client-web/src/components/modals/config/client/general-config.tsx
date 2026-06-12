@@ -33,6 +33,11 @@ const configSchema = z.object({
       fullscreenByDefault: z.boolean(),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
+        gameMusic: z.object({
+          enabled: z.boolean().optional(),
+          volume: z.number().optional(),
+          fadeDurationMs: z.number().optional(),
+        }).optional(),
       }),
     }),
     installationDir: z.string().optional(),
@@ -62,6 +67,11 @@ export function GeneralConfig() {
             windowedFullscreenMode:
               config?.interface?.fullscreenConfig?.windowedFullscreenMode ??
               !checkIsDesktop(),
+            gameMusic: {
+              enabled: config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
+              volume: config?.interface?.fullscreenConfig?.gameMusic?.volume ?? 0.3,
+              fadeDurationMs: config?.interface?.fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
+            },
           },
         },
         installationDir: config?.installationDir ?? "",
@@ -321,6 +331,76 @@ export function GeneralConfig() {
               </FormItem>
             )}
           />
+
+          {/* Fullscreen game theme / soundtrack music options (tied to yt-dlp extraction and grid hover/click + detail playback) */}
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.gameMusic.enabled"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                <div className="space-y-0.5">
+                  <FormLabel htmlFor="fullscreen-game-music-enabled">
+                    Play game music on focus/hover
+                  </FormLabel>
+                  <p className="text-sm text-muted-foreground">
+                    Play a game's main theme when selecting or hovering it in fullscreen (loops the extracted soundtrack or uploaded audio).
+                  </p>
+                </div>
+                <FormControl>
+                  <Checkbox
+                    id="fullscreen-game-music-enabled"
+                    checked={field.value}
+                    onCheckedChange={(val) => field.onChange(!!val)}
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="config.interface.fullscreenConfig.gameMusic.volume"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel htmlFor="fullscreen-game-music-volume">Music volume (0-1)</FormLabel>
+                  <FormControl>
+                    <Input
+                      id="fullscreen-game-music-volume"
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      {...field}
+                      onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="config.interface.fullscreenConfig.gameMusic.fadeDurationMs"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel htmlFor="fullscreen-game-music-fade">Fade in/out duration (ms)</FormLabel>
+                  <FormControl>
+                    <Input
+                      id="fullscreen-game-music-fade"
+                      type="number"
+                      step="50"
+                      min="100"
+                      max="5000"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <DialogFooter className="gap-2">
             <Button

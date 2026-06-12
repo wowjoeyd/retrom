@@ -15,7 +15,9 @@ pub enum LayoutError {
 }
 
 /// Discover package version roots under a configured emulator package directory.
-pub fn discover_package_roots(directory: &EmulatorPackageDirectory) -> Result<Vec<PathBuf>, LayoutError> {
+pub fn discover_package_roots(
+    directory: &EmulatorPackageDirectory,
+) -> Result<Vec<PathBuf>, LayoutError> {
     let root = PathBuf::from(&directory.path);
     if directory.path.is_empty() {
         return Err(LayoutError::EmptyPath);

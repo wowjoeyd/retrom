@@ -1,9 +1,11 @@
+use super::resolver::{resolve_package_at_root, upsert_resolved_package};
+use crate::jobs::job_manager::JobManager;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use retrom_codegen::{
     retrom::{
-        emulator::OperatingSystem, SaveStrategy, EmulatorCatalogEntry, NewEmulator,
-        NewEmulatorProfile, NewLocalEmulatorConfig,
+        emulator::OperatingSystem, EmulatorCatalogEntry, NewEmulator, NewEmulatorProfile,
+        NewLocalEmulatorConfig, SaveStrategy,
     },
     timestamp::Timestamp,
 };
@@ -13,13 +15,7 @@ use retrom_service_common::{
     emulator_catalog::{recommend_target_os, resolve_platform_ids_for_catalog_entry},
     emulator_catalog_install::{install_catalog_package, InstallCatalogParams},
 };
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    time::SystemTime,
-};
-use super::resolver::{resolve_package_at_root, upsert_resolved_package};
-use crate::jobs::job_manager::JobManager;
+use std::{path::PathBuf, sync::Arc, time::SystemTime};
 
 pub struct InstallJobContext {
     pub db_pool: Arc<Pool>,
@@ -42,9 +38,7 @@ pub async fn spawn_install_catalog_job(
     let db_pool = ctx.db_pool.clone();
     let config_manager = ctx.config_manager.clone();
 
-    let task = async move {
-        run_install_catalog_job(db_pool, config_manager, request).await
-    };
+    let task = async move { run_install_catalog_job(db_pool, config_manager, request).await };
 
     ctx.job_manager
         .spawn("Install Catalog Package", vec![task], None)
@@ -61,11 +55,15 @@ async fn run_install_catalog_job(
     let custom_catalog_dir = config.custom_catalog_dir.clone();
     let directories = config.emulator_package_directories;
 
-    let directory = directories
-        .get(request.directory_index)
-        .ok_or_else(|| format!("directory_index {} is out of range", request.directory_index))?;
+    let directory = directories.get(request.directory_index).ok_or_else(|| {
+        format!(
+            "directory_index {} is out of range",
+            request.directory_index
+        )
+    })?;
 
-    let entries = retrom_service_common::emulator_catalog::load_catalog(custom_catalog_dir.as_deref());
+    let entries =
+        retrom_service_common::emulator_catalog::load_catalog(custom_catalog_dir.as_deref());
     let entry = entries
         .into_iter()
         .find(|e| e.catalog_id == request.catalog_id)
@@ -108,10 +106,7 @@ async fn run_install_catalog_job(
     Ok(())
 }
 
-async fn scan_installed_package(
-    db_pool: Arc<Pool>,
-    package_root: &PathBuf,
-) -> Result<i32, String> {
+async fn scan_installed_package(db_pool: Arc<Pool>, package_root: &PathBuf) -> Result<i32, String> {
     let resolved = resolve_package_at_root(package_root)
         .await
         .map_err(|why| why.to_string())?;
@@ -140,10 +135,8 @@ async fn auto_provision_emulator(
         .await
         .map_err(|why| why.to_string())?;
 
-    let platform_ids = resolve_platform_ids_for_catalog_entry(
-        &entry.supported_platform_folder_names,
-        &platforms,
-    );
+    let platform_ids =
+        resolve_platform_ids_for_catalog_entry(&entry.supported_platform_folder_names, &platforms);
 
     let emulator = schema::emulators::table
         .filter(schema::emulators::name.eq(&entry.display_name))

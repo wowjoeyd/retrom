@@ -2,13 +2,13 @@ use crate::jobs::job_manager::JobManager;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use retrom_codegen::retrom::{
-    emulator_package_service_server::EmulatorPackageService, CheckEmulatorPackageDirectoryWritableRequest,
-    CheckEmulatorPackageDirectoryWritableResponse, GetEmulatorCatalogRequest,
-    GetEmulatorCatalogResponse, GetEmulatorPackageFilesRequest, GetEmulatorPackageFilesResponse,
-    GetEmulatorPackagesRequest, GetEmulatorPackagesResponse, InstallCatalogPackageRequest,
-    InstallCatalogPackageResponse, LinkEmulatorToPackageRequest, LinkEmulatorToPackageResponse,
-    LocalEmulatorConfig, NewLocalEmulatorConfig, UpdateEmulatorPackagesRequest,
-    UpdateEmulatorPackagesResponse, UpdatedLocalEmulatorConfig,
+    emulator_package_service_server::EmulatorPackageService,
+    CheckEmulatorPackageDirectoryWritableRequest, CheckEmulatorPackageDirectoryWritableResponse,
+    GetEmulatorCatalogRequest, GetEmulatorCatalogResponse, GetEmulatorPackageFilesRequest,
+    GetEmulatorPackageFilesResponse, GetEmulatorPackagesRequest, GetEmulatorPackagesResponse,
+    InstallCatalogPackageRequest, InstallCatalogPackageResponse, LinkEmulatorToPackageRequest,
+    LinkEmulatorToPackageResponse, LocalEmulatorConfig, NewLocalEmulatorConfig,
+    UpdateEmulatorPackagesRequest, UpdateEmulatorPackagesResponse, UpdatedLocalEmulatorConfig,
 };
 use retrom_db::{schema, Pool};
 use retrom_service_common::config::ServerConfigManager;
@@ -124,8 +124,7 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
         &self,
         _request: Request<GetEmulatorCatalogRequest>,
     ) -> Result<Response<GetEmulatorCatalogResponse>, Status> {
-        let (entries, host_os) =
-            super::catalog::load_emulator_catalog(&self.config_manager).await;
+        let (entries, host_os) = super::catalog::load_emulator_catalog(&self.config_manager).await;
         Ok(Response::new(GetEmulatorCatalogResponse {
             entries,
             host_operating_system: host_os as i32,
@@ -144,10 +143,12 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
             .emulator_package_directories;
 
         let Some(directory) = directories.get(index) else {
-            return Ok(Response::new(CheckEmulatorPackageDirectoryWritableResponse {
-                writable: false,
-                error_message: Some(format!("directory_index {index} is out of range")),
-            }));
+            return Ok(Response::new(
+                CheckEmulatorPackageDirectoryWritableResponse {
+                    writable: false,
+                    error_message: Some(format!("directory_index {index} is out of range")),
+                },
+            ));
         };
 
         let test_dir = PathBuf::from(&directory.path);
@@ -157,14 +158,18 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
             .and_then(|_| std::fs::write(&test_file, b"1"))
             .and_then(|_| std::fs::remove_file(&test_file))
         {
-            Ok(()) => Ok(Response::new(CheckEmulatorPackageDirectoryWritableResponse {
-                writable: true,
-                error_message: None,
-            })),
-            Err(why) => Ok(Response::new(CheckEmulatorPackageDirectoryWritableResponse {
-                writable: false,
-                error_message: Some(why.to_string()),
-            })),
+            Ok(()) => Ok(Response::new(
+                CheckEmulatorPackageDirectoryWritableResponse {
+                    writable: true,
+                    error_message: None,
+                },
+            )),
+            Err(why) => Ok(Response::new(
+                CheckEmulatorPackageDirectoryWritableResponse {
+                    writable: false,
+                    error_message: Some(why.to_string()),
+                },
+            )),
         }
     }
 

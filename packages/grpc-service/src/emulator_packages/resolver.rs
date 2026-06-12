@@ -1,4 +1,4 @@
-use diesel::{ExpressionMethods, QueryDsl, upsert::excluded};
+use diesel::{upsert::excluded, ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use retrom_codegen::{
     retrom::{EmulatorPackageStatus, NewEmulatorPackage, NewEmulatorPackageFile},
@@ -50,17 +50,17 @@ pub struct ResolvedPackage {
 pub async fn resolve_package_at_root(
     package_root: &Path,
 ) -> Result<ResolvedPackage, ResolverError> {
-    let manifest = read_manifest(package_root)
-        .map_err(|why| ResolverError::Manifest(why.to_string()))?;
+    let manifest =
+        read_manifest(package_root).map_err(|why| ResolverError::Manifest(why.to_string()))?;
 
-    let manifest_sha256 = sha256_file(&manifest_path(package_root))
-        .unwrap_or_default();
+    let manifest_sha256 = sha256_file(&manifest_path(package_root)).unwrap_or_default();
 
     let files = inventory_files(package_root, &manifest)?;
 
-    let status = if files.iter().any(|f| {
-        !f.optional && !Path::new(&f.absolute_path).exists()
-    }) {
+    let status = if files
+        .iter()
+        .any(|f| !f.optional && !Path::new(&f.absolute_path).exists())
+    {
         EmulatorPackageStatus::Degraded as i32
     } else {
         EmulatorPackageStatus::Healthy as i32
@@ -116,7 +116,8 @@ pub async fn upsert_resolved_package(
         .set((
             schema::emulator_packages::display_name
                 .eq(excluded(schema::emulator_packages::display_name)),
-            schema::emulator_packages::catalog_id.eq(excluded(schema::emulator_packages::catalog_id)),
+            schema::emulator_packages::catalog_id
+                .eq(excluded(schema::emulator_packages::catalog_id)),
             schema::emulator_packages::os.eq(excluded(schema::emulator_packages::os)),
             schema::emulator_packages::root_path.eq(excluded(schema::emulator_packages::root_path)),
             schema::emulator_packages::manifest_sha256
