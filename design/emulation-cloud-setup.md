@@ -106,6 +106,10 @@ Open **Settings → Client Configuration** on the desktop app.
 | `EMULATOR_PACKAGE_SYNC` | enabled | Set to `false` to skip emulator sync in Play flow and launcher managed-path guard |
 | `VITE_RETROM_EMULATOR_PACKAGES_ENABLED` | enabled | Build-time flag; set to `false` to hide Catalog/Packages UI |
 | `VITE_EMULATOR_PACKAGE_SYNC` | enabled | Build-time mirror of `EMULATOR_PACKAGE_SYNC` for the web bundle |
+| `EMULATOR_USER_DATA_ENHANCED` | disabled | Enables advanced user-data helpers such as analyzer UI and app-start background push setting |
+| `VITE_EMULATOR_USER_DATA_ENHANCED` | disabled | Build-time mirror for the desktop/web UI bundle |
+| `EMULATOR_USER_DATA_MAX_WALK_FILES` | `20000` | Safety cap for one user-data push walk |
+| `EMULATOR_USER_DATA_LARGE_WARNING_BYTES` | `26843545600` | Log warning threshold for very large emulator user-data trees |
 
 ---
 
@@ -145,6 +149,28 @@ Open **Settings → Client Configuration** on the desktop app.
 4. Launcher runs the cached executable.
 
 Secondary **Install Game** is available in the game detail menu and fullscreen actions when the ROM is not installed.
+
+### 5.1 User data sync
+
+Managed emulators can also sync declared `user_data_paths` such as firmware,
+keys, RAPs, and emulator-internal installed content. Curated catalog entries
+ship good defaults; custom emulators can use path overrides in **Manage
+Emulators → Local Paths**.
+
+- **Push local to NAS** promotes this PC's declared user-data paths as the cloud
+  source of truth.
+- **Pull from NAS** resets local declared user data from the server index.
+- Empty `user_data_paths` means automatic upstream push is skipped; explicit
+  buttons remain available for configured paths.
+- With `EMULATOR_USER_DATA_ENHANCED=true`, the analyzer suggests custom paths and
+  the client can opt into low-frequency app-start background push.
+- Directly launching an emulator outside Retrom is allowed, but upstream sync
+  waits until the next Retrom Play, explicit Push, or enabled background sync.
+
+For internal game installs, use Retrom Play on a raw package/media file. Curated
+emulators that set `internal_install_supported` show a guide step to launch the
+emulator and complete its own install flow. The resulting virtual filesystem
+changes are captured by the next user-data push.
 
 ### 6. Updates
 
@@ -236,6 +262,7 @@ Use this list to verify the emulation cloud stack after setup.
 
 - [ ] `RETROM_EMULATOR_PACKAGES_ENABLED=false` → Catalog/Packages tabs hidden; manual emulator paths still work
 - [ ] `EMULATOR_PACKAGE_SYNC=false` → Play skips emulator sync; launcher does not require cache exe for managed paths
+- [ ] `EMULATOR_USER_DATA_ENHANCED=false` → Analyzer/app-start user-data helpers are hidden; existing package sync and manual Push/Pull still work
 
 ---
 
@@ -249,6 +276,8 @@ Use this list to verify the emulation cloud stack after setup.
 | Play: "Executable not in cache" | Use **Play** (not raw launcher); ensure `EMULATOR_PACKAGE_SYNC` is not `false` |
 | Sync stuck / failed | Server reachable; REST file endpoint enabled; disk space in emulator cache dir |
 | Scheduler not running | `RETROM_EMULATOR_PACKAGES_ENABLED=false`, or `rescan_interval_hours: 0` |
+| Firmware/RAPs missing on another PC | Confirm the paths are in `user_data_paths` or local overrides, Push from the working PC, then Pull/Play on the other PC |
+| Push takes too long | Check `sync_state.json`, lower path scope, or raise `EMULATOR_USER_DATA_MAX_WALK_FILES` after confirming the paths are correct |
 
 ---
 

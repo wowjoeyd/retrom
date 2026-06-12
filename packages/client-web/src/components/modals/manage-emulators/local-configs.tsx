@@ -51,6 +51,8 @@ import {
   AccordionTrigger,
 } from "@retrom/ui/components/accordion";
 import { SyncStatusBadge } from "./sync-status-badge";
+import { getLastEmulatorUserDataSync } from "@/components/emulator-user-data-auto-sync";
+import { isEnhancedEmulatorUserDataEnabled } from "@/lib/env";
 
 const baseConfigSchema = z.object({
   executablePath: z.string(),
@@ -275,6 +277,8 @@ function LocalConfigRow(props: {
 
   const pending = creationPending || updatePending || linkPending;
   const error = creationError || updateError || linkError;
+  const lastUserDataSync = getLastEmulatorUserDataSync(emulator.id);
+  const enhancedUserDataEnabled = isEnhancedEmulatorUserDataEnabled();
 
   const { isDirty } = form.formState;
 
@@ -407,16 +411,18 @@ function LocalConfigRow(props: {
                     </FormItem>
                   )}
                 />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAnalyze}
-                  disabled={pending}
-                >
-                  Analyze current cache for suggestions
-                </Button>
-                {(suggestedUser.length > 0 || suggestedPreserve.length > 0) && (
+                {enhancedUserDataEnabled ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAnalyze}
+                    disabled={pending}
+                  >
+                    Analyze current cache for suggestions
+                  </Button>
+                ) : null}
+                {enhancedUserDataEnabled && (suggestedUser.length > 0 || suggestedPreserve.length > 0) && (
                   <div className="text-xs text-muted-foreground">
                     Suggested: user_data=[{suggestedUser.join(", ")}] preserve=[{suggestedPreserve.join(", ")}] (applied to empty fields)
                   </div>
@@ -427,6 +433,11 @@ function LocalConfigRow(props: {
             {managedPaths ? (
               <div className="flex flex-col gap-2 rounded border p-3">
                 <div className="text-sm font-medium">User Data Sync</div>
+                {lastUserDataSync ? (
+                  <div className="text-xs text-muted-foreground">
+                    Last sync: {new Date(lastUserDataSync).toLocaleString()}
+                  </div>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
                   Firmware, decryption keys, installed games/ROMs, RAP files etc. (config/ is kept local and PC-specific).
                   Use Push to promote this PC&apos;s data as the cloud source of truth. Use Pull to reset local from cloud.

@@ -61,6 +61,7 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
   const config = useConfig((s) => s.config);
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const fullscreenConfig = config?.interface?.fullscreenConfig as any;
 
   const form = useForm<FormSchema>({
     resolver: zodResolver(formSchema),
@@ -79,9 +80,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
               "COVER",
           },
           gameMusic: {
-            enabled: config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
-            volume: (config?.interface?.fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
-            fadeDurationMs: (config?.interface?.fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
+            enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
+            volume: (fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
+            fadeDurationMs: (fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
           },
         },
       },
@@ -139,11 +140,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
                 },
                 gameMusic: {
                   enabled:
-                    config?.interface?.fullscreenConfig?.gameMusic?.enabled ?? true,
-                  volume: (config?.interface?.fullscreenConfig?.gameMusic?.volume ??
-                    0.3) as number,
-                  fadeDurationMs: (config?.interface?.fullscreenConfig?.gameMusic
-                    ?.fadeDurationMs ?? 700) as number,
+                    fullscreenConfig?.gameMusic?.enabled ?? true,
+                  volume: (fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
+                  fadeDurationMs: (fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
                 },
               },
             },

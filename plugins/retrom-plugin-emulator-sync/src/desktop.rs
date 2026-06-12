@@ -1,4 +1,6 @@
-use crate::sync_state::{load_sync_state, save_sync_state, SyncState, SYNC_STATE_FILE_NAME};
+use crate::sync_state::{
+    load_sync_state, save_sync_state, SyncState, UserDataFileState, SYNC_STATE_FILE_NAME,
+};
 use prost::Message;
 use reqwest::header::{HeaderMap, HeaderValue, ACCESS_CONTROL_ALLOW_ORIGIN};
 use retrom_codegen::{
@@ -24,7 +26,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{ipc::Channel, plugin::PluginApi, AppHandle, Runtime};
 use tokio::sync::RwLock;
@@ -369,8 +371,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         );
 
         let mut bytes_transferred: u64 = 0;
-        let mut synced_files = load_sync_state(&cache_root)?
-            .map(|state| state.files)
+        let previous_state = load_sync_state(&cache_root)?;
+        let mut synced_files = previous_state
+            .as_ref()
+            .map(|state| state.files.clone())
             .unwrap_or_default();
 
         // Track files that the server package has ever declared for this version.
@@ -459,6 +463,12 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 linked_package_id,
                 version: package.version.clone(),
                 files: synced_files,
+                user_data_files: previous_state
+                    .as_ref()
+                    .map(|state| state.user_data_files.clone())
+                    .unwrap_or_default(),
+                last_user_data_sync_unix_secs: previous_state
+                    .and_then(|state| state.last_user_data_sync_unix_secs),
             },
         )?;
 
@@ -681,6 +691,29 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         Ok(format!("{:x}", hasher.finalize()))
     }
 
+    fn modified_unix_secs(path: &Path) -> u64 {
+        path.metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default()
+    }
+
+    fn user_data_max_walk_files() -> u64 {
+        std::env::var("EMULATOR_USER_DATA_MAX_WALK_FILES")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(20_000)
+    }
+
+    fn user_data_large_warning_bytes() -> u64 {
+        std::env::var("EMULATOR_USER_DATA_LARGE_WARNING_BYTES")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(25 * 1024 * 1024 * 1024)
+    }
+
     fn prune_stale_files(
         &self,
         cache_root: &Path,
@@ -820,12 +853,23 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .into_iter()
             .map(|f| (f.relative_path, f.sha256))
             .collect();
+        let mut sync_state = load_sync_state(&cache_root)?.unwrap_or_else(|| SyncState {
+            linked_package_id,
+            version: package.version.clone(),
+            ..Default::default()
+        });
+        sync_state.linked_package_id = linked_package_id;
+        sync_state.version = package.version.clone();
 
         let host = self.service_host().await?;
 
         let mut uploaded: u32 = 0;
         let mut bytes: u64 = 0;
         let mut scanned: u64 = 0;
+        let mut bytes_scanned: u64 = 0;
+        let mut large_warning_logged = false;
+        let max_walk_files = Self::user_data_max_walk_files();
+        let large_warning_bytes = Self::user_data_large_warning_bytes();
 
         self.set_progress(
             emulator_id,
@@ -865,6 +909,34 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 continue;
             }
             scanned = scanned.saturating_add(1);
+            if scanned > max_walk_files {
+                tracing::warn!(
+                    "Emulator user data push stopped after {max_walk_files} files for emulator {emulator_id}; set EMULATOR_USER_DATA_MAX_WALK_FILES to raise the cap"
+                );
+                break;
+            }
+
+            let metadata = path.metadata()?;
+            let byte_size = metadata.len();
+            let modified_unix_secs = Self::modified_unix_secs(path);
+            bytes_scanned = bytes_scanned.saturating_add(byte_size);
+            if !large_warning_logged && bytes_scanned > large_warning_bytes {
+                large_warning_logged = true;
+                tracing::warn!(
+                    "Emulator user data under {} exceeds {} bytes for emulator {emulator_id}",
+                    cache_root.display(),
+                    large_warning_bytes
+                );
+            }
+
+            if let Some(cached) = sync_state.user_data_files.get(&relative) {
+                if cached.byte_size == byte_size
+                    && cached.modified_unix_secs == modified_unix_secs
+                    && remote_sha.get(&relative) == Some(&cached.sha256)
+                {
+                    continue;
+                }
+            }
 
             let local_sha = Self::sha256_file(path)
                 .map_err(|e| crate::Error::Internal(format!("sha for {}: {e}", relative)))?;
@@ -898,6 +970,15 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 )
                 .await;
             }
+
+            sync_state.user_data_files.insert(
+                relative,
+                UserDataFileState {
+                    sha256: local_sha,
+                    byte_size,
+                    modified_unix_secs,
+                },
+            );
         }
 
         // Deletion support in up-sync (push local as truth): if a user data file
@@ -916,11 +997,20 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                     .query(&[("relative_path", rel.as_str())])
                     .send()
                     .await;
+                sync_state.user_data_files.remove(rel);
             }
         }
 
+        sync_state.last_user_data_sync_unix_secs = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or_default(),
+        );
+        save_sync_state(&cache_root, &sync_state)?;
+
         tracing::info!(
-            "Emulator user data push complete for emulator {emulator_id}: scanned {scanned}, uploaded {uploaded}, bytes {bytes}"
+            "Emulator user data push complete for emulator {emulator_id}: scanned {scanned}, scanned_bytes {bytes_scanned}, uploaded {uploaded}, bytes {bytes}"
         );
 
         self.set_progress(

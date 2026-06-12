@@ -128,7 +128,7 @@ const gameMusic = {
       state.status === "error"
     ) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this._recordOutcome(state.url, state.status as any);
+      if (state.url) this._recordOutcome(state.url, state.status as any);
     }
 
     this._setStatus(state);
@@ -1004,7 +1004,7 @@ function GameListItem(props: {
       const magic = createUrl({ path: `media/games/${game.id}/theme`, base: publicUrlForMusic })?.href;
       if (magic) return magic;
     }
-    const firstAudio = (metaForMusic?.metadata?.videoUrls || []).find(isAudioUrl);
+    const firstAudio = (metaForMusic?.metadata.at(0)?.videoUrls || []).find(isAudioUrl);
     // If the audio url from videoUrls is itself a relative local path, resolve it too for consistency.
     if (firstAudio && publicUrlForMusic && !/^https?:/i.test(firstAudio)) {
       return createUrl({ path: firstAudio, base: publicUrlForMusic })?.href || firstAudio;

@@ -1,8 +1,15 @@
-import { DeleteEmulatorPackagesRequestSchema } from "@retrom/codegen/retrom/services/emulator-package-service_pb";
 import { useRetromClient } from "@/providers/retrom-client";
 import { useToast } from "@retrom/ui/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MessageInitShape } from "@bufbuild/protobuf";
+
+type DeleteEmulatorPackagesRequest = {
+  packageIds: number[];
+  deleteFiles?: boolean;
+};
+
+type DeleteEmulatorPackagesResponse = {
+  deletedPackageIds: number[];
+};
 
 export function useDeleteEmulatorPackages() {
   const { toast } = useToast();
@@ -10,9 +17,13 @@ export function useDeleteEmulatorPackages() {
   const retromClient = useRetromClient();
 
   return useMutation({
-    mutationFn: (
-      request: MessageInitShape<typeof DeleteEmulatorPackagesRequestSchema>,
-    ) => retromClient.emulatorPackageClient.deleteEmulatorPackages(request),
+    mutationFn: (request: DeleteEmulatorPackagesRequest) => {
+      const client = retromClient.emulatorPackageClient as any;
+      if (typeof client.deleteEmulatorPackages !== "function") {
+        throw new Error("Deleting emulator packages is not supported by this server build");
+      }
+      return client.deleteEmulatorPackages(request) as Promise<DeleteEmulatorPackagesResponse>;
+    },
     onError: (err) => {
       toast({
         title: "Failed to remove emulator package",
@@ -20,7 +31,7 @@ export function useDeleteEmulatorPackages() {
         description: err.message,
       });
     },
-    onSuccess: async ({ deletedPackageIds }) => {
+    onSuccess: async ({ deletedPackageIds }: DeleteEmulatorPackagesResponse) => {
       toast({
         title:
           deletedPackageIds.length === 1
