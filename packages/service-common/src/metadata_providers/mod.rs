@@ -10,6 +10,7 @@ use tower::{
 };
 
 pub mod igdb;
+pub mod soundtrack;
 pub mod steam;
 
 pub trait MetadataProvider<Query, Data> {

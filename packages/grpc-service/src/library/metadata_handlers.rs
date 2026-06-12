@@ -14,10 +14,13 @@ use retrom_codegen::retrom::{
     UpdateLibraryMetadataResponse, UpdatedGameMetadata,
 };
 use retrom_db::schema;
+use retrom_service_common::media_cache::cacheable_media::CacheableMetadata;
 use retrom_service_common::metadata_providers::{
     igdb::provider::IgdbSearchData, GameMetadataProvider, MetadataProvider,
     PlatformMetadataProvider,
+    soundtrack::{extract_video_id_from_url, find_theme_audio_file, try_extract_theme_audio},
 };
+use retrom_service_common::retrom_dirs::RetromDirs;
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
@@ -28,8 +31,10 @@ use tracing::instrument;
 #[instrument(skip(state))]
 pub async fn update_metadata(
     state: &LibraryServiceHandlers,
-    overwrite: bool,
+    req: retrom_codegen::retrom::UpdateLibraryMetadataRequest,
 ) -> Result<UpdateLibraryMetadataResponse, String> {
+    let overwrite = req.overwrite.unwrap_or(false);
+    let overwrite_theme_audio = req.overwrite_theme_audio.unwrap_or(false);
     let db_pool = state.db_pool.clone();
     let mut conn = match db_pool.get().await {
         Ok(conn) => conn,
@@ -612,10 +617,123 @@ pub async fn update_metadata(
         _ => return Err("Failed to spawn extra metadata job".to_string()),
     };
 
+    // === Up-front theme audio extraction (the "download" that becomes persistent NAS/local metadata) ===
+    // This is the main integration point: theme extraction (with 10min video cap + duration
+    // probes + min-length bias + --download-sections chunking inside the soundtrack module)
+    // now happens as part of the deliberate "Download Metadata" / initial library grab / refresh
+    // jobs (via JobManager) instead of lazily on every GetGameMetadata.
+    //
+    // We select substantial themes (avoiding 15s micro-clips) and download a good chunk
+    // (up to ~6min) so the looped preview feels satisfying. Providers already ran the
+    // (now quality-aware) find_soundtrack_url during the game metadata phase.
+    // Backfills for games with a soundtrack url but no theme.* file yet.
+    // Resulting files under public/media/games/{id}/ power the client via themeAudioUrl
+    // (strict audio-only for the music player).
+    //
+    // Re-load games here because the earlier `games` binding was moved into extra_metadata_tasks.
+    let games_for_theme: Vec<retrom::Game> = {
+        let mut conn = match db_pool.get().await {
+            Ok(c) => c,
+            Err(_) => {
+                // Rare; skip the theme phase this run. It will naturally backfill on next
+                // metadata update or individual Get (light ensure path).
+                return Ok(UpdateLibraryMetadataResponse {
+                    platform_metadata_job_id: platform_metadata_job_id.to_string(),
+                    game_metadata_job_id: game_metadata_job_id.to_string(),
+                    extra_metadata_job_id: extra_metadata_job_id.to_string(),
+                    steam_metadata_job_id,
+                    theme_audio_job_id: None,
+                });
+            }
+        };
+        schema::games::table
+            .filter(schema::games::third_party.eq(false))
+            .load::<retrom::Game>(&mut conn)
+            .await
+            .unwrap_or_default()
+    };
+
+    let theme_audio_tasks: Vec<_> = games_for_theme
+        .into_iter()
+        .map(|game| {
+            let db_pool = db_pool.clone();
+            async move {
+                let mut conn = match db_pool.get().await {
+                    Ok(c) => c,
+                    Err(_) => return Ok::<(), ()>(()),
+                };
+
+                let meta_row: retrom::GameMetadata = match schema::game_metadata::table
+                    .filter(schema::game_metadata::game_id.eq(game.id))
+                    .first::<retrom::GameMetadata>(&mut conn)
+                    .await
+                {
+                    Ok(m) => m,
+                    Err(_) => return Ok(()),
+                };
+                drop(conn);
+
+                let first_url = match meta_row.video_urls.get(0) {
+                    Some(u) => u,
+                    None => return Ok(()),
+                };
+
+                let lower = first_url.to_ascii_lowercase();
+                if !lower.contains("youtube.com/watch") && !lower.contains("youtu.be/") {
+                    return Ok(());
+                }
+
+                // Same cache dir logic as CacheableMetadata for GameMetadata (media/games/<id>).
+                let cache_dir = meta_row.get_cache_dir().unwrap_or_else(|| {
+                    RetromDirs::new()
+                        .media_dir()
+                        .join("games")
+                        .join(game.id.to_string())
+                });
+
+                if find_theme_audio_file(&cache_dir).is_some() && !overwrite_theme_audio {
+                    return Ok(());
+                }
+
+                if let Some(vid) = extract_video_id_from_url(first_url) {
+                    tracing::info!(
+                        "up-front theme audio extract (substantial chunk, force={}) for game {} (video id {})",
+                        overwrite_theme_audio, game.id, vid
+                    );
+                    // Duration filtering, min-length preference, and --download-sections chunking
+                    // (for good loop lengths) live inside the soundtrack module + try_extract.
+                    let _ = try_extract_theme_audio(&vid, cache_dir, overwrite_theme_audio).await;
+                }
+
+                Ok(())
+            }
+        })
+        .collect();
+
+    let theme_audio_job_id = if !theme_audio_tasks.is_empty() {
+        let theme_job_opts = JobOptions {
+            wait_on_jobs: Some(vec![game_metadata_job_id]),
+        };
+        match job_manager
+            .spawn(
+                "Extracting Game Theme Audio (short themes only)",
+                theme_audio_tasks,
+                Some(theme_job_opts),
+            )
+            .await
+        {
+            Ok(id) => Some(id.to_string()),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
     Ok(UpdateLibraryMetadataResponse {
         platform_metadata_job_id: platform_metadata_job_id.to_string(),
         game_metadata_job_id: game_metadata_job_id.to_string(),
         extra_metadata_job_id: extra_metadata_job_id.to_string(),
         steam_metadata_job_id,
+        theme_audio_job_id,
     })
 }

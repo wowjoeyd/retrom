@@ -97,6 +97,7 @@ export function useUpdateLibrary() {
               metaResp.platformMetadataJobId,
               metaResp.extraMetadataJobId,
               metaResp.steamMetadataJobId,
+              metaResp.themeAudioJobId,
             ].filter(Boolean) as string[];
 
             metaJobIds.forEach((jobId) => {

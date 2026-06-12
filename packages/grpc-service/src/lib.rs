@@ -126,13 +126,12 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
 
     let emulator_packages_enabled = emulator_packages::emulator_packages_enabled();
 
-    let emulator_package_service = EmulatorPackageServiceServer::new(
-        EmulatorPackageServiceHandlers::new(
+    let emulator_package_service =
+        EmulatorPackageServiceServer::new(EmulatorPackageServiceHandlers::new(
             library_pool.clone(),
             job_manager.clone(),
             config_manager.clone(),
-        ),
-    );
+        ));
 
     let metadata_service = MetadataServiceServer::new(MetadataServiceHandlers::new(
         shared_pool.clone(),
@@ -142,6 +141,17 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         job_manager.clone(),
         config_manager.clone(),
     ));
+
+    // Proactively ensure yt-dlp binary is downloaded for the soundtrack theme audio extraction feature.
+    // This makes the fullscreen game music preview "just work" in dev (pnpm nx dev retrom-client)
+    // and prod without the user manually installing yt-dlp. The binary is placed in the app's
+    // data dir (bin/yt-dlp or .exe) on first service start if missing.
+    tokio::spawn(async {
+        match retrom_service_common::metadata_providers::soundtrack::ensure_yt_dlp().await {
+            Some(path) => tracing::info!("yt-dlp binary ensured for theme audio extraction at {:?}", path),
+            None => tracing::warn!("Could not ensure yt-dlp binary (theme audio extraction may fall back)"),
+        }
+    });
 
     let game_service = GameServiceServer::new(GameServiceHandlers::new(shared_pool.clone()));
     let platform_service = PlatformServiceServer::new(PlatformServiceHandlers::new(
