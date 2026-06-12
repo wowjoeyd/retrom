@@ -33,6 +33,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::unsubscribe_from_emulator_sync_updates,
             commands::abort_emulator_sync,
             commands::open_emulator_cache_dir,
+            commands::push_emulator_preserve_data,
+            commands::pull_emulator_user_data,
         ])
         .setup(|app, api| {
             let manager = desktop::init(app, api)?;

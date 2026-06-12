@@ -2,6 +2,7 @@ use crate::EmulatorSyncExt;
 use prost::Message;
 use retrom_codegen::retrom::client::emulator_sync::{
     EnsureEmulatorSyncedPayload, GetEmulatorSyncStatusPayload, GetEmulatorSyncStatusResponse,
+    PushEmulatorPreservePayload, PushEmulatorPreserveResponse,
 };
 use tauri::{ipc::Channel, AppHandle, Runtime};
 use tauri_plugin_opener::OpenerExt;
@@ -93,4 +94,44 @@ pub async fn open_emulator_cache_dir<R: Runtime>(app: AppHandle<R>) -> crate::Re
     app.opener()
         .open_path(path.to_string_lossy(), None::<&str>)?;
     Ok(())
+}
+
+#[instrument(skip_all)]
+#[tauri::command]
+pub async fn push_emulator_preserve_data<R: Runtime>(
+    app_handle: AppHandle<R>,
+    payload: Vec<u8>,
+) -> crate::Result<Vec<u8>> {
+    let payload = PushEmulatorPreservePayload::decode(payload.as_slice())?;
+    let manager = app_handle.emulator_sync();
+
+    let result = manager
+        .push_preserve_data(payload.emulator_id)
+        .await?;
+
+    Ok(PushEmulatorPreserveResponse {
+        emulator_id: payload.emulator_id,
+        files_uploaded: result.files_uploaded,
+        bytes_uploaded: result.bytes_uploaded,
+    }
+    .encode_to_vec())
+}
+
+#[instrument(skip_all)]
+#[tauri::command]
+pub async fn pull_emulator_user_data<R: Runtime>(
+    app_handle: AppHandle<R>,
+    payload: Vec<u8>,
+) -> crate::Result<Vec<u8>> {
+    let payload = PushEmulatorPreservePayload::decode(payload.as_slice())?;
+    let manager = app_handle.emulator_sync();
+
+    let result = manager.pull_user_data(payload.emulator_id).await?;
+
+    Ok(PushEmulatorPreserveResponse {
+        emulator_id: payload.emulator_id,
+        files_uploaded: result.files_uploaded,
+        bytes_uploaded: result.bytes_uploaded,
+    }
+    .encode_to_vec())
 }

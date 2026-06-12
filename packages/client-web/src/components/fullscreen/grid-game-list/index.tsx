@@ -3,8 +3,10 @@ import { InterfaceConfig_GameListEntryImageJson } from "@retrom/codegen/retrom/c
 import { getFileStub } from "@/lib/utils";
 import { useConfig } from "@/providers/config";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { FocusContainer, useFocusable } from "../focus-container";
+import { Music2, VolumeX } from "lucide-react";
+import { create } from "zustand";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { Group, useGroupContext } from "@/providers/fullscreen/group-context";
 import { Separator } from "@retrom/ui/components/separator";
@@ -22,14 +24,18 @@ import { Skeleton } from "@retrom/ui/components/skeleton";
 
 type GameMusicSourceType = "youtube" | "audio";
 
+type GameMusicStatus = "idle" | "loading" | "playing" | "blocked" | "error" | "missing";
+
 type GameMusicState = {
-  status: "loading" | "playing" | "blocked" | "error";
-  url: string;
+  visible: boolean;
+  status: GameMusicStatus;
   title?: string;
+  url?: string;
   sourceType?: GameMusicSourceType;
   message?: string;
-  setStatus?: (s: any) => void;
-  hide?: () => void;
+  updatedAt: number;
+  setStatus: (state: Omit<Partial<GameMusicState>, "setStatus" | "hide">) => void;
+  hide: () => void;
 };
 
 const gameMusic = {
@@ -38,6 +44,7 @@ const gameMusic = {
   sourceType: null as GameMusicSourceType | null,
   currentVideoId: null as string | null,
   fadeInterval: null as any,
+  outgoingFadeInterval: null as ReturnType<typeof setInterval> | null,
   loadingTimeout: null as ReturnType<typeof setTimeout> | null,
   stopTimeout: null as ReturnType<typeof setTimeout> | null,
   apiPromise: null as Promise<void> | null,
@@ -64,6 +71,11 @@ const gameMusic = {
   // Allows automatic fallback when a video returns embed-restricted errors (101/150).
   lastCandidates: [] as readonly string[],
   currentCandidateIndex: 0,
+  // Tracks which game "owns" the currently loaded/playing theme so that transitioning
+  // from grid hover into the detail view (or back) for the exact same game continues
+  // playback seamlessly even if the computed source URL string differs (e.g. the
+  // bare magic `.../theme` vs the exact `.../theme.webm` from mediaPaths).
+  currentGameId: null as number | null,
 
   ensureApi(): Promise<void> {
     if (this.apiReady && (window as any).YT?.Player) {
@@ -100,8 +112,7 @@ const gameMusic = {
   },
 
   _setStatus(state: Omit<Partial<GameMusicState>, "setStatus" | "hide">) {
-    // In real impl this would update a zustand or context, but for the global we just keep in activeStatus
-    // (the NowPlaying component and callers read from the exported player)
+    useGameMusicStatus.getState().setStatus(state);
   },
 
   _finishStatus(state: Omit<Partial<GameMusicState>, "setStatus" | "hide">) {
@@ -222,30 +233,168 @@ const gameMusic = {
     }, 280);
   },
 
+  _clearAllFades() {
+    if (this.fadeInterval) {
+      clearInterval(this.fadeInterval);
+      this.fadeInterval = null;
+    }
+    if (this.outgoingFadeInterval) {
+      clearInterval(this.outgoingFadeInterval);
+      this.outgoingFadeInterval = null;
+    }
+  },
+
   async playForGame(
     videoUrl: string | undefined,
     targetVolume: number,
     fadeMs: number,
     title?: string,
     candidates: readonly string[] = [],
+    gameId?: number,
   ) {
-    // Stop any previous
-    this.stop(fadeMs, this.activeStatus?.url);
+    // Strong same-game continuation: if this call is for the exact same gameId that we are
+    // currently tracking as playing (set by a prior hover or detail play for that game),
+    // treat it as a continuation request. Do NOT run the hard reset, do NOT change .src,
+    // do NOT call play() again, do NOT reset playback position. This ensures that
+    // "hover game 21 (starts song) → click into detail for game 21" continues the
+    // exact same audio element/loop without audible restart.
+    // Only calls with a *different* gameId (or no gameId + different url) will switch.
+    // This is placed *first* so it wins even if videoUrl is temporarily falsy during
+    // query loading in the detail, or if sourceType was cleared, etc.
+    if (gameId != null && this.currentGameId === gameId) {
+      if (gameId != null) {
+        this.currentGameId = gameId;
+      }
+      if (videoUrl && this.activeStatus) {
+        this.activeStatus = {
+          ...this.activeStatus,
+          title,
+          targetVolume,
+          fadeMs,
+          url: videoUrl || this.activeStatus.url,
+        };
+      } else if (videoUrl) {
+        this.activeStatus = { title, url: videoUrl, sourceType: "audio", targetVolume, fadeMs };
+        this.sourceType = "audio";
+      }
+      const a = this.audio;
+      if (a && this.sourceType === "audio") {
+        if (a.paused && videoUrl) {
+          // resume if it was paused but we still have the src from previous (no stop happened)
+          const p = a.play();
+          if (p && typeof p.catch === "function") {
+            p.catch((e: any) => { if (e && e.name !== "AbortError") console.warn("resume play error", e); });
+          }
+        }
+        this._fadeTo(targetVolume, Math.max(50, Math.min(fadeMs || 150, 150)));
+      }
+      if (videoUrl) {
+        this._finishStatus({
+          status: (a && !a.paused) ? "playing" : "blocked",
+          url: videoUrl,
+          title,
+          sourceType: this.sourceType || "audio",
+        });
+      }
+      return;
+    }
 
     if (!videoUrl) {
       this._finishStatus({ status: "blocked", url: "", title, sourceType: "audio" });
       return;
     }
 
-    // Check recent result cache for fast path
+    // Strict enforcement for the *music* (bg theme) player only: never allow YT/watch URLs here.
+    // Local yt-dlp extracted theme.* (or audio files) via the mediaPaths + magic "theme" base
+    // is the supported path (embeds are fragile under COI/tracking prevention in the webview).
+    // The Videos tab and other embed paths are unaffected and continue to work.
+    // (This guard was part of the prior switching/robustness fixes.)
+    if (videoUrl && isYoutubeWatchUrl(videoUrl)) {
+      this._finishStatus({
+        status: "blocked",
+        url: videoUrl,
+        title,
+        sourceType: "audio",
+        message: "YouTube URLs are not used for game theme music (use Download Metadata for local theme.*)",
+      });
+      return;
+    }
+
+    // Check recent result cache for fast path (only short-circuit terminal failures)
     const recent = this.recentResults.get(videoUrl);
     if (recent && Date.now() - recent.ts < 15000) {
       if (recent.outcome === "blocked" || recent.outcome === "error") {
-        this._finishStatus({ status: recent.outcome as any, url: videoUrl, title, sourceType: "youtube" });
+        const looksAudio = isAudioUrl(videoUrl) || videoUrl.includes("/theme");
+        this._finishStatus({
+          status: recent.outcome as any,
+          url: videoUrl,
+          title,
+          sourceType: looksAudio ? "audio" : "youtube",
+        });
         return;
       }
     }
 
+    // Fallback same-URL continuation (for calls that don't pass gameId, or legacy paths).
+    // The primary same-gameId logic is handled at the very top of the function.
+    const isSameUrl = this.activeStatus?.url === videoUrl;
+    if (isSameUrl && this.sourceType) {
+      if (this.activeStatus) {
+        this.activeStatus = {
+          ...this.activeStatus,
+          title,
+          targetVolume,
+          fadeMs,
+          url: videoUrl || this.activeStatus.url,
+        };
+      }
+      if (this.audio && this.sourceType === "audio") {
+        this._fadeTo(targetVolume, Math.max(50, Math.min(fadeMs, 150)));
+      } else if (this.player && this.sourceType === "youtube") {
+        this._fadeTo(targetVolume, Math.max(50, Math.min(fadeMs, 150)));
+      }
+      this._finishStatus({
+        status: "playing",
+        url: videoUrl,
+        title,
+        sourceType: this.sourceType,
+      });
+      return;
+    }
+
+    // Real switch to a different game's theme (or first play after stop).
+    // Now it is safe to abort prior work without disrupting an "in use" track.
+    // On rapid hover/focus changes between games (or grid <-> detail), we must
+    // synchronously abort any pending volume fades (the ones scheduled inside
+    // stop() for "nice" tail-off) and any in-flight audio.load()/play() from a
+    // previous game's theme. Otherwise the old outgoing fade's setInterval keeps
+    // mutating .volume and eventually does .src = "" on the *shared* Audio
+    // element, causing crackles, abrupt stops, and the new track never stabilizing.
+    this._clearAllFades();
+
+    // Hard reset the audio element (and pause any YT) to abort fetches/decodes/plays.
+    // This must happen *before* we assign a new activeStatus or new src.
+    try {
+      if (this.audio) {
+        this.audio.onerror = null;
+        this.audio.oncanplay = null;
+        this.audio.pause();
+        this.audio.src = "";
+        this.audio.load(); // aborts any pending network request for prior theme
+      }
+      if (this.player && typeof this.player.pauseVideo === "function") {
+        this.player.pauseVideo();
+      }
+    } catch {}
+
+    // Note: we intentionally do *not* call this.stop(fadeMs, ...) on the switch path.
+    // stop() (with its fade) is reserved for terminal stops (music disabled, leaving
+    // fullscreen area, etc.). Using it here for inter-game switches was the source of
+    // the uncoordinated async fade clobbering the next play.
+
+    if (gameId != null) {
+      this.currentGameId = gameId;
+    }
     this.activeStatus = { title, url: videoUrl, sourceType: "audio", targetVolume, fadeMs };
     this.lastCandidates = candidates.length ? candidates : [videoUrl];
     this.currentCandidateIndex = this.lastCandidates.indexOf(videoUrl);
@@ -256,7 +405,9 @@ const gameMusic = {
 
     if (isAudio) {
       this.sourceType = "audio";
-      // Create or reuse audio element
+
+      // (Re)use a single audio element for all game themes. We already hard-reset
+      // above so prior game state/handlers/loads cannot interfere.
       if (!this.audio) {
         this.audio = new Audio();
         this.audio.loop = true;
@@ -264,42 +415,39 @@ const gameMusic = {
       }
       this.audio.volume = 0;
 
-      const isMagicTheme = videoUrl.includes("theme") && !/\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(videoUrl.split("?")[0] || videoUrl);
-
-      if (isMagicTheme) {
-        // Magic base path for yt-dlp extracted theme.* (any container). Try common exts until one loads.
-        // This avoids 404 on the bare "theme" path (server only serves theme.<ext> files).
-        const themeExts = ["m4a", "webm", "opus", "ogg", "mp3", "flac", "wav"];
-        let extIdx = 0;
-        const tryNextExt = () => {
-          if (extIdx >= themeExts.length) {
-            this._finishStatus({ status: "error", url: videoUrl, title, sourceType: "audio", message: "no matching theme.* file" });
-            return;
-          }
-          const ext = themeExts[extIdx++];
-          this.audio.src = `${videoUrl}.${ext}`;
-          this.audio.play().catch(tryNextExt);
-        };
-        this.audio.onerror = tryNextExt;
-        tryNextExt();
-        // Note: status will be set on first successful play via the try in caller? For simplicity, assume success path in first play attempt; error will mark.
-        // To properly await, we could wrap, but for now fire the attempts. The fade/status is optimistic on first.
+      // Always use the provided videoUrl directly as the audio src.
+      // - If the GetGameMetadata response included an exact themeAudioUrl (with .ext),
+      //   we use that (preferred, no server lookup needed).
+      // - If falling back to our constructed magic bare ".../media/games/{id}/theme",
+      //   the server public handler (see public.rs) will on-demand call
+      //   find_theme_audio_file for the game and serve the actual extracted file's
+      //   bytes with the correct Content-Type. This makes the fallback work even
+      //   when the metadata response didn't populate themeAudioUrl, and eliminates
+      //   client-side ext probing + associated 404 spam.
+      // The same bare/exact logic is used in the non-fullscreen Theme tab.
+      this.audio.src = videoUrl;
+      this.audio.load();
+      try {
+        await this.audio.play();
+        // Re-validate after the await: a rapid subsequent hover may have already
+        // hard-reset the element and installed a newer activeStatus/url.
+        if (this.activeStatus?.url !== videoUrl || this.sourceType !== "audio") {
+          return;
+        }
         this._fadeTo(targetVolume, fadeMs);
         this._finishStatus({ status: "playing", url: videoUrl, title, sourceType: "audio" });
-      } else {
-        this.audio.src = videoUrl;
-        try {
-          await this.audio.play();
-          this._fadeTo(targetVolume, fadeMs);
-          this._finishStatus({ status: "playing", url: videoUrl, title, sourceType: "audio" });
-        } catch (e) {
-          this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
-        }
+      } catch (e: any) {
+        if (e && e.name === "AbortError") return;
+        if (this.activeStatus?.url !== videoUrl) return;
+        this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
       }
       return;
     }
 
     // YouTube path
+    if (gameId != null) {
+      this.currentGameId = gameId;
+    }
     this.sourceType = "youtube";
     await this.ensureApi();
 
@@ -427,12 +575,23 @@ const gameMusic = {
     if (!next) return false;
     // restart play with next (fire and forget)
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    this.playForGame(next, this.activeStatus?.targetVolume ?? 0.3, this.activeStatus?.fadeMs ?? 700, this.activeStatus?.title, this.lastCandidates);
+    this.playForGame(
+      next,
+      this.activeStatus?.targetVolume ?? 0.3,
+      this.activeStatus?.fadeMs ?? 700,
+      this.activeStatus?.title,
+      this.lastCandidates,
+      this.currentGameId ?? undefined,
+    );
     return true;
   },
 
-  stop(fadeMs = 300, forUrl?: string) {
-    if (forUrl && this.activeStatus?.url !== forUrl) return;
+  stop(fadeMs = 300, forUrl?: string, forGameId?: number) {
+    if (forUrl && this.activeStatus?.url !== forUrl) {
+      if (forGameId == null || this.currentGameId !== forGameId) return;
+    }
+
+    this._clearAllFades();
 
     const p = this.player;
     const a = this.audio;
@@ -450,11 +609,20 @@ const gameMusic = {
         if (fadeMs > 0) {
           const startVol = a.volume;
           const start = Date.now();
-          const iv = setInterval(() => {
+          this.outgoingFadeInterval = setInterval(() => {
             const t = Math.min(1, (Date.now() - start) / fadeMs);
             a.volume = startVol * (1 - t);
             if (t >= 1) {
-              clearInterval(iv);
+              if (this.outgoingFadeInterval) {
+                clearInterval(this.outgoingFadeInterval);
+                this.outgoingFadeInterval = null;
+              }
+              // Guard: if a newer playForGame has already taken over (new activeStatus),
+              // do not blank the src of the current track. This can happen on rapid
+              // hover switches where an in-flight stop-fade's final tick fires late.
+              if (this.activeStatus) {
+                return;
+              }
               a.pause();
               a.src = "";
             }
@@ -467,34 +635,38 @@ const gameMusic = {
     }
 
     this._stopStatePoller();
-    if (this.fadeInterval) {
-      clearInterval(this.fadeInterval);
-      this.fadeInterval = null;
-    }
+    this.currentGameId = null;
     this.activeStatus = null;
     this.sourceType = null;
+    useGameMusicStatus.getState().hide();
   },
 
   // allow the focus container etc to force a user-gesture playback start (needed for YT in some webviews)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   userActivatePlayback() {
     this._stopStatePoller?.();
+    this._clearAllFades?.();
     const p = this.player;
     if (p && typeof p.playVideo === "function") {
       try { p.playVideo(); } catch {}
     }
     const a = this.audio;
     if (a) {
-      try { a.play(); } catch {}
+      try {
+        const p = a.play();
+        if (p && typeof p.catch === "function") {
+          p.catch((e: any) => { if (e && e.name !== "AbortError") console.warn("userActivate play error", e); });
+        }
+      } catch {}
     }
   },
 };
 
 // Public API used by grid cards + detail page + now playing
 export const gameMusicPlayer = {
-  playForGame: (url: string | undefined, vol: number, fade: number, title?: string, cands?: readonly string[]) =>
-    gameMusic.playForGame(url, vol, fade, title, cands),
-  stop: (fade?: number, url?: string) => gameMusic.stop(fade, url),
+  playForGame: (url: string | undefined, vol: number, fade: number, title?: string, cands?: readonly string[], gameId?: number) =>
+    gameMusic.playForGame(url, vol, fade, title, cands, gameId),
+  stop: (fade?: number, url?: string, gameId?: number) => gameMusic.stop(fade, url, gameId),
   userActivatePlayback: () => gameMusic.userActivatePlayback?.(),
 };
 
@@ -510,6 +682,19 @@ export function isYoutubeWatchUrl(url: string): boolean {
     return false;
   }
 }
+
+export const useGameMusicStatus = create<GameMusicState>()((set) => ({
+  visible: false,
+  status: "idle",
+  updatedAt: 0,
+  setStatus: (state) =>
+    set({
+      ...state,
+      visible: state.status !== "idle",
+      updatedAt: Date.now(),
+    }),
+  hide: () => set({ visible: false }),
+}));
 
 export function useGameMusic(gameId: number) {
   const { rawEnabled, rawVolume, rawFade } = useConfig((s) => {
@@ -530,9 +715,119 @@ export function useGameMusic(gameId: number) {
   return { enabled, volume, fade };
 }
 
-// Minimal NowPlaying stub (the real one may live in menubar or a separate component; expose for completeness)
 export function GameMusicNowPlaying() {
-  return null;
+  const { visible, status, title, sourceType, message, updatedAt, hide, url } =
+    useGameMusicStatus((state) => ({
+      visible: state.visible,
+      status: state.status,
+      title: state.title,
+      sourceType: state.sourceType,
+      message: state.message,
+      updatedAt: state.updatedAt,
+      hide: state.hide,
+      url: state.url,
+    }));
+
+  useEffect(() => {
+    if (!visible || status === "loading") return;
+
+    // Keep "unavailable / missing" visible longer,
+    // especially useful when focused in the grid.
+    const hideMs = status === "playing" ? 5000 : (status === "missing" || status === "error" ? 14000 : 9000);
+    const timeout = window.setTimeout(() => hide(), hideMs);
+
+    return () => window.clearTimeout(timeout);
+  }, [visible, status, updatedAt, hide]);
+
+  const isPlaying = status === "playing" || status === "loading";
+  const isBlocked = status === "blocked" || status === "error";
+  const label =
+    status === "playing"
+      ? "Now Playing"
+      : status === "loading"
+        ? "Loading Soundtrack"
+        : "Soundtrack Unavailable";
+
+  // When blocked we want the Play preview button to be clickable, so allow events on the banner.
+  const interactive = isBlocked;
+
+  if (!visible) return null;
+
+  return (
+    <div
+      className={cn(
+        "fixed bottom-8 left-1/2 z-[90] w-[min(92vw,34rem)] -translate-x-1/2",
+        "transition-all duration-500 ease-out",
+        interactive ? "pointer-events-auto" : "pointer-events-none",
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
+      )}
+    >
+      <div
+        className={cn(
+          "border bg-background/95 shadow-lg backdrop-blur px-4 py-3",
+          "flex items-center gap-3",
+          isPlaying ? "border-accent" : "border-destructive/60",
+        )}
+      >
+        <div
+          className={cn(
+            "size-10 grid place-items-center border",
+            isPlaying
+              ? "border-accent text-accent-foreground bg-accent/15"
+              : "border-destructive/60 text-destructive bg-destructive/10",
+          )}
+        >
+          {isPlaying ? <Music2 size={22} /> : <VolumeX size={22} />}
+        </div>
+
+        <div className="min-w-0 flex flex-col">
+          <p className="text-xs uppercase font-bold text-muted-foreground">
+            {label}
+            {sourceType ? ` via ${sourceType}` : ""}
+          </p>
+          <p className="text-base font-semibold truncate">
+            {title || "Game soundtrack"}
+          </p>
+          {message && status !== "playing" ? (
+            <p className="text-sm text-muted-foreground truncate">{message}</p>
+          ) : null}
+
+          {isBlocked && (
+            <>
+              <button
+                type="button"
+                className="mt-1 w-fit text-xs font-medium underline underline-offset-2 text-accent hover:text-accent-foreground pointer-events-auto"
+                onClick={() => {
+                  try {
+                    (gameMusicPlayer as any).userActivatePlayback?.();
+                  } catch {}
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                Play preview
+              </button>
+
+              {sourceType === "youtube" && url && (
+                <button
+                  type="button"
+                  className="mt-1 ml-2 w-fit text-xs font-medium underline underline-offset-2 text-muted-foreground hover:text-foreground pointer-events-auto"
+                  onClick={() => {
+                    try {
+                      window.open(url, "_blank", "noopener,noreferrer");
+                    } catch {}
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  title="Open the full theme video on YouTube in your browser"
+                >
+                  Watch on YouTube
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // =====================================================
@@ -674,11 +969,18 @@ function GameListItem(props: {
   const { imageType = "COVER" } =
     useConfig((s) => s.config?.interface?.fullscreenConfig?.gridList) ?? {};
 
+  // Respect the "Play game music on focus/hover" toggle from either config menu.
+  // This makes the checkbox in both the fullscreen menubar config and the general config
+  // actually turn the automatic theme music on/off for grid hover + detail pages.
+  const { enabled, volume: musicVolume, fade: musicFade } = useGameMusic(game.id);
+
   // Fetch per-game metadata so we can prefer its theme audio (yt-dlp) on hover/focus in the grid
   const { data: metaForMusic } = useGameMetadata({
     request: { gameIds: [game.id] },
     selectFn: (d) => d,
   });
+
+  const publicUrlForMusic = usePublicUrl();
 
   const musicSourceForHover = useMemo(() => {
     const mp = metaForMusic?.mediaPaths as any;
@@ -688,21 +990,51 @@ function GameListItem(props: {
       else entry = mp[game.id] ?? mp[String(game.id)];
     }
     const themeRel = entry?.themeAudioUrl;
-    if (themeRel) {
-      // the global player will resolve the magic or use the url
-      return themeRel; // relative is fine, player + detail use publicUrl but for simplicity pass full if possible
+    if (themeRel && publicUrlForMusic) {
+      // Always pass a fully resolved absolute public URL (with the correct game id) to the player.
+      // This guarantees that hovering/focusing a different game produces a distinct source string
+      // (e.g. .../media/games/21/theme or .../media/games/21/theme.m4a), so playForGame + stop will
+      // actually switch the underlying audio resource instead of sticking on one game's song.
+      // Matches the construction used in the detail view and in GameImage below.
+      return createUrl({ path: themeRel, base: publicUrlForMusic })?.href;
+    }
+    if (!themeRel && publicUrlForMusic) {
+      // Robust magic base fallback for yt-dlp "theme.*" (any ext) exactly like the prior fixes and
+      // the non-fullscreen Theme tab. The player will try theme.m4a, theme.webm, etc.
+      const magic = createUrl({ path: `media/games/${game.id}/theme`, base: publicUrlForMusic })?.href;
+      if (magic) return magic;
     }
     const firstAudio = (metaForMusic?.metadata?.videoUrls || []).find(isAudioUrl);
+    // If the audio url from videoUrls is itself a relative local path, resolve it too for consistency.
+    if (firstAudio && publicUrlForMusic && !/^https?:/i.test(firstAudio)) {
+      return createUrl({ path: firstAudio, base: publicUrlForMusic })?.href || firstAudio;
+    }
     return firstAudio;
-  }, [metaForMusic, game.id]);
+  }, [metaForMusic, game.id, publicUrlForMusic]);
+
+  // When the toggle is turned off (from either config menu), stop any current music.
+  // New hover/focus will simply not start it while disabled.
+  useEffect(() => {
+    if (!enabled) {
+      gameMusicPlayer.stop(300);
+    }
+  }, [enabled]);
 
   const startMusicForThisGame = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (gameMusicPlayer as any).userActivatePlayback?.();
+    if (!enabled) return;
+
     if (musicSourceForHover) {
-      // Call playForGame so the correct per-game theme / audio is used for this hover
-      // (volume/fade will come from config inside the hook usage on detail; here we use defaults that the global player respects)
-      gameMusicPlayer.playForGame(musicSourceForHover, 0.35, 600, game.metadata?.name || getFileStub(game.path));
+      // Call playForGame with the configured volume/fade from the shared gameMusic config.
+      // The checkbox in both menus controls this (and the detail page already respected it).
+      // User gesture from focus/mouse should allow autoplay; the banner provides "Play preview" fallback if blocked.
+      gameMusicPlayer.playForGame(
+        musicSourceForHover,
+        musicVolume,
+        musicFade,
+        game.metadata?.name || getFileStub(game.path),
+        [],
+        game.id,
+      );
     }
   };
 

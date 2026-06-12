@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-push-emulator-preserve-data"
+description = "Enables the push_emulator_preserve_data command without any pre-configured scope."
+commands.allow = ["push_emulator_preserve_data"]
+
+[[permission]]
+identifier = "deny-push-emulator-preserve-data"
+description = "Denies the push_emulator_preserve_data command without any pre-configured scope."
+commands.deny = ["push_emulator_preserve_data"]
