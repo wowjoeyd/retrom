@@ -24,6 +24,7 @@ use tokio_util::io::ReaderStream;
 pub fn emulator_package_file_routes() -> Router {
     Router::new()
         .route("/{fileId}", get(emulator_package_file_handler))
+        .route("/{packageId}/manifest", get(emulator_package_manifest_handler))
         .route(
             "/preserve/{packageId}",
             post(upload_preserve_file_handler).delete(delete_preserve_file_handler),
@@ -73,6 +74,41 @@ pub async fn emulator_package_file_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(response)
+}
+
+pub async fn emulator_package_manifest_handler(
+    Extension(pool): Extension<Arc<Pool>>,
+    Path(package_id): Path<i32>,
+) -> Result<Response, StatusCode> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let package = schema::emulator_packages::table
+        .filter(schema::emulator_packages::id.eq(package_id))
+        .filter(schema::emulator_packages::is_deleted.eq(false))
+        .first::<retrom::EmulatorPackage>(&mut conn)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let manifest_path = PathBuf::from(&package.root_path).join("retrom-emulator-package.json");
+    let file = File::open(&manifest_path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let reader_stream = ReaderStream::new(file).map_ok(Bytes::from);
+    let body = axum::body::Body::from_stream(reader_stream);
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"retrom-emulator-package.json\"",
+        )
+        .body(body)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub async fn upload_preserve_file_handler(

@@ -265,10 +265,15 @@ export const PlayGameButton = forwardRef(
             await maybeSyncEmulatorSaveStates(emulator);
             await maybeSyncEmulatorPackage(emulator);
           } catch (error) {
+            console.error("Unable to launch game during pre-launch sync", error);
             const errorMsg =
               error instanceof Error
                 ? error.message
-                : "An unknown error occurred.";
+                : typeof error === "string"
+                  ? error
+                  : error
+                    ? JSON.stringify(error)
+                    : "An unknown error occurred.";
 
             toast({
               title: "Unable to Launch Game",
