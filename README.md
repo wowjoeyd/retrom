@@ -6,15 +6,13 @@
 
 ---
 
-### Check out the [quick start guide](https://github.com/JMBeresford/retrom/wiki/Quick-Start) or the full [wiki](https://github.com/JMBeresford/retrom/wiki)
-
-### [Download the latest Client](https://github.com/JMBeresford/retrom/releases/latest)
-
----
-
-  <h6>Join the Discord server:</h6>
-
-[![discord-badge]][discord-link]
+> **⚠️ Experimental Downstream Fork**
+>
+> This is an **unofficial, experimental fork** of [Retrom](https://github.com/JMBeresford/retrom) by [JMBeresford](https://github.com/JMBeresford).
+> It is **not affiliated with or endorsed by the upstream maintainer.**
+> The goal of this fork is to explore emulator-cloud, sync, media, metadata, launcher, and fullscreen/theater-mode ideas that may or may not align with upstream's direction.
+>
+> For the original project, visit → **[github.com/JMBeresford/retrom](https://github.com/JMBeresford/retrom)**
 
 </div>
 
@@ -22,39 +20,117 @@
 
 <!--toc:start-->
 
+- [Fork Status](#fork-status)
+- [Relationship to Upstream](#relationship-to-upstream)
 - [Overview](#overview)
-- [Core Features](#core-features)
+- [Core Features (Upstream)](#core-features-upstream)
+- [Current Additions (This Fork)](#current-additions-this-fork)
+- [Where This Fork Is Going](#where-this-fork-is-going)
+- [Media Downloading / yt-dlp](#media-downloading--yt-dlp)
 - [Screenshots](#screenshots)
-- [Roadmap](#roadmap)
+- [Upstream Resources](#upstream-resources)
+- [Development Notes](#development-notes)
+- [License](#license)
 
 <!--toc:end-->
+
+---
+
+## Fork Status
+
+This fork is **experimental and actively evolving.** It is not a stable product release, and it may diverge significantly from upstream Retrom over time.
+
+- Features added here are exploratory — they may change, be redesigned, or be removed.
+- This fork is not intended as a replacement for upstream Retrom.
+- No fixed release schedule or product roadmap commitment exists here.
+- Use at your own risk; things may break between updates.
+
+If you are looking for a stable, well-supported experience, use the [upstream Retrom project](https://github.com/JMBeresford/retrom).
+
+---
+
+## Relationship to Upstream
+
+This fork is based on [Retrom](https://github.com/JMBeresford/retrom), an excellent self-hosted game library management service. The upstream project is the original and authoritative version. This fork exists to pursue an additional, feature-heavy emulator-cloud direction without making assumptions about what upstream wants to accept.
+
+- Upstream Retrom remains the original project and is not responsible for changes made here.
+- Some changes developed in this fork may eventually be proposed upstream as pull requests, if they become stable and align with upstream's direction. Until then, they should be treated as experimental and fork-specific.
+- Credit and appreciation go to [JMBeresford](https://github.com/JMBeresford) and all upstream contributors.
+
+---
 
 ## Overview
 
 Retrom is a centralized game library management service that allows you to host your games on a single device, and connect
-clients on any amount of other devices to (un)install/download and play them when and where you want to! Think of it as a
+clients on any amount of other devices to (un)install/download and play them when and where you want to. Think of it as a
 sort of _self-hosted Steam_ for your DRM-free game library.
 
-## Core Features
+This fork builds on that foundation with an additional focus on emulator-cloud sync, media/theme management, and fullscreen/theater-mode workflows.
+
+---
+
+## Core Features (Upstream)
+
+These features come from the upstream Retrom project:
 
 - Host your own cloud game library service
 - Scan your filesystem for games/platforms and automatically add them to your library
-- Install/uninstall and play games from the service on any amount of desktop
-  clients.
-  - **Support for Windows, MacOS, and Linux!**
-- Access your library from anywhere with the web client.
-- Unify your emulation library with third party libraries
-  - Steam
-  - GoG (soon™)
-  - Native PC / Linux / MacOS games (experimental)
-- Manage emulator profiles on a per-client basis, stored on the server for easily
-  sharing configurations between devices or restoring them after a reinstall.
-- Launch all your games across any amount of emulators or platforms via your
-  pre-configured profiles from a single library interface.
-- Automatically download game metadata and artworks from supported providers
-  to showcase your library with style!
+- Install/uninstall and play games from the service on any amount of desktop clients
+  - **Support for Windows, MacOS, and Linux**
+- Access your library from anywhere with the web client
+- Unify your emulation library with third-party libraries (Steam, GoG, native PC/Linux/Mac)
+- Manage emulator profiles on a per-client basis, stored on the server for easy sharing between devices
+- Launch all your games across any amount of emulators or platforms via pre-configured profiles
+- Automatically download game metadata and artwork from supported providers
+
+---
+
+## Current Additions (This Fork)
+
+The following features have been added in this fork and do not exist in upstream Retrom:
+
+- **Server-side emulator data storage** — emulator saves, states, configuration, and NAND data are synced to and from the server
+- **Cross-PC emulator data sync** — emulator data syncs across multiple machines through the self-hosted server
+- **Server-side media/theme downloading via yt-dlp** — search for and download game theme videos and audio from supported sources directly from the server
+- **Game theme playback in fullscreen/theater mode** — themes play automatically when browsing games in fullscreen
+- **Game theme playback in a dedicated theme tab** — themes are accessible in the standard client UI through a theme tab
+- **User-added custom game metadata** — users can attach custom artwork, videos, music, and related media to games
+- **General bug fixes** — various bugs discovered during active daily use have been corrected
+
+---
+
+## Where This Fork Is Going
+
+The following describes areas currently being explored or likely future work in this fork. **This is not a roadmap or a commitment** — priorities may shift, features may be redesigned, and this list will change as the fork evolves.
+
+- **Steam integration improvements** — better handling of Steam library entries and launch behavior
+- **Theater/fullscreen mode improvements** — emulator launches that behave properly in fullscreen setups without breaking windowing state
+- **Achievement tracking / library features** — tracking achievements for non-Steam games
+- **Grid view** — a grid layout option for the non-fullscreen client UI
+- **Native client-side ROM adding** — adding ROMs directly from the client, including automatic server folder creation and moving game data into place
+- **Additional emulator-cloud, metadata, media, launcher, sync, and library-management features** — as they become useful during active use
+
+This may change substantially as the fork evolves.
+
+---
+
+## Media Downloading / yt-dlp
+
+This fork includes server-side integration with [yt-dlp](https://github.com/yt-dlp/yt-dlp) for downloading game themes, videos, and audio.
+
+**Users are solely responsible for how they use this feature.** This includes:
+
+- Respecting the terms of service of any platform or service you download from
+- Complying with applicable copyright law and the rights of content owners
+- Obtaining any necessary permissions from rights holders before downloading or using media
+
+This feature is intended for use with **user-authorized media, personal media, public-domain content, Creative Commons-licensed content, or other sources where you have appropriate permission.** The presence of this feature in the software does not constitute legal advice or a claim that any particular use is permitted.
+
+---
 
 ## Screenshots
+
+Screenshots below are from the upstream Retrom project and reflect the base UI. This fork's additions (theme playback, sync UI, custom metadata, etc.) are not yet separately documented.
 
 ### Home Screen
 
@@ -98,46 +174,54 @@ sort of _self-hosted Steam_ for your DRM-free game library.
   </span>
 </div>
 
-## Roadmap
+---
 
-> [!TIP]
-> The below list is often out-of-date, see the full roadmap [here](https://github.com/users/JMBeresford/projects/7)
+## Upstream Resources
 
-- [ ] Basic server functionality
-  - [x] Scan filesystem for library items
-  - [x] Add/remove library items
-  - [x] Edit library items
-  - [ ] Download metadata
-    - [x] IGDB provider
-    - [ ] SteamGridDB provider
-  - [ ] Cloud save games / states / emulator NANDs
-    - [x] Built-in emulators
-    - [ ] Standalone emulators
-  - [ ] (Multi-)User authentication
-  - [ ] Publish server binaries, as an alternative to Docker
-- [ ] Basic client functionality
-  - [x] View library items
-  - [x] Edit library metadata and artworks
-  - [x] Trigger library update jobs
-    - [x] Scan filesystem for new entries
-    - [x] Download/update metadata for new entries
-  - [x] Manage game files
-    - [x] rename
-    - [x] delete
-    - [x] set default (for launching via emulators)
-  - [ ] Grid view (as opposed to default list view)
-  - [x] Fullscreen mode + controller support
-- [x] Web (browser) client functionality (in addition to Basic functionality)
-  - [x] Download games
-  - [x] In-browser emulation via [EmulatorJS](https://github.com/EmulatorJS/EmulatorJS)
-- [ ] Desktop client functionality (in addition to Basic functionality)
-  - [x] Install/uninstall games
-  - [x] Configure locally available emulators
-  - [x] Configure multiple profiles per-emulator
-  - [x] Set default profiles per-platform
-  - [x] Launch games
-  - [ ] Built-in emulator profiles for popular emulators
+The following links point to the **upstream Retrom project** by JMBeresford, not this fork:
+
+- [Quick Start Guide (upstream)](https://github.com/JMBeresford/retrom/wiki/Quick-Start)
+- [Full Wiki (upstream)](https://github.com/JMBeresford/retrom/wiki)
+- [Download Latest Client (upstream)](https://github.com/JMBeresford/retrom/releases/latest)
+- [Upstream Roadmap](https://github.com/users/JMBeresford/projects/7)
+- [Discord Server](https://discord.gg/r6KNHPkKS4) (upstream community)
+
+This fork does not have its own separate documentation site or release binaries at this time.
+
+---
+
+## Development Notes
+
+**Issues and pull requests related to this fork's direction are welcome.**
+
+If you encounter a bug or want to contribute a feature that fits the exploratory direction described above, feel free to open an issue or PR in this repository.
+
+**For issues in upstream Retrom** (features or bugs unrelated to this fork's additions), please report them at the [upstream issue tracker](https://github.com/JMBeresford/retrom/issues) rather than here.
+
+This fork is not yet seeking broad adoption or a contributor community — it is primarily an experimental personal development branch. That may change as things stabilize.
+
+---
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**, the same license as the upstream Retrom project.
+
+See [LICENSE](./LICENSE) for the full license text.
+
+Upstream Retrom is copyright © [JMBeresford](https://github.com/JMBeresford) and contributors.
+
+---
 
 [discord-badge]: https://invidget.switchblade.xyz/tM7VgWXCdZ
 [discord-link]: https://discord.gg/r6KNHPkKS4
 [banner-link]: https://github.com/user-attachments/assets/f4af6a79-ce07-4605-8876-5dd2a9f94ed0
+
+<!--
+GITHUB ABOUT / TOPICS (copy these manually into the repository's About section on GitHub)
+
+Description:
+Experimental downstream fork of Retrom — exploring emulator-cloud sync, game theme media, custom metadata, and fullscreen/theater-mode features. Not affiliated with or endorsed by the upstream project.
+
+Topics:
+retrom, emulation, emulator, game-library, self-hosted, cloud-sync, rom-manager, steam, metadata, media-management, yt-dlp, gplv3
+-->
