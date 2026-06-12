@@ -38,6 +38,7 @@ import { NotificationCenter } from "@/components/notification-center";
 import { Toaster } from "@retrom/ui/components/toast";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
+import { EmulatorUserDataAutoSync } from "@/components/emulator-user-data-auto-sync";
 
 export const Route = createFileRoute("/(windowed)/_layout")({
   component: LayoutComponent,
@@ -75,6 +76,7 @@ function LayoutComponent() {
     <>
       {(!checkIsDesktop() || setupComplete) && (
         <ModalActionProvider>
+          <EmulatorUserDataAutoSync />
           <div className="h-[100dvh] max-h-[100dvh] w-screen max-w-[100dvw] relative flex flex-col">
             <Menubar />
             <ResizablePanelGroup

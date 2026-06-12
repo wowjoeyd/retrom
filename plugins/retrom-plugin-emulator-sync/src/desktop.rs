@@ -28,6 +28,7 @@ use std::{
 };
 use tauri::{ipc::Channel, plugin::PluginApi, AppHandle, Runtime};
 use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
 pub const MANIFEST_FILE_NAME: &str = "retrom-emulator-package.json";
 
 #[derive(Default)]
@@ -169,10 +170,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         cache_root: &Path,
     ) -> crate::Result<()> {
         let host = self.service_host().await?;
-        let manifest_url = format!(
-            "{host}/rest/emulator-package-file/{}/manifest",
-            package.id
-        );
+        let manifest_url = format!("{host}/rest/emulator-package-file/{}/manifest", package.id);
 
         let resp = self
             .http_client
@@ -180,7 +178,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .send()
             .await
             .map_err(|e| {
-                crate::Error::Internal(format!("Failed to fetch manifest for package {}: {e}", package.id))
+                crate::Error::Internal(format!(
+                    "Failed to fetch manifest for package {}: {e}",
+                    package.id
+                ))
             })?;
 
         if !resp.status().is_success() {
@@ -191,9 +192,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             )));
         }
 
-        let bytes = resp.bytes().await.map_err(|e| {
-            crate::Error::Internal(format!("Failed to read manifest bytes: {e}"))
-        })?;
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| crate::Error::Internal(format!("Failed to read manifest bytes: {e}")))?;
 
         let dest = cache_root.join(MANIFEST_FILE_NAME);
         if let Some(parent) = dest.parent() {
@@ -327,6 +329,8 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         // Always fetch the latest manifest first so preserve_paths / user_data_paths
         // are available for decisions.
         self.fetch_and_write_manifest(&package, &cache_root).await?;
+        self.migrate_user_data_from_previous_cache(local_config, &cache_root)
+            .await?;
 
         let remote_files = self.get_package_files(package.id).await?;
         let total_bytes: u64 = remote_files.iter().map(|file| file.byte_size as u64).sum();
@@ -338,7 +342,9 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         // This makes "rom installs, rap files, etc." flow to the server like other
         // cloud sync, while PC-specific config (if excluded from user_data_paths in
         // the catalog) stays local.
-        let _ = self.push_preserve_data(emulator_id).await;
+        if let Err(why) = self.push_preserve_data(emulator_id).await {
+            tracing::warn!("Auto-push of emulator user data failed before launch: {why}");
+        }
 
         self.set_progress(
             emulator_id,
@@ -390,7 +396,11 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 continue;
             }
 
-            if self.should_skip_preserved_file(&cache_root, &file.relative_path, Some(local_config.preserve_paths_override.clone()))? {
+            if self.should_skip_preserved_file(
+                &cache_root,
+                &file.relative_path,
+                Some(local_config.preserve_paths_override.clone()),
+            )? {
                 synced_files.insert(file.relative_path.clone(), file.sha256.clone());
                 continue;
             }
@@ -437,7 +447,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             synced_files.insert(file.relative_path.clone(), file.sha256.clone());
         }
 
-        let preserve_paths = self.read_preserve_paths(&cache_root, Some(local_config.preserve_paths_override.clone()))?;
+        let preserve_paths = self.read_preserve_paths(
+            &cache_root,
+            Some(local_config.preserve_paths_override.clone()),
+        )?;
         self.prune_stale_files(&cache_root, &remote_files, &preserve_paths, &previous_known)?;
 
         save_sync_state(
@@ -519,7 +532,11 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         Ok(local_modified.is_some())
     }
 
-    fn read_preserve_paths(&self, cache_root: &Path, override_paths: Option<Vec<String>>) -> crate::Result<Vec<String>> {
+    fn read_preserve_paths(
+        &self,
+        cache_root: &Path,
+        override_paths: Option<Vec<String>>,
+    ) -> crate::Result<Vec<String>> {
         if let Some(ov) = override_paths {
             if !ov.is_empty() {
                 return Ok(ov);
@@ -538,7 +555,11 @@ impl<R: Runtime> EmulatorSyncManager<R> {
     /// Returns the paths to treat as shareable user data for cloud sync / push
     /// (firmware, keys, RAPs, installed games etc.). Falls back to preserve_paths
     /// for packages created before user_data_paths was added.
-    fn read_user_data_paths(&self, cache_root: &Path, override_paths: Option<Vec<String>>) -> crate::Result<Vec<String>> {
+    fn read_user_data_paths(
+        &self,
+        cache_root: &Path,
+        override_paths: Option<Vec<String>>,
+    ) -> crate::Result<Vec<String>> {
         if let Some(ov) = override_paths {
             if !ov.is_empty() {
                 return Ok(ov);
@@ -556,6 +577,92 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         } else {
             Ok(manifest.preserve_paths)
         }
+    }
+
+    async fn migrate_user_data_from_previous_cache(
+        &self,
+        local_config: &LocalEmulatorConfig,
+        cache_root: &Path,
+    ) -> crate::Result<()> {
+        let previous_executable = PathBuf::from(&local_config.executable_path);
+        let Some(previous_root) = previous_executable
+            .parent()
+            .and_then(Self::find_manifest_root)
+        else {
+            return Ok(());
+        };
+
+        if previous_root == cache_root {
+            return Ok(());
+        }
+
+        let user_data_paths = self.read_user_data_paths(
+            cache_root,
+            Some(local_config.user_data_paths_override.clone()),
+        )?;
+        if user_data_paths.is_empty() {
+            return Ok(());
+        }
+
+        let mut copied = 0u64;
+        for rel in user_data_paths {
+            let source_root = previous_root.join(&rel);
+            if !source_root.exists() {
+                continue;
+            }
+
+            if source_root.is_file() {
+                let dest = cache_root.join(&rel);
+                if !dest.exists() {
+                    if let Some(parent) = dest.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::copy(&source_root, &dest)?;
+                    copied = copied.saturating_add(1);
+                }
+                continue;
+            }
+
+            for entry in walkdir::WalkDir::new(&source_root)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+            {
+                let source = entry.path();
+                let relative = source.strip_prefix(&previous_root).unwrap_or(source);
+                let dest = cache_root.join(relative);
+                if dest.exists() {
+                    continue;
+                }
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(source, &dest)?;
+                copied = copied.saturating_add(1);
+            }
+        }
+
+        if copied > 0 {
+            tracing::info!(
+                "Migrated {copied} emulator user data file(s) from {} to {}",
+                previous_root.display(),
+                cache_root.display()
+            );
+        }
+
+        Ok(())
+    }
+
+    fn find_manifest_root(start: &Path) -> Option<PathBuf> {
+        let mut current = Some(start);
+        while let Some(path) = current {
+            if path.join(MANIFEST_FILE_NAME).exists() {
+                return Some(path.to_path_buf());
+            }
+            current = path.parent();
+        }
+        None
     }
 
     // Small sha helper for push comparisons (mirrors server emit + client needs).
@@ -616,8 +723,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             // the NAS package manifest) are left alone. This is the key to making
             // real-world "install once, it stays" work without requiring perfect
             // preserve_paths coverage in every catalog entry.
-            if previous_known_package_files.contains(&relative)
-                && !remote_paths.contains(&relative)
+            if previous_known_package_files.contains(&relative) && !remote_paths.contains(&relative)
             {
                 std::fs::remove_file(path)?;
             }
@@ -682,7 +788,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
     /// Only files whose local content sha differs from (or is absent in) the current
     /// indexed remote files are uploaded. The upload handler keeps the DB file list
     /// live so other clients see the changes on their next ensure without a full rescan.
-    pub async fn push_preserve_data(&self, emulator_id: EmulatorId) -> crate::Result<PreservePushResult> {
+    pub async fn push_preserve_data(
+        &self,
+        emulator_id: EmulatorId,
+    ) -> crate::Result<PreservePushResult> {
         let local_config = self.get_local_config(emulator_id).await?;
         if !local_config.managed_paths {
             return Ok(PreservePushResult::default());
@@ -698,7 +807,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         // Ensure we have up-to-date manifest (also ensures cache has it)
         self.fetch_and_write_manifest(&package, &cache_root).await?;
 
-        let push_paths = self.read_user_data_paths(&cache_root, Some(local_config.user_data_paths_override.clone()))?;
+        let push_paths = self.read_user_data_paths(
+            &cache_root,
+            Some(local_config.user_data_paths_override.clone()),
+        )?;
         if push_paths.is_empty() {
             return Ok(PreservePushResult::default());
         }
@@ -713,6 +825,20 @@ impl<R: Runtime> EmulatorSyncManager<R> {
 
         let mut uploaded: u32 = 0;
         let mut bytes: u64 = 0;
+        let mut scanned: u64 = 0;
+
+        self.set_progress(
+            emulator_id,
+            EmulatorSyncStatus::Syncing,
+            Some(EmulatorSyncMetrics {
+                bytes_per_second: 0.0,
+                bytes_transferred: 0,
+                total_bytes: 0,
+                percent_complete: 0,
+                updated_at: Some(SystemTime::now().into()),
+            }),
+        )
+        .await;
 
         // Walk only under the shareable user data paths (firmware, keys, raps, games etc.)
         for entry in walkdir::WalkDir::new(&cache_root)
@@ -738,10 +864,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             if !is_user_data {
                 continue;
             }
+            scanned = scanned.saturating_add(1);
 
-            let local_sha = Self::sha256_file(path).map_err(|e| {
-                crate::Error::Internal(format!("sha for {}: {e}", relative))
-            })?;
+            let local_sha = Self::sha256_file(path)
+                .map_err(|e| crate::Error::Internal(format!("sha for {}: {e}", relative)))?;
 
             let needs_push = match remote_sha.get(&relative) {
                 Some(r) if r == &local_sha => false,
@@ -749,33 +875,28 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             };
 
             if needs_push {
-                let upload_url = format!(
-                    "{host}/rest/emulator-package-file/preserve/{}",
-                    package.id
-                );
+                let upload_url =
+                    format!("{host}/rest/emulator-package-file/preserve/{}", package.id);
 
                 let content = std::fs::read(path)?;
-                let resp = self
-                    .http_client
-                    .post(&upload_url)
-                    .query(&[("relative_path", &relative)])
-                    .body(content.clone())
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        crate::Error::Internal(format!("upload {} failed: {e}", relative))
-                    })?;
-
-                if !resp.status().is_success() {
-                    return Err(crate::Error::Internal(format!(
-                        "upload {} rejected: {}",
-                        relative,
-                        resp.status()
-                    )));
-                }
+                self.upload_preserve_file_with_retry(&upload_url, &relative, content.clone())
+                    .await?;
 
                 uploaded += 1;
                 bytes = bytes.saturating_add(content.len() as u64);
+
+                self.set_progress(
+                    emulator_id,
+                    EmulatorSyncStatus::Syncing,
+                    Some(EmulatorSyncMetrics {
+                        bytes_per_second: 0.0,
+                        bytes_transferred: bytes,
+                        total_bytes: bytes,
+                        percent_complete: 100,
+                        updated_at: Some(SystemTime::now().into()),
+                    }),
+                )
+                .await;
             }
         }
 
@@ -787,10 +908,8 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 .iter()
                 .any(|prefix| rel.starts_with(prefix.trim_end_matches('/')));
             if is_user_data && !cache_root.join(rel).exists() {
-                let delete_url = format!(
-                    "{host}/rest/emulator-package-file/preserve/{}",
-                    package.id
-                );
+                let delete_url =
+                    format!("{host}/rest/emulator-package-file/preserve/{}", package.id);
                 let _ = self
                     .http_client
                     .delete(&delete_url)
@@ -800,16 +919,86 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             }
         }
 
+        tracing::info!(
+            "Emulator user data push complete for emulator {emulator_id}: scanned {scanned}, uploaded {uploaded}, bytes {bytes}"
+        );
+
+        self.set_progress(
+            emulator_id,
+            EmulatorSyncStatus::Synced,
+            Some(EmulatorSyncMetrics {
+                bytes_per_second: 0.0,
+                bytes_transferred: bytes,
+                total_bytes: bytes,
+                percent_complete: 100,
+                updated_at: Some(SystemTime::now().into()),
+            }),
+        )
+        .await;
+
         Ok(PreservePushResult {
             files_uploaded: uploaded,
             bytes_uploaded: bytes,
         })
     }
 
+    async fn upload_preserve_file_with_retry(
+        &self,
+        upload_url: &str,
+        relative_path: &str,
+        content: Vec<u8>,
+    ) -> crate::Result<()> {
+        let mut last_error = None;
+
+        for attempt in 1..=3 {
+            match self
+                .http_client
+                .post(upload_url)
+                .query(&[("relative_path", relative_path)])
+                .body(content.clone())
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => return Ok(()),
+                Ok(resp) if resp.status().is_server_error() || resp.status().as_u16() == 429 => {
+                    last_error = Some(format!(
+                        "upload {relative_path} rejected: {}",
+                        resp.status()
+                    ));
+                }
+                Ok(resp) => {
+                    return Err(crate::Error::Internal(format!(
+                        "upload {relative_path} rejected: {}",
+                        resp.status()
+                    )));
+                }
+                Err(why) if why.is_timeout() || why.is_connect() => {
+                    last_error = Some(format!("upload {relative_path} failed: {why}"));
+                }
+                Err(why) => {
+                    return Err(crate::Error::Internal(format!(
+                        "upload {relative_path} failed: {why}"
+                    )));
+                }
+            }
+
+            if attempt < 3 {
+                sleep(Duration::from_millis(250 * attempt)).await;
+            }
+        }
+
+        Err(crate::Error::Internal(last_error.unwrap_or_else(|| {
+            format!("upload {relative_path} failed")
+        })))
+    }
+
     /// Pulls cloud user data into local cache (overwrites local versions) and
     /// removes local files under user data paths that no longer exist on the cloud.
     /// Supports "force cloud" / reset local from NAS.
-    pub async fn pull_user_data(&self, emulator_id: EmulatorId) -> crate::Result<PreservePushResult> {
+    pub async fn pull_user_data(
+        &self,
+        emulator_id: EmulatorId,
+    ) -> crate::Result<PreservePushResult> {
         let local_config = self.get_local_config(emulator_id).await?;
         if !local_config.managed_paths {
             return Ok(PreservePushResult::default());
@@ -824,7 +1013,10 @@ impl<R: Runtime> EmulatorSyncManager<R> {
 
         self.fetch_and_write_manifest(&package, &cache_root).await?;
 
-        let pull_paths = self.read_user_data_paths(&cache_root, Some(local_config.user_data_paths_override.clone()))?;
+        let pull_paths = self.read_user_data_paths(
+            &cache_root,
+            Some(local_config.user_data_paths_override.clone()),
+        )?;
         if pull_paths.is_empty() {
             return Ok(PreservePushResult::default());
         }
@@ -837,13 +1029,20 @@ impl<R: Runtime> EmulatorSyncManager<R> {
 
         let cloud_user_rels: HashSet<String> = remote_files
             .iter()
-            .filter(|f| pull_paths.iter().any(|p| f.relative_path.starts_with(p.trim_end_matches('/'))))
+            .filter(|f| {
+                pull_paths
+                    .iter()
+                    .any(|p| f.relative_path.starts_with(p.trim_end_matches('/')))
+            })
             .map(|f| f.relative_path.clone())
             .collect();
 
         // Ensure all cloud user data files are downloaded to local (force match cloud)
         for f in &remote_files {
-            if !pull_paths.iter().any(|p| f.relative_path.starts_with(p.trim_end_matches('/'))) {
+            if !pull_paths
+                .iter()
+                .any(|p| f.relative_path.starts_with(p.trim_end_matches('/')))
+            {
                 continue;
             }
             let dest = cache_root.join(&f.relative_path);
@@ -879,7 +1078,9 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 continue;
             }
 
-            if pull_paths.iter().any(|p| relative.starts_with(p.trim_end_matches('/')))
+            if pull_paths
+                .iter()
+                .any(|p| relative.starts_with(p.trim_end_matches('/')))
                 && !cloud_user_rels.contains(&relative)
             {
                 let _ = std::fs::remove_file(path);
@@ -951,7 +1152,9 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 continue;
             }
 
-            let is_base = base_user.iter().any(|p| relative.starts_with(p.trim_end_matches('/')))
+            let is_base = base_user
+                .iter()
+                .any(|p| relative.starts_with(p.trim_end_matches('/')))
                 || base_preserve
                     .iter()
                     .any(|p| relative.starts_with(p.trim_end_matches('/')));
@@ -970,7 +1173,20 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         let mut suggested_preserve = vec![];
 
         // Simple heuristics: name patterns + assume data-like unless config-like
-        let user_patterns = ["dev_hdd0", "games", "user", "nand", "sdmc", "firmware", "keys", "exdata", "home", "installed", "rap", "title"];
+        let user_patterns = [
+            "dev_hdd0",
+            "games",
+            "user",
+            "nand",
+            "sdmc",
+            "firmware",
+            "keys",
+            "exdata",
+            "home",
+            "installed",
+            "rap",
+            "title",
+        ];
         let preserve_patterns = ["config", "inis", "settings", "portable", "shader", "cache"];
 
         for c in candidates {

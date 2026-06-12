@@ -31,6 +31,18 @@ export function isEmulatorPackageSyncEnabled() {
   return !["false", "0", "no"].includes(String(value).toLowerCase());
 }
 
+export function isEnhancedEmulatorUserDataEnabled() {
+  const value =
+    import.meta.env.VITE_EMULATOR_USER_DATA_ENHANCED ??
+    import.meta.env.EMULATOR_USER_DATA_ENHANCED;
+
+  if (!value) {
+    return false;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
 export function DesktopOnly(props: PropsWithChildren) {
   return checkIsDesktop() ? <> {props.children} </> : <></>;
 }

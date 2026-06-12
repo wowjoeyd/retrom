@@ -10,6 +10,7 @@ import {
   UseMutationOptions,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "@retrom/ui/hooks/use-toast";
 
 export type UserDataSyncDirection = "push" | "pull";
 
@@ -31,6 +32,16 @@ export function useSyncEmulatorUserData(
   const queryClient = useQueryClient();
 
   return useMutation({
+    ...opts,
+    onMutate: (payload) => {
+      toast({
+        title:
+          payload.direction === "push"
+            ? "Pushing emulator user data"
+            : "Pulling emulator user data",
+      });
+      return opts?.onMutate?.(payload);
+    },
     mutationFn: async (payload: SyncEmulatorUserDataPayload) => {
       const arg = { emulatorId: payload.emulatorId };
       if (payload.direction === "push") {
@@ -46,6 +57,29 @@ export function useSyncEmulatorUserData(
             query.queryKey.includes(key),
           ),
       }),
-    ...opts,
+    onSuccess: (data, variables, context) => {
+      toast({
+        title:
+          variables.direction === "push"
+            ? "Emulator user data pushed"
+            : "Emulator user data pulled",
+        description:
+          data.filesUploaded > 0
+            ? `${data.filesUploaded} file(s), ${data.bytesUploaded} bytes`
+            : "No changes found",
+      });
+      opts?.onSuccess?.(data, variables, context);
+    },
+    onError: (error, variables, context) => {
+      toast({
+        title:
+          variables.direction === "push"
+            ? "Emulator user data push failed"
+            : "Emulator user data pull failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      opts?.onError?.(error, variables, context);
+    },
   });
 }
