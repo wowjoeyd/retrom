@@ -33,7 +33,10 @@ export function Media() {
 
   const screenshots = useMemo(() => {
     const localPaths = extraMetadata?.mediaPaths?.screenshotUrls;
-    if (localPaths && publicUrl) {
+    // Require a NON-EMPTY local list. When a theme audio file exists, the server attaches a
+    // mediaPaths entry with empty screenshot/artwork arrays (just to carry themeAudioUrl); an
+    // empty array is truthy, so the old check returned [] and dropped the remote IGDB images.
+    if (localPaths?.length && publicUrl) {
       return localPaths
         .map((path) => createUrl({ path, base: publicUrl })?.href)
         .filter((s) => s !== undefined);
@@ -44,7 +47,7 @@ export function Media() {
 
   const artwork = useMemo(() => {
     const localPaths = extraMetadata?.mediaPaths?.artworkUrls;
-    if (localPaths && publicUrl) {
+    if (localPaths?.length && publicUrl) {
       return localPaths
         .map((path) => createUrl({ path, base: publicUrl })?.href)
         .filter((s) => s !== undefined);

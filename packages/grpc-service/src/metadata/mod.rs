@@ -374,26 +374,66 @@ impl MetadataService for MetadataServiceHandlers {
             .unwrap_or(false);
 
         // Pre-pass: entries that arrived WITHOUT a YouTube URL (the IGDB search-tab path,
-        // since get_igdb_game_search_results does not run find_soundtrack_url) get one looked
-        // up by name and persisted into video_urls. This makes the YouTube theme appear in the
-        // Videos tab, matching what the bulk "Download Metadata" path already does. Fast now
-        // that find_soundtrack_url runs its queries concurrently. The theme-audio extraction
-        // below then sees the injected URL via Path 1 (no duplicate search).
-        let soundtrack_lookups = metadata_to_update
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, m)| {
-                let has_youtube = m.video_urls.iter().any(|url| {
-                    let lower = url.to_ascii_lowercase();
-                    lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
-                });
-                match (has_youtube, m.name.clone()) {
-                    (false, Some(name)) if !name.trim().is_empty() => {
-                        Some(async move { (idx, find_soundtrack_url(&name).await) })
+        // since get_igdb_game_search_results does not run find_soundtrack_url) get one
+        // resolved and persisted into video_urls so the YouTube theme shows in the Videos tab,
+        // matching the bulk "Download Metadata" path.
+        //
+        // Crucially we FIRST try to reuse the soundtrack URL already stored in the DB for this
+        // game. The IGDB-tab update overwrites the whole metadata row (its video_urls come from
+        // IGDB and never include our soundtrack), so without this preservation every refresh
+        // would re-search YouTube, pick a possibly DIFFERENT video, and churn the Videos tab /
+        // re-trigger downloads. Only when the DB has no existing soundtrack URL do we search.
+        let is_youtube = |url: &str| {
+            let lower = url.to_ascii_lowercase();
+            lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
+        };
+
+        let soundtrack_lookups =
+            metadata_to_update
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, m)| {
+                    if m.video_urls.iter().any(|u| is_youtube(u)) {
+                        return None;
                     }
-                    _ => None,
-                }
-            });
+                    let name = m.name.clone()?;
+                    if name.trim().is_empty() {
+                        return None;
+                    }
+                    let game_id = m.game_id;
+                    let cache_dir = m.get_cache_dir();
+                    let db_pool = self.db_pool.clone();
+                    Some(async move {
+                        // 1. Preserve an existing soundtrack URL from the DB — but ONLY if a
+                        //    theme.* file actually exists. A downloaded theme proves the stored
+                        //    URL was valid and downloadable. If there is NO theme file, the stored
+                        //    URL never worked (e.g. a stale >10min pick from older logic that
+                        //    extraction refuses) — so we ignore it and re-search for a valid one.
+                        let has_theme = cache_dir
+                            .as_ref()
+                            .map_or(false, |d| find_theme_audio_file(d).is_some());
+
+                        if has_theme {
+                            if let Ok(mut conn) = db_pool.get().await {
+                                if let Ok(existing) = retrom_db::schema::game_metadata::table
+                                    .filter(retrom_db::schema::game_metadata::game_id.eq(game_id))
+                                    .first::<retrom::GameMetadata>(&mut conn)
+                                    .await
+                                {
+                                    if let Some(url) =
+                                        existing.video_urls.into_iter().find(|u| is_youtube(u))
+                                    {
+                                        return (idx, Some(url));
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. No proven-good existing URL — search fresh (returns only
+                        //    duration-validated [60s, 600s] candidates).
+                        (idx, find_soundtrack_url(&name).await)
+                    })
+                });
 
         for (idx, url) in join_all(soundtrack_lookups).await {
             if let (Some(url), Some(meta)) = (url, metadata_to_update.get_mut(idx)) {

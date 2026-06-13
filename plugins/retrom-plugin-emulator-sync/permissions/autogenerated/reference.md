@@ -12,6 +12,8 @@ Default permissions for the emulator sync plugin
 - `allow-abort-emulator-sync`
 - `allow-open-emulator-cache-dir`
 - `allow-analyze-emulator-user-data`
+- `allow-push-emulator-preserve-data`
+- `allow-pull-emulator-user-data`
 
 ## Permission Table
 

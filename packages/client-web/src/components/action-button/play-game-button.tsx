@@ -203,7 +203,12 @@ export const PlayGameButton = forwardRef(
       installationState !== InstallationStatus.INSTALLED;
 
     const file = useMemo(
-      () => gameFiles?.find((file) => file.id === game.defaultFileId),
+      () =>
+        // Prefer the explicitly-set default file, but fall back to the first available
+        // file when no default is set (or it doesn't match). Most games — especially
+        // single-file ones like PS2 ISOs — never have a defaultFileId, and without this
+        // fallback the launcher fails with "Cannot find appropriate file for game".
+        gameFiles?.find((file) => file.id === game.defaultFileId) ?? gameFiles?.[0],
       [game.defaultFileId, gameFiles],
     );
 

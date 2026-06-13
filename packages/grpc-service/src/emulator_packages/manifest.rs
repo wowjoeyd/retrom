@@ -1,3 +1,7 @@
+// Scaffolding for the emulator-packages manifest format; some fields/variants are parsed
+// for forward-compatibility but not yet read by all consumers.
+#![allow(dead_code)]
+
 use retrom_codegen::retrom::emulator::OperatingSystem;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};

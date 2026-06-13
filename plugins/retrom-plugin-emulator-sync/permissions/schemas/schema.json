@@ -415,10 +415,10 @@
           "markdownDescription": "Denies the unsubscribe_from_emulator_sync_updates command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`",
+          "description": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`\n- `allow-push-emulator-preserve-data`\n- `allow-pull-emulator-user-data`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`"
+          "markdownDescription": "Default permissions for the emulator sync plugin\n#### This default permission set includes:\n\n- `allow-ensure-emulator-synced`\n- `allow-get-emulator-sync-status`\n- `allow-get-emulator-sync-index`\n- `allow-subscribe-to-emulator-sync-updates`\n- `allow-unsubscribe-from-emulator-sync-updates`\n- `allow-abort-emulator-sync`\n- `allow-open-emulator-cache-dir`\n- `allow-analyze-emulator-user-data`\n- `allow-push-emulator-preserve-data`\n- `allow-pull-emulator-user-data`"
         }
       ]
     }

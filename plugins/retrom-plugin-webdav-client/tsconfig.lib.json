@@ -6,9 +6,6 @@
   "references": [
     {
       "path": "../../packages/configs/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-config/tsconfig.lib.json"
     }
   ]
 }

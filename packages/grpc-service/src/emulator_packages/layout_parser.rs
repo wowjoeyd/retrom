@@ -1,3 +1,6 @@
+// Scaffolding for emulator-package layout parsing; some helpers are not yet wired up.
+#![allow(dead_code)]
+
 use retrom_codegen::retrom::EmulatorPackageDirectory;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;

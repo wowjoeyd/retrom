@@ -9,6 +9,22 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
+/// Whether automatic game-theme searching/extraction is enabled.
+///
+/// Themes are the dominant variable storage cost for large libraries (each is a multi-MB
+/// audio clip, and the "best" fallback can pull a short video), so this can be turned off.
+/// Defaults to ENABLED to preserve existing behavior; set `RETROM_GAME_THEMES_ENABLED=false`
+/// to disable all theme fetching. Mirrors the `RETROM_EMULATOR_PACKAGES_ENABLED` pattern.
+///
+/// Gating the two entry points below (`find_soundtrack_url` + `try_extract_theme_audio`)
+/// disables themes everywhere: the bulk metadata job, the per-game update path, and the
+/// video_urls pre-pass all funnel through these.
+pub fn game_themes_enabled() -> bool {
+    std::env::var("RETROM_GAME_THEMES_ENABLED")
+        .map(|value| value != "false")
+        .unwrap_or(true)
+}
+
 // Serializes concurrent first-use downloads of the yt-dlp binary.
 // Without this, a bulk metadata job spawns dozens of tasks that all race to
 // write the binary to the same path, which can corrupt it on Windows.
@@ -353,6 +369,11 @@ async fn probe_video_duration_secs(video_id: &str) -> Option<u32> {
 }
 
 pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
+    if !game_themes_enabled() {
+        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search");
+        return None;
+    }
+
     let normalized_name = normalize_query_name(&strip_edition_suffixes(game_name));
     if normalized_name.is_empty() {
         return None;
@@ -375,13 +396,15 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
         let client = client.clone();
         let normalized_name = normalized_name.clone();
         async move {
-            let url = reqwest::Url::parse_with_params(
+            let url = match reqwest::Url::parse_with_params(
                 "https://www.youtube.com/results",
                 &[("search_query", query.as_str())],
-            )
-            .ok()?;
+            ) {
+                Ok(u) => u,
+                Err(_) => return Vec::new(),
+            };
 
-            let body = client
+            let body = match client
                 .get(url)
                 .header(
                     reqwest::header::USER_AGENT,
@@ -389,10 +412,13 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
                 )
                 .send()
                 .await
-                .ok()?
-                .text()
-                .await
-                .ok()?;
+            {
+                Ok(resp) => match resp.text().await {
+                    Ok(t) => t,
+                    Err(_) => return Vec::new(),
+                },
+                Err(_) => return Vec::new(),
+            };
 
             let candidates = parse_youtube_candidates(&body, &normalized_name);
             let scored_count = candidates.iter().filter(|c| c.score > 0).count();
@@ -405,51 +431,94 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
                 body.len()
             );
 
-            // Best candidate for THIS query, using the page-parsed duration (no yt-dlp probe).
-            let mut local_best: Option<(String, i32, u32)> = None;
-            let mut scored: Vec<_> = candidates.iter().filter(|c| c.score > 0).collect();
-            scored.sort_by_key(|c| std::cmp::Reverse(c.score));
-
-            for cand in scored.into_iter().take(8) {
-                let dur = cand.duration_secs;
-                let is_short = dur.map_or(true, |d| d <= 600);
-                let is_substantial = dur.map_or(true, |d| d >= 60);
-                if !is_short || !is_substantial {
-                    continue;
-                }
-
-                let mut effective_score = cand.score;
-                if let Some(d) = dur {
-                    if (90..=420).contains(&d) {
-                        effective_score += 40; // sweet spot for looping
-                    } else if d > 420 && d <= 600 {
-                        effective_score += 15;
-                    } else if d < 90 {
-                        effective_score -= 25;
-                    }
-                    effective_score += 2; // known duration is better
-                }
-
-                let is_better = local_best.as_ref().map_or(true, |(_, s, _)| effective_score > *s);
-                if is_better {
-                    local_best = Some((
-                        format!("https://www.youtube.com/watch?v={}", cand.video_id),
-                        effective_score,
-                        dur.unwrap_or(0),
-                    ));
-                }
-            }
-
-            local_best
+            // Return all positively-scored candidates for this query (with page-parsed
+            // duration where available). Final validation/selection happens globally below.
+            candidates
+                .into_iter()
+                .filter(|c| c.score > 0)
+                .map(|c| (c.video_id, c.score, c.duration_secs))
+                .collect::<Vec<_>>()
         }
     });
 
-    // Pick the single best (highest score) short candidate across all queries.
-    let mut best: Option<(String, i32, u32)> = None; // (url, score, duration_secs)
-    for local in futures::future::join_all(query_futures).await.into_iter().flatten() {
-        let is_better = best.as_ref().map_or(true, |(_, s, _)| local.1 > *s);
-        if is_better {
-            best = Some(local);
+    // Merge candidates from all queries, dedup by video id keeping the highest base score.
+    let mut merged: HashMap<String, (i32, Option<u32>)> = HashMap::new();
+    for (vid, score, dur) in futures::future::join_all(query_futures)
+        .await
+        .into_iter()
+        .flatten()
+    {
+        merged
+            .entry(vid)
+            .and_modify(|(s, d)| {
+                if score > *s {
+                    *s = score;
+                }
+                if d.is_none() {
+                    *d = dur;
+                }
+            })
+            .or_insert((score, dur));
+    }
+
+    let mut ranked: Vec<(String, i32, Option<u32>)> =
+        merged.into_iter().map(|(v, (s, d))| (v, s, d)).collect();
+    ranked.sort_by_key(|(_, s, _)| std::cmp::Reverse(*s));
+
+    // Validate the top candidates by DURATION and pick the best. A video is only accepted
+    // if its duration is KNOWN (from the page, or from a single yt-dlp probe) and falls in
+    // [60s, 600s]. This is the key correctness guard: unknown-duration candidates are no
+    // longer auto-accepted, which previously let 16-second clips (whose lengthText didn't
+    // parse) win, and let >10min videos win and then fail extraction. Probes are bounded
+    // (only the top handful), so this stays fast.
+    let mut best: Option<(String, i32, u32)> = None; // (url, effective_score, duration)
+    let mut probes_done = 0;
+    const MAX_PROBES: usize = 6;
+
+    for (vid, base_score, page_dur) in ranked.into_iter().take(12) {
+        // Resolve duration: trust the page value if present, else probe (bounded).
+        let dur = match page_dur {
+            Some(d) => Some(d),
+            None => {
+                if probes_done >= MAX_PROBES {
+                    // Out of probe budget and no page duration — skip rather than risk a
+                    // bad pick. We'd rather choose a slightly lower-scored known-good video.
+                    continue;
+                }
+                probes_done += 1;
+                probe_video_duration_secs(&vid).await
+            }
+        };
+
+        let dur = match dur {
+            Some(d) if (60..=600).contains(&d) => d,
+            _ => continue, // unknown or out-of-range duration -> reject
+        };
+
+        let mut effective_score = base_score + 2; // known good duration
+        if (90..=420).contains(&dur) {
+            effective_score += 40; // sweet spot for looping
+        } else if dur > 420 {
+            effective_score += 15;
+        } else {
+            effective_score -= 25; // 60-89s: acceptable but short
+        }
+
+        if best.as_ref().map_or(true, |(_, s, _)| effective_score > *s) {
+            best = Some((
+                format!("https://www.youtube.com/watch?v={}", vid),
+                effective_score,
+                dur,
+            ));
+        }
+
+        // Early exit: a sweet-spot candidate among the top of the ranking is good enough;
+        // no need to keep probing for marginal gains (and keeps selection stable).
+        if best
+            .as_ref()
+            .is_some_and(|(_, _, d)| (90..=420).contains(d))
+        {
+            break;
         }
     }
 
@@ -532,6 +601,11 @@ pub async fn try_extract_theme_audio(
     cache_dir: PathBuf,
     force: bool,
 ) -> Option<PathBuf> {
+    if !game_themes_enabled() {
+        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction");
+        return None;
+    }
+
     let yt_dlp_path = ensure_yt_dlp().await?;
 
     if !force {
