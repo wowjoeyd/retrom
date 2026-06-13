@@ -507,13 +507,15 @@ function ThemePlayer(props: {
           )}
         </div>
         {isMagicTheme ? (
-          <audio controls loop className="w-full">
+          // key forces the audio element to remount when the game changes so the
+          // browser doesn't keep playing the previous game's cached audio stream.
+          <audio key={themeUrl} controls loop className="w-full">
             {themeExts.map(({ ext, type }) => (
               <source key={ext} src={`${themeUrl}.${ext}`} type={type} />
             ))}
           </audio>
         ) : (
-          <audio src={themeUrl} controls loop className="w-full" />
+          <audio key={themeUrl} src={themeUrl} controls loop className="w-full" />
         )}
       </div>
     </div>

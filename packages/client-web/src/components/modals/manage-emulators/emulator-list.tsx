@@ -135,7 +135,7 @@ export function EmulatorList(props: {
   }, [changeset, search]);
 
   return (
-    <>
+    <div className="flex flex-col h-full min-h-0">
       <CreateEmulator
         platforms={platforms}
         onSuccess={(emulator) => {
@@ -153,8 +153,8 @@ export function EmulatorList(props: {
         />
       </div>
       <Form {...form}>
-        <form className="flex h-full min-h-0 flex-col">
-          <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto pr-1">
+        <form className="flex flex-1 min-h-0 flex-col">
+          <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto pr-1 pb-2">
             <Accordion type="single" collapsible>
               {filteredEmulators.map((emulator) => {
                 return (
@@ -542,7 +542,7 @@ export function EmulatorList(props: {
         </form>
       </Form>
 
-      <DialogFooter className="border-none mt-8">
+      <DialogFooter className="border-none mt-4 shrink-0">
         <div className="flex justify-end col-span-4 gap-4">
           <DialogClose asChild>
             <Button variant="secondary" onClick={() => form.reset()}>
@@ -563,6 +563,6 @@ export function EmulatorList(props: {
           </Button>
         </div>
       </DialogFooter>
-    </>
+    </div>
   );
 }

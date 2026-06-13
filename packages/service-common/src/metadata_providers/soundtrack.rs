@@ -1,11 +1,18 @@
 use crate::retrom_dirs::RetromDirs;
 use regex::Regex;
 use sha2::Digest;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use tokio::fs;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use tracing::{debug, warn};
+
+// Serializes concurrent first-use downloads of the yt-dlp binary.
+// Without this, a bulk metadata job spawns dozens of tasks that all race to
+// write the binary to the same path, which can corrupt it on Windows.
+static YT_DLP_DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn normalize_query_name(name: &str) -> String {
     name.split_whitespace()
@@ -13,6 +20,59 @@ fn normalize_query_name(name: &str) -> String {
         .join(" ")
         .trim()
         .to_string()
+}
+
+/// Strip common edition / release-variant suffixes from a game title so the soundtrack
+/// search matches the core game (e.g. "Metal Gear Solid 3: Snake Eater - Limited Metal
+/// Edition" -> "Metal Gear Solid 3: Snake Eater"). These suffixes never appear in
+/// soundtrack video titles and only hurt the search.
+fn strip_edition_suffixes(name: &str) -> String {
+    // Patterns are matched case-insensitively against the tail of the name, optionally
+    // preceded by a " - ", ":" or "(" separator. Applied repeatedly to peel stacked suffixes.
+    let patterns = [
+        "limited metal edition",
+        "limited edition",
+        "collector's edition",
+        "collectors edition",
+        "special edition",
+        "deluxe edition",
+        "definitive edition",
+        "ultimate edition",
+        "complete edition",
+        "game of the year edition",
+        "goty edition",
+        "anniversary edition",
+        "remastered",
+        "remaster",
+        "hd collection",
+        "metal edition",
+    ];
+
+    let mut current = name.trim().to_string();
+    loop {
+        let lower = current.to_ascii_lowercase();
+        let mut changed = false;
+        for pat in patterns {
+            if lower.ends_with(pat) {
+                let cut = current.len() - pat.len();
+                let mut head = current[..cut].trim_end();
+                // Also drop a trailing separator left behind ( "-", ":", "(", etc ).
+                head = head.trim_end_matches([' ', '-', ':', '(', '–', '—']);
+                let new = head.trim().to_string();
+                if !new.is_empty() && new.len() < current.len() {
+                    current = new;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Drop an unmatched trailing "(" if pruning left one dangling.
+    current.trim_end_matches(['(', ' ']).trim().to_string()
 }
 
 fn soundtrack_queries(name: &str) -> Vec<String> {
@@ -32,6 +92,9 @@ fn soundtrack_queries(name: &str) -> Vec<String> {
 struct YoutubeCandidate {
     video_id: String,
     score: i32,
+    /// Duration in seconds parsed directly from the search-results page (`lengthText`),
+    /// when available. Lets us avoid an expensive per-candidate yt-dlp probe.
+    duration_secs: Option<u32>,
 }
 
 fn score_title(title: &str, game_name: &str) -> i32 {
@@ -116,46 +179,49 @@ fn decode_title(raw: &str) -> String {
 }
 
 fn parse_youtube_candidates(body: &str, game_name: &str) -> Vec<YoutubeCandidate> {
+    // Title scoring is the PRIMARY signal, so it must run first and with a window wide
+    // enough to actually reach the title. In modern YouTube `videoRenderer` JSON the
+    // thumbnail block between "videoId" and "title" routinely exceeds 2-3KB, so the old
+    // 2000-char window failed to match almost every result (producing 0 scored candidates
+    // despite a page full of results). We widen it substantially and use a non-greedy
+    // match so it still binds to the nearest (i.e. this video's own) title.
     let with_title = Regex::new(
-        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,2000}?)"title":\{"runs":\[\{"text":"([^"]+)""#,
+        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,8000}?)"title":\{"runs":\[\{"text":"([^"]+)""#,
     )
     .ok();
-    // Try to also capture lengthText for free duration hints from search results (ytInitialData).
-    let with_title_and_length = Regex::new(
-        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,3000}?)"lengthText":\{"simpleText":"([^"]+)""#,
+    // Duration hint straight from the search page. We build a videoId -> seconds map so
+    // every candidate can carry its duration WITHOUT an expensive per-video yt-dlp probe.
+    let with_length = Regex::new(
+        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,9000}?)"lengthText":\{"simpleText":"([^"]+)""#,
     )
     .ok();
     let video_id = Regex::new(r#""videoId":"([A-Za-z0-9_-]{11})""#).ok();
     let mut seen = HashSet::new();
     let mut candidates = Vec::new();
 
-    // Prefer richer matches that include length (for early long-video penalty).
-    if let Some(re) = with_title_and_length {
+    // Build the duration map first (first occurrence per id wins).
+    let mut durations: HashMap<String, u32> = HashMap::new();
+    if let Some(re) = &with_length {
         for caps in re.captures_iter(body) {
-            let Some(video_id) = caps.get(1).map(|m| m.as_str().to_string()) else {
+            let Some(vid) = caps.get(1).map(|m| m.as_str().to_string()) else {
                 continue;
             };
-            if !seen.insert(video_id.clone()) {
+            if durations.contains_key(&vid) {
                 continue;
             }
-
-            // We don't have title in this specific regex; rely on score=0 here + later title pass
-            // or the yt-dlp duration probe later. Use length only to heavily penalize obvious longs.
-            let mut score = 0;
             if let Some(len) = caps.get(2).map(|m| m.as_str()) {
                 if let Some(secs) = parse_duration_to_secs(len) {
-                    if secs > 600 {
-                        score -= 120; // strong early discard signal for long compilations
-                    } else {
-                        score += 5; // small bonus for known-short
-                    }
+                    durations.insert(vid, secs);
                 }
             }
-
-            candidates.push(YoutubeCandidate { video_id, score });
         }
     }
 
+    // Pass 1 (PRIMARY): score by title. This is what surfaces "main theme", "soundtrack",
+    // "overture", etc. Must run before the length/bare passes so those don't claim the
+    // videoId first and starve title scoring (the original ordering bug).
+    let mut title_match_count = 0usize;
+    let mut sample_titles: Vec<String> = Vec::new();
     if let Some(with_title) = with_title {
         for caps in with_title.captures_iter(body) {
             let Some(video_id) = caps.get(1).map(|m| m.as_str().to_string()) else {
@@ -166,15 +232,47 @@ fn parse_youtube_candidates(body: &str, game_name: &str) -> Vec<YoutubeCandidate
             }
 
             let title = caps.get(2).map(|m| decode_title(m.as_str()));
+            title_match_count += 1;
+            if let Some(t) = title.as_deref() {
+                if sample_titles.len() < 5 {
+                    sample_titles.push(t.to_string());
+                }
+            }
             let score = title
                 .as_deref()
                 .map(|title| score_title(title, game_name))
                 .unwrap_or(0);
 
-            candidates.push(YoutubeCandidate { video_id, score });
+            let duration_secs = durations.get(&video_id).copied();
+            candidates.push(YoutubeCandidate {
+                video_id,
+                score,
+                duration_secs,
+            });
         }
     }
+    // DIAGNOSTIC: how many titles the title-regex actually captured, and a few samples.
+    // If title_match_count is 0 the regex isn't matching YouTube's current markup at all.
+    tracing::debug!(
+        "soundtrack parse: title-regex matched {} videos; sample titles: {:?}",
+        title_match_count,
+        sample_titles
+    );
 
+    // Pass 2: results whose title we couldn't parse but that expose a lengthText.
+    for (vid, secs) in &durations {
+        if !seen.insert(vid.clone()) {
+            continue;
+        }
+        let score = if *secs > 600 { -120 } else { 5 };
+        candidates.push(YoutubeCandidate {
+            video_id: vid.clone(),
+            score,
+            duration_secs: Some(*secs),
+        });
+    }
+
+    // Pass 3: any remaining bare videoIds (last resort, unscored).
     if let Some(video_id) = video_id {
         for caps in video_id.captures_iter(body) {
             let Some(video_id) = caps.get(1).map(|m| m.as_str().to_string()) else {
@@ -184,7 +282,11 @@ fn parse_youtube_candidates(body: &str, game_name: &str) -> Vec<YoutubeCandidate
                 continue;
             }
 
-            candidates.push(YoutubeCandidate { video_id, score: 0 });
+            candidates.push(YoutubeCandidate {
+                video_id,
+                score: 0,
+                duration_secs: None,
+            });
         }
     }
 
@@ -251,118 +353,114 @@ async fn probe_video_duration_secs(video_id: &str) -> Option<u32> {
 }
 
 pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
-    let normalized_name = normalize_query_name(game_name);
+    let normalized_name = normalize_query_name(&strip_edition_suffixes(game_name));
     if normalized_name.is_empty() {
         return None;
     }
-
-    // Collect the single best (highest score) *short* candidate across *all* queries.
-    // We enforce <= 10 minutes (600s) for the theme extraction "download" so that
-    // the resulting theme.* file is a reasonable persistent metadata asset (NAS/local)
-    // rather than hour-long compilations. Probes are cheap (info only).
-    // Long results are discarded from the soundtrack choice used for audio extraction.
-    let mut best: Option<(String, i32, u32)> = None; // (url, score, duration_secs)
-
-    for query in soundtrack_queries(&normalized_name) {
-        let url = match reqwest::Url::parse_with_params(
-            "https://www.youtube.com/results",
-            &[("search_query", query.as_str())],
-        ) {
-            Ok(u) => u,
-            Err(_) => continue,
-        };
-
-        let body = match reqwest::Client::new()
-            .get(url)
-            .header(
-                reqwest::header::USER_AGENT,
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.text().await {
-                Ok(t) => t,
-                Err(_) => continue,
-            },
-            Err(_) => continue,
-        };
-
-        let candidates = parse_youtube_candidates(&body, &normalized_name);
-
-        debug!(
-            "soundtrack search query '{}' for '{}' produced {} candidates",
-            query,
+    if normalized_name != game_name.trim() {
+        tracing::info!(
+            "soundtrack: using pruned query name '{}' (from '{}')",
             normalized_name,
-            candidates.len()
+            game_name.trim()
         );
+    }
 
-        // Only consider positively scored (good title match). Then probe the top few
-        // for actual duration and keep only short ones (<=10min). This is the key
-        // safeguard for the yt-dlp "download becomes metadata" flow.
-        let mut scored: Vec<_> = candidates.iter().filter(|c| c.score > 0).collect();
-        scored.sort_by_key(|c| std::cmp::Reverse(c.score));
+    // Fetch all search queries CONCURRENTLY. Previously these ran one-at-a-time, and each
+    // also fired a per-candidate yt-dlp duration probe (a multi-second network call) for up
+    // to 5 candidates — up to 40 sequential yt-dlp invocations, hence the 1-2 minute waits.
+    // Now: 8 HTTP fetches in parallel, and durations come straight from the page (lengthText),
+    // so we no longer probe per candidate at all.
+    let client = reqwest::Client::new();
+    let query_futures = soundtrack_queries(&normalized_name).into_iter().map(|query| {
+        let client = client.clone();
+        let normalized_name = normalized_name.clone();
+        async move {
+            let url = reqwest::Url::parse_with_params(
+                "https://www.youtube.com/results",
+                &[("search_query", query.as_str())],
+            )
+            .ok()?;
 
-        for cand in scored.into_iter().take(5) {
-            let dur = probe_video_duration_secs(&cand.video_id).await;
-            let is_short = dur.map_or(true, |d| d <= 600); // hard cap per original requirement (avoid hour+ compilations)
-            let is_substantial = dur.map_or(true, |d| d >= 60); // avoid micro-clips / 15-45s stings that result in unsatisfying short loops
+            let body = client
+                .get(url)
+                .header(
+                    reqwest::header::USER_AGENT,
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                )
+                .send()
+                .await
+                .ok()?
+                .text()
+                .await
+                .ok()?;
 
-            if !is_short || !is_substantial {
-                debug!(
-                    "  skipping unsuitable candidate {} (dur {:?}s, short={}, substantial={}) for query '{}'",
-                    cand.video_id, dur, is_short, is_substantial, query
-                );
-                continue;
-            }
+            let candidates = parse_youtube_candidates(&body, &normalized_name);
+            let scored_count = candidates.iter().filter(|c| c.score > 0).count();
+            tracing::info!(
+                "soundtrack search query '{}' for '{}': {} candidates ({} scored>0, body {} bytes)",
+                query,
+                normalized_name,
+                candidates.len(),
+                scored_count,
+                body.len()
+            );
 
-            // Prefer "fuller" themes within the cap for satisfying looped previews (ideal 1.5-7min range).
-            // This directly addresses short looping audio feeling.
-            let mut effective_score = cand.score;
-            if let Some(d) = dur {
-                if (90..=420).contains(&d) {
-                    effective_score += 40; // sweet spot: proper theme with good length for looping
-                } else if d > 420 && d <= 600 {
-                    effective_score += 15;
-                } else if d < 90 {
-                    effective_score -= 25;
+            // Best candidate for THIS query, using the page-parsed duration (no yt-dlp probe).
+            let mut local_best: Option<(String, i32, u32)> = None;
+            let mut scored: Vec<_> = candidates.iter().filter(|c| c.score > 0).collect();
+            scored.sort_by_key(|c| std::cmp::Reverse(c.score));
+
+            for cand in scored.into_iter().take(8) {
+                let dur = cand.duration_secs;
+                let is_short = dur.map_or(true, |d| d <= 600);
+                let is_substantial = dur.map_or(true, |d| d >= 60);
+                if !is_short || !is_substantial {
+                    continue;
                 }
-                if dur.is_some() {
+
+                let mut effective_score = cand.score;
+                if let Some(d) = dur {
+                    if (90..=420).contains(&d) {
+                        effective_score += 40; // sweet spot for looping
+                    } else if d > 420 && d <= 600 {
+                        effective_score += 15;
+                    } else if d < 90 {
+                        effective_score -= 25;
+                    }
                     effective_score += 2; // known duration is better
                 }
+
+                let is_better = local_best.as_ref().map_or(true, |(_, s, _)| effective_score > *s);
+                if is_better {
+                    local_best = Some((
+                        format!("https://www.youtube.com/watch?v={}", cand.video_id),
+                        effective_score,
+                        dur.unwrap_or(0),
+                    ));
+                }
             }
 
-            debug!(
-                "  short+substantial candidate video {} (score {}, dur {:?}s) for query '{}'",
-                cand.video_id, cand.score, dur, query
-            );
-
-            let is_better = best.as_ref().map_or(true, |(_, s, _)| effective_score > *s);
-            if is_better {
-                best = Some((
-                    format!("https://www.youtube.com/watch?v={}", cand.video_id),
-                    effective_score,
-                    dur.unwrap_or(0),
-                ));
-            }
+            local_best
         }
+    });
 
-        if !candidates.iter().any(|c| c.score > 0) && !candidates.is_empty() {
-            debug!(
-                "  {} candidates found for query but none scored >0 (no strong theme title match)",
-                candidates.len()
-            );
+    // Pick the single best (highest score) short candidate across all queries.
+    let mut best: Option<(String, i32, u32)> = None; // (url, score, duration_secs)
+    for local in futures::future::join_all(query_futures).await.into_iter().flatten() {
+        let is_better = best.as_ref().map_or(true, |(_, s, _)| local.1 > *s);
+        if is_better {
+            best = Some(local);
         }
     }
 
     if let Some((url, score, dur)) = &best {
-        debug!(
+        tracing::info!(
             "final short soundtrack choice for query name '{}': {} (score {}, dur {}s)",
             normalized_name, url, score, dur
         );
     } else {
-        debug!(
-            "no short soundtrack candidate found for query name '{}'",
+        tracing::warn!(
+            "no short soundtrack candidate found for query name '{}' (all queries exhausted)",
             normalized_name
         );
     }
@@ -565,6 +663,30 @@ pub async fn try_extract_theme_audio(
 pub async fn ensure_yt_dlp() -> Option<PathBuf> {
     let dirs = RetromDirs::new();
     let bin_dir = dirs.data_dir().join("bin");
+
+    let exe_name = if std::env::consts::OS == "windows" {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
+    let exe_path = bin_dir.join(exe_name);
+
+    // Fast path — binary already present, no lock needed.
+    if exe_path.exists() {
+        return Some(exe_path);
+    }
+
+    // Serialize concurrent downloads. A bulk metadata job spawns many tasks; without
+    // this lock they all race to write the same binary path simultaneously, which can
+    // corrupt it (Windows file locking) or waste bandwidth with redundant downloads.
+    let lock = YT_DLP_DOWNLOAD_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock.lock().await;
+
+    // Re-check after acquiring the lock — another task may have already finished.
+    if exe_path.exists() {
+        return Some(exe_path);
+    }
+
     if let Err(e) = fs::create_dir_all(&bin_dir).await {
         warn!("Failed to create bin dir for yt-dlp: {}", e);
         return None;
@@ -584,17 +706,6 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
             return None;
         }
     };
-
-    let exe_name = if std::env::consts::OS == "windows" {
-        "yt-dlp.exe"
-    } else {
-        "yt-dlp"
-    };
-    let exe_path = bin_dir.join(exe_name);
-
-    if exe_path.exists() {
-        return Some(exe_path);
-    }
 
     // Use GitHub API for reliability: get exact latest release assets + digests.
     // This avoids flaky /latest/download/ 404s or bad bodies for .sha256 (which was causing "expected not").

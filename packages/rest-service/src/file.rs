@@ -37,7 +37,10 @@ pub async fn file_handler(
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
-    let reader_stream = ReaderStream::new(file).map_ok(Bytes::from);
+    // Use a large read buffer (256 KiB) instead of the default (~8 KiB) so big ROM
+    // downloads stream in far fewer, larger chunks — fewer syscalls and much higher
+    // throughput on fast local networks.
+    let reader_stream = ReaderStream::with_capacity(file, 256 * 1024).map_ok(Bytes::from);
     let body = axum::body::Body::from_stream(reader_stream);
 
     let response = Response::builder()

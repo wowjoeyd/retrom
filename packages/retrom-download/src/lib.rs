@@ -52,7 +52,12 @@ where
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    let mut outfile = tokio::fs::File::create(dest).await?;
+    // Buffer writes (256 KiB) so many small stream chunks coalesce into fewer, larger
+    // write syscalls — meaningfully faster for large downloads.
+    let mut outfile = tokio::io::BufWriter::with_capacity(
+        256 * 1024,
+        tokio::fs::File::create(dest).await?,
+    );
     let mut stream = response.bytes_stream();
     let mut total: u64 = 0;
 

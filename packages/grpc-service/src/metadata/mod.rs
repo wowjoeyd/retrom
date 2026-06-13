@@ -27,7 +27,10 @@ use retrom_service_common::{
     media_cache::{cacheable_media::CacheableMetadata, get_public_url, MediaCache},
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
-        soundtrack::{extract_video_id_from_url, find_theme_audio_file, try_extract_theme_audio},
+        soundtrack::{
+            extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file,
+            try_extract_theme_audio,
+        },
         steam::provider::SteamWebApiProvider,
         GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
     },
@@ -363,12 +366,47 @@ impl MetadataService for MetadataServiceHandlers {
         request: Request<UpdateGameMetadataRequest>,
     ) -> Result<Response<UpdateGameMetadataResponse>, Status> {
         let request = request.into_inner();
-        let metadata_to_update = request.metadata;
+        let mut metadata_to_update = request.metadata;
         let config = self.config_manager.get_config().await;
         let store_metadata = config
             .metadata
             .map(|m| m.store_metadata_locally)
             .unwrap_or(false);
+
+        // Pre-pass: entries that arrived WITHOUT a YouTube URL (the IGDB search-tab path,
+        // since get_igdb_game_search_results does not run find_soundtrack_url) get one looked
+        // up by name and persisted into video_urls. This makes the YouTube theme appear in the
+        // Videos tab, matching what the bulk "Download Metadata" path already does. Fast now
+        // that find_soundtrack_url runs its queries concurrently. The theme-audio extraction
+        // below then sees the injected URL via Path 1 (no duplicate search).
+        let soundtrack_lookups = metadata_to_update
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, m)| {
+                let has_youtube = m.video_urls.iter().any(|url| {
+                    let lower = url.to_ascii_lowercase();
+                    lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
+                });
+                match (has_youtube, m.name.clone()) {
+                    (false, Some(name)) if !name.trim().is_empty() => {
+                        Some(async move { (idx, find_soundtrack_url(&name).await) })
+                    }
+                    _ => None,
+                }
+            });
+
+        for (idx, url) in join_all(soundtrack_lookups).await {
+            if let (Some(url), Some(meta)) = (url, metadata_to_update.get_mut(idx)) {
+                if !meta.video_urls.iter().any(|u| u == &url) {
+                    tracing::info!(
+                        "theme: persisting soundtrack url into video_urls for game {}: {}",
+                        meta.game_id,
+                        url
+                    );
+                    meta.video_urls.insert(0, url);
+                }
+            }
+        }
 
         join_all(metadata_to_update.iter().map(|metadata| async {
             let job_manager = self.job_manager.clone();
@@ -398,26 +436,37 @@ impl MetadataService for MetadataServiceHandlers {
             };
 
             // Trigger theme audio extraction as a background job (non-blocking).
-            // The per-game "edit → match IGDB → update metadata" path used to await this
-            // synchronously (blocking the UI while yt-dlp ran). Now it spawns a job like
-            // the media cache and the bulk library metadata flow. The app remains usable.
-            // The client will see the new themeAudioUrl on next GetGameMetadata / refresh
-            // once the job writes the theme.* file (the FS scan in GetGameMetadata picks it up).
-            if let Some(first) = metadata.video_urls.get(0) {
-                let lower = first.to_ascii_lowercase();
-                if lower.contains("youtube.com/watch") || lower.contains("youtu.be/") {
-                    if let Some(vid) = extract_video_id_from_url(first) {
-                        if let Some(cache_dir) = metadata.get_cache_dir() {
-                            if find_theme_audio_file(&cache_dir).is_none() {
-                                let job_name =
-                                    format!("Extract Theme Audio For Game {}", metadata.game_id);
-                                let extract_task = async move {
-                                    let _ = try_extract_theme_audio(&vid, cache_dir, false).await;
-                                    Ok::<(), ()>(())
-                                };
-                                let _ =
-                                    job_manager.spawn(&job_name, vec![extract_task], None).await;
-                            }
+            // By this point any soundtrack URL has already been resolved and injected into
+            // video_urls by the pre-pass above (covering both the bulk path, which arrives
+            // with a URL, and the IGDB search-tab path, which we just looked up). So we only
+            // need the "URL already present" case here.
+            let youtube_url = metadata.video_urls.iter().find(|url| {
+                let lower = url.to_ascii_lowercase();
+                lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
+            });
+
+            if let Some(first) = youtube_url {
+                if let Some(vid) = extract_video_id_from_url(first) {
+                    if let Some(cache_dir) = metadata.get_cache_dir() {
+                        if find_theme_audio_file(&cache_dir).is_none() {
+                            let game_id = metadata.game_id;
+                            let job_name = format!("Extract Theme Audio For Game {}", game_id);
+                            let extract_task = async move {
+                                match try_extract_theme_audio(&vid, cache_dir, false).await {
+                                    Some(path) => tracing::info!(
+                                        "theme: extracted audio for game {} -> {:?}",
+                                        game_id,
+                                        path
+                                    ),
+                                    None => tracing::warn!(
+                                        "theme: extraction FAILED for game {} (video {})",
+                                        game_id,
+                                        vid
+                                    ),
+                                }
+                                Ok::<(), ()>(())
+                            };
+                            let _ = job_manager.spawn(&job_name, vec![extract_task], None).await;
                         }
                     }
                 }

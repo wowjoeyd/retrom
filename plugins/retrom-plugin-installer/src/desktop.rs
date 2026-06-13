@@ -203,6 +203,7 @@ impl<R: Runtime> Installer<R> {
                         );
 
                         let app_for_download = app_handle.clone();
+                        let mut last_emit = std::time::Instant::now();
                         let download_result = stream_to_file(
                             &client,
                             &download_uri,
@@ -218,6 +219,19 @@ impl<R: Runtime> Installer<R> {
                                             file.bytes_read += bytes;
                                         }
                                     }
+                                }
+
+                                // Push live progress to the UI, throttled to ~3/sec so a
+                                // single large file doesn't sit at 0% until it completes.
+                                if last_emit.elapsed() >= std::time::Duration::from_millis(333) {
+                                    last_emit = std::time::Instant::now();
+                                    let app_emit = app_for_download.clone();
+                                    tauri::async_runtime::spawn(async move {
+                                        let _ = app_emit
+                                            .installer()
+                                            .refresh_progress_metrics(game_id)
+                                            .await;
+                                    });
                                 }
                             },
                             || {
@@ -730,6 +744,50 @@ impl<R: Runtime> Installer<R> {
             Some(progress) => progress.status,
             None => InstallationStatus::NotInstalled,
         }
+    }
+
+    /// Recompute bytes/percent for an in-progress install from the live per-file counters
+    /// and push an update to subscribers. Called (throttled) from the download byte callback
+    /// so the UI shows live progress instead of sitting at 0% until a file fully completes.
+    pub(crate) async fn refresh_progress_metrics(&self, game_id: GameId) -> crate::Result<()> {
+        let now: Timestamp = SystemTime::now().into();
+        {
+            let mut index = self.installation_index.write().await;
+            let progress = match index.get_mut(&game_id) {
+                Some(p) => p,
+                None => return Ok(()),
+            };
+
+            let bytes_transferred =
+                progress.files.iter().map(|f| f.bytes_read).sum::<usize>() as u64;
+
+            if let Some(metrics) = progress.metrics.as_mut() {
+                let total = metrics.total_bytes;
+                let percent = if total > 0 {
+                    ((bytes_transferred as f64 / total as f64) * 100.0).round() as u32
+                } else {
+                    0
+                };
+
+                // bytes/sec since the last emitted sample.
+                if let Some(prev_at) = metrics.updated_at {
+                    if let Some(dt) = now.elapsed_since(&prev_at) {
+                        let secs = dt.as_secs_f64();
+                        if secs > 0.0 {
+                            let diff =
+                                bytes_transferred.saturating_sub(metrics.bytes_transferred) as f64;
+                            metrics.bytes_per_second = diff / secs;
+                        }
+                    }
+                }
+
+                metrics.bytes_transferred = bytes_transferred;
+                metrics.percent_complete = percent;
+                metrics.updated_at = Some(now);
+            }
+        }
+
+        self.emit_update(game_id).await
     }
 
     #[instrument(skip(self), fields(game_id))]

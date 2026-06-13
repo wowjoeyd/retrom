@@ -17,7 +17,10 @@ use retrom_db::schema;
 use retrom_service_common::media_cache::cacheable_media::CacheableMetadata;
 use retrom_service_common::metadata_providers::{
     igdb::provider::IgdbSearchData,
-    soundtrack::{extract_video_id_from_url, find_theme_audio_file, try_extract_theme_audio},
+    soundtrack::{
+        extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file,
+        try_extract_theme_audio,
+    },
     GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
 };
 use retrom_service_common::retrom_dirs::RetromDirs;
@@ -673,16 +676,6 @@ pub async fn update_metadata(
                 };
                 drop(conn);
 
-                let first_url = match meta_row.video_urls.get(0) {
-                    Some(u) => u,
-                    None => return Ok(()),
-                };
-
-                let lower = first_url.to_ascii_lowercase();
-                if !lower.contains("youtube.com/watch") && !lower.contains("youtu.be/") {
-                    return Ok(());
-                }
-
                 // Same cache dir logic as CacheableMetadata for GameMetadata (media/games/<id>).
                 let cache_dir = meta_row.get_cache_dir().unwrap_or_else(|| {
                     RetromDirs::new()
@@ -695,13 +688,44 @@ pub async fn update_metadata(
                     return Ok(());
                 }
 
-                if let Some(vid) = extract_video_id_from_url(first_url) {
+                // Locate a YouTube URL. Prefer what's already stored; fall back to searching
+                // by game name. This handles two cases:
+                // 1. Normal bulk run: get_game_metadata wrote a YT URL to video_urls[0].
+                // 2. Game whose metadata was written via the IGDB search-tab path (which calls
+                //    search_game_metadata, not get_game_metadata) — video_urls is empty.
+                //    Without this fallback the theme job silently skips those games forever.
+                let youtube_vid = meta_row
+                    .video_urls
+                    .iter()
+                    .find(|url| {
+                        let lower = url.to_ascii_lowercase();
+                        lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
+                    })
+                    .and_then(|url| extract_video_id_from_url(url));
+
+                let youtube_vid = match youtube_vid {
+                    Some(vid) => Some(vid),
+                    None => {
+                        // No YT URL in DB — search by game name.
+                        if let Some(name) = meta_row.name.as_deref() {
+                            if !name.is_empty() {
+                                find_soundtrack_url(name)
+                                    .await
+                                    .and_then(|url| extract_video_id_from_url(&url))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(vid) = youtube_vid {
                     tracing::info!(
                         "up-front theme audio extract (substantial chunk, force={}) for game {} (video id {})",
                         overwrite_theme_audio, game.id, vid
                     );
-                    // Duration filtering, min-length preference, and --download-sections chunking
-                    // (for good loop lengths) live inside the soundtrack module + try_extract.
                     let _ = try_extract_theme_audio(&vid, cache_dir, overwrite_theme_audio).await;
                 }
 
