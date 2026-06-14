@@ -9304,7 +9304,6 @@ dependencies = [
  "reqwest 0.12.28",
  "thiserror 1.0.69",
  "tokio",
- "tracing",
 ]
 
 [[package]]

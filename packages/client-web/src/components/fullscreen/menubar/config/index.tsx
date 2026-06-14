@@ -64,7 +64,13 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const fullscreenConfig = config?.interface?.fullscreenConfig as
-    | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+    | {
+        gameMusic?: {
+          enabled?: boolean;
+          volume?: number;
+          fadeDurationMs?: number;
+        };
+      }
     | undefined;
 
   const form = useForm<FormSchema>({

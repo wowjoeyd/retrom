@@ -126,10 +126,10 @@ export function InstallOnPlayModal() {
           <div className="flex flex-col gap-3 py-2">
             <p className="max-w-[45ch] text-sm text-muted-foreground">
               Raw files installed. For curated emulators like RPCS3 or Switch
-              forks that require an &ldquo;internal install&rdquo; (e.g. PKG/NSP into the
-              emulator&apos;s virtual FS), launch the emulator now to complete it
-              inside the app. The installed state will be captured in the
-              emulator package and synced to other PCs.
+              forks that require an &ldquo;internal install&rdquo; (e.g. PKG/NSP
+              into the emulator&apos;s virtual FS), launch the emulator now to
+              complete it inside the app. The installed state will be captured
+              in the emulator package and synced to other PCs.
             </p>
             <Button
               onClick={() => {

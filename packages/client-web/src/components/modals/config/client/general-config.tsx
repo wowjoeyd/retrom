@@ -68,7 +68,13 @@ export function GeneralConfig() {
   const { toast } = useToast();
   const [autoSyncUserData, setAutoSyncUserData] = useState(false);
   const fullscreenConfig = config?.interface?.fullscreenConfig as
-    | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+    | {
+        gameMusic?: {
+          enabled?: boolean;
+          volume?: number;
+          fadeDurationMs?: number;
+        };
+      }
     | undefined;
   const showEmulatorUserDataAutoSync =
     checkIsDesktop() &&
@@ -404,8 +410,8 @@ export function GeneralConfig() {
                       </label>
 
                       <p className="text-sm text-muted-foreground">
-                        Play a game&apos;s main theme when selecting or hovering it
-                        in fullscreen (loops the extracted soundtrack or
+                        Play a game&apos;s main theme when selecting or hovering
+                        it in fullscreen (loops the extracted soundtrack or
                         uploaded audio).
                       </p>
                     </div>

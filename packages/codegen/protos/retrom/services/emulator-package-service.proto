@@ -10,8 +10,7 @@ service EmulatorPackageService {
   rpc GetEmulatorPackageFiles(GetEmulatorPackageFilesRequest) returns (GetEmulatorPackageFilesResponse);
   rpc UpdateEmulatorPackages(UpdateEmulatorPackagesRequest) returns (UpdateEmulatorPackagesResponse);
   rpc GetEmulatorCatalog(GetEmulatorCatalogRequest) returns (GetEmulatorCatalogResponse);
-  rpc CheckEmulatorPackageDirectoryWritable(CheckEmulatorPackageDirectoryWritableRequest)
-      returns (CheckEmulatorPackageDirectoryWritableResponse);
+  rpc CheckEmulatorPackageDirectoryWritable(CheckEmulatorPackageDirectoryWritableRequest) returns (CheckEmulatorPackageDirectoryWritableResponse);
   rpc InstallCatalogPackage(InstallCatalogPackageRequest) returns (InstallCatalogPackageResponse);
   rpc LinkEmulatorToPackage(LinkEmulatorToPackageRequest) returns (LinkEmulatorToPackageResponse);
   rpc DeleteEmulatorPackages(DeleteEmulatorPackagesRequest) returns (DeleteEmulatorPackagesResponse);

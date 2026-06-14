@@ -190,7 +190,8 @@ const gameMusic = {
       state.status === "blocked" ||
       state.status === "error"
     ) {
-      if (state.url && state.status) this._recordOutcome(state.url, state.status);
+      if (state.url && state.status)
+        this._recordOutcome(state.url, state.status);
     }
 
     this._setStatus(state);
@@ -207,7 +208,10 @@ const gameMusic = {
       ts: Date.now(),
     });
     // also expose last for any debug consumers
-    (gameMusicPlayer as unknown as Record<string, unknown>).lastResult = { url, status };
+    (gameMusicPlayer as unknown as Record<string, unknown>).lastResult = {
+      url,
+      status,
+    };
   },
 
   _fadeTo(target: number, durationMs: number) {
@@ -850,7 +854,13 @@ export const useGameMusicStatus = create<GameMusicState>()((set) => ({
 export function useGameMusic(_gameId: number) {
   const { rawEnabled, rawVolume, rawFade } = useConfig((s) => {
     const fullscreenConfig = s.config?.interface?.fullscreenConfig as
-      | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+      | {
+          gameMusic?: {
+            enabled?: boolean;
+            volume?: number;
+            fadeDurationMs?: number;
+          };
+        }
       | undefined;
 
     return {

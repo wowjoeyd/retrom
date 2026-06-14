@@ -33,11 +33,7 @@ import { useUpdateEmulatorPackages } from "@/mutations/useUpdateEmulatorPackages
 import { useUpdateLocalEmulatorConfig } from "@/mutations/useUpdateLocalEmulatorConfigs";
 import { useDeleteEmulatorPackages } from "@/mutations/useDeleteEmulatorPackages";
 import { useConfig } from "@/providers/config";
-import {
-  LoaderCircleIcon,
-  RefreshCwIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { match } from "ts-pattern";
 
 const packageStatusLabels: Record<EmulatorPackageStatus, string> = {
