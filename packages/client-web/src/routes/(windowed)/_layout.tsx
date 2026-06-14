@@ -39,6 +39,7 @@ import { Toaster } from "@retrom/ui/components/toast";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 import { EmulatorUserDataAutoSync } from "@/components/emulator-user-data-auto-sync";
+import { BatchDownloadMusicModal } from "@/components/modals/batch-download-music";
 
 export const Route = createFileRoute("/(windowed)/_layout")({
   component: LayoutComponent,
@@ -140,6 +141,7 @@ function LayoutComponent() {
           <ExitModal />
           <ResolveCloudSaveConflictModal />
           <InstallOnPlayModal />
+          <BatchDownloadMusicModal />
         </ModalActionProvider>
       )}
 

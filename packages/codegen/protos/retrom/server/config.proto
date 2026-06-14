@@ -106,6 +106,17 @@ message MetadataConfig {
 
   bool store_metadata_locally = 1;
   OptimizationConfig optimization = 2;
+
+  // Path to a Netscape-format cookies.txt file used for YouTube searches and
+  // yt-dlp downloads. Provides the same cookies your browser sends, which
+  // significantly improves search quality and avoids bot-detection blocks.
+  // Export from your browser with an extension such as "Get cookies.txt LOCALLY".
+  optional string youtube_cookies_path = 3;
+
+  // When true, automatically search YouTube and download theme audio for any
+  // newly-added games that don't yet have a theme file.  Downloads happen after
+  // every library scan in the background using a 2-at-a-time concurrency limit.
+  optional bool auto_download_music = 4;
 }
 
 message ServerConfig {

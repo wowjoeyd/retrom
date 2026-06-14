@@ -5,6 +5,8 @@ import { useRetromClient } from "@/providers/retrom-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSteamInstallations } from "@retrom/plugin-installer";
 import { checkIsDesktop } from "@/lib/env";
+import { create } from "@bufbuild/protobuf";
+import { AutoDownloadGameSoundtrackRequestSchema } from "@retrom/codegen/retrom/services/metadata-service_pb";
 
 export function useUpdateLibrary() {
   const { toast } = useToast();
@@ -127,6 +129,23 @@ export function useUpdateLibrary() {
               "Auto metadata fetch after library scan did not start:",
               e,
             );
+          }
+
+          // Auto-download theme audio for new games if the setting is enabled.
+          try {
+            const configResp =
+              await retromClient.serverClient.getServerConfig({});
+            if (configResp.config?.metadata?.autoDownloadMusic) {
+              const gamesResp = await retromClient.gameClient.getGames({});
+              const gameIds = gamesResp.games.map((g) => g.id);
+              if (gameIds.length > 0) {
+                await retromClient.metadataClient.autoDownloadGameSoundtrack(
+                  create(AutoDownloadGameSoundtrackRequestSchema, { gameIds }),
+                );
+              }
+            }
+          } catch (e) {
+            console.debug("Auto music download after library scan failed:", e);
           }
 
           return invalidate();

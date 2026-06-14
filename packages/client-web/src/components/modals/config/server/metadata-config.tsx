@@ -51,6 +51,8 @@ import {
 
 const metadataSchema = z.object({
   storeMetadataLocally: z.boolean().default(false),
+  youtubeCookiesPath: z.string().optional(),
+  autoDownloadMusic: z.boolean().default(false),
   optimization: z
     .object({
       jpegQuality: z.coerce.number().min(1).max(100).default(85),
@@ -87,18 +89,28 @@ export function MetadataConfig(props: {
 
   const form = useForm<z.infer<typeof metadataSchema>>({
     resolver: zodResolver(metadataSchema),
-    defaultValues: metadataSchema.parse(
-      create(MetadataConfigSchema, props.currentConfig.metadata),
-    ),
+    defaultValues: metadataSchema.parse({
+      ...create(MetadataConfigSchema, props.currentConfig.metadata ?? {}),
+      youtubeCookiesPath:
+        props.currentConfig.metadata?.youtubeCookiesPath ?? "",
+      autoDownloadMusic:
+        props.currentConfig.metadata?.autoDownloadMusic ?? false,
+    }),
   });
 
   const handleSubmit = useCallback(
     (values: z.infer<typeof metadataSchema>) => {
       try {
+        const { youtubeCookiesPath, autoDownloadMusic, ...rest } = values;
         update({
           config: {
             ...props.currentConfig,
-            metadata: create(MetadataConfigSchema, values),
+            metadata: create(MetadataConfigSchema, {
+              ...rest,
+              // Treat empty string as unset so the server doesn't try to open "".
+              youtubeCookiesPath: youtubeCookiesPath?.trim() || undefined,
+              autoDownloadMusic,
+            }),
           },
         });
 
@@ -152,6 +164,64 @@ export function MetadataConfig(props: {
                     </div>
                   </FormControl>
 
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="youtubeCookiesPath"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>YouTube Cookies File</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="/path/to/cookies.txt"
+                      disabled={status === "pending"}
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Path to a Netscape-format{" "}
+                    <code className="font-mono">cookies.txt</code> file for
+                    YouTube searches and yt-dlp downloads. Export from your
+                    browser with an extension such as &ldquo;Get cookies.txt
+                    LOCALLY&rdquo;. Improves search quality and reduces
+                    bot-detection blocks.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="autoDownloadMusic"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <div className="flex items-top gap-2">
+                      <Checkbox
+                        disabled={status === "pending"}
+                        id="auto-download-music"
+                        checked={field.value}
+                        onCheckedChange={(val) => field.onChange(val)}
+                      />
+                      <div className={cn("grid gap-1 leading-none")}>
+                        <label htmlFor="auto-download-music">
+                          Auto-download theme audio for new games
+                        </label>
+                        <p className="text-sm text-muted-foreground">
+                          After each library scan, automatically search YouTube
+                          and download theme audio for any newly-added games
+                          that don&apos;t yet have one. Downloads run in the
+                          background with a 2-at-a-time limit.
+                        </p>
+                      </div>
+                    </div>
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

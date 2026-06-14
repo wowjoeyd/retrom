@@ -3,17 +3,40 @@ import { InterfaceConfig_GameListEntryImageJson } from "@retrom/codegen/retrom/c
 import { getFileStub } from "@/lib/utils";
 import { useConfig } from "@/providers/config";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FocusContainer, useFocusable } from "../focus-container";
-import { Music2, VolumeX } from "lucide-react";
+import { DownloadIcon, LoaderCircleIcon, Music2, VolumeX } from "lucide-react";
 import { create } from "zustand";
+import { useHotkeys } from "@/providers/hotkeys";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
+import { HotkeyIcon } from "../hotkey-button";
 import { Group, useGroupContext } from "@/providers/fullscreen/group-context";
 import { Separator } from "@retrom/ui/components/separator";
 import { cn } from "@retrom/ui/lib/utils";
 import { useGameMetadata } from "@/queries/useGameMetadata";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import { Skeleton } from "@retrom/ui/components/skeleton";
+import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
+import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@retrom/ui/components/dialog";
+import { Button } from "@retrom/ui/components/button";
+
+function formatDurationShort(secs: number): string {
+  if (secs <= 0) return "";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 // =====================================================
 // Global background music player for fullscreen game themes / soundtracks.
@@ -33,6 +56,7 @@ type GameMusicState = {
   url?: string;
   sourceType?: GameMusicSourceType;
   message?: string;
+  gameId?: number;
   updatedAt: number;
   setStatus: (state: Omit<Partial<GameMusicState>, "setStatus" | "hide">) => void;
   hide: () => void;
@@ -439,7 +463,23 @@ const gameMusic = {
       } catch (e: any) {
         if (e && e.name === "AbortError") return;
         if (this.activeStatus?.url !== videoUrl) return;
-        this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
+        // NotSupportedError or MEDIA_ERR_SRC_NOT_SUPPORTED typically means the file
+        // doesn't exist on the server (404 / no theme downloaded yet).
+        const isMissing =
+          e?.name === "NotSupportedError" ||
+          this.audio?.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+        if (isMissing) {
+          this._finishStatus({
+            status: "missing",
+            url: videoUrl,
+            title,
+            sourceType: "audio",
+            message: "No theme audio downloaded",
+            gameId: this.currentGameId ?? undefined,
+          });
+        } else {
+          this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
+        }
       }
       return;
     }
@@ -693,7 +733,7 @@ export const useGameMusicStatus = create<GameMusicState>()((set) => ({
       visible: state.status !== "idle",
       updatedAt: Date.now(),
     }),
-  hide: () => set({ visible: false }),
+  hide: () => set({ visible: false, gameId: undefined }),
 }));
 
 export function useGameMusic(gameId: number) {
@@ -716,7 +756,7 @@ export function useGameMusic(gameId: number) {
 }
 
 export function GameMusicNowPlaying() {
-  const { visible, status, title, sourceType, message, updatedAt, hide, url } =
+  const { visible, status, title, sourceType, message, updatedAt, hide, url, gameId } =
     useGameMusicStatus((state) => ({
       visible: state.visible,
       status: state.status,
@@ -726,7 +766,10 @@ export function GameMusicNowPlaying() {
       updatedAt: state.updatedAt,
       hide: state.hide,
       url: state.url,
+      gameId: state.gameId,
     }));
+
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!visible || status === "loading") return;
@@ -741,25 +784,42 @@ export function GameMusicNowPlaying() {
 
   const isPlaying = status === "playing" || status === "loading";
   const isBlocked = status === "blocked" || status === "error";
+  const isMissing = status === "missing";
   const label =
     status === "playing"
       ? "Now Playing"
       : status === "loading"
         ? "Loading Soundtrack"
-        : "Soundtrack Unavailable";
+        : isMissing
+          ? "No Theme Audio"
+          : "Soundtrack Unavailable";
 
-  // When blocked we want the Play preview button to be clickable, so allow events on the banner.
-  const interactive = isBlocked;
+  // When blocked or missing we want actions to be clickable.
+  const interactive = isBlocked || isMissing;
 
-  if (!visible) return null;
+  // Allow controller users to trigger the download picker when the "No Theme Audio"
+  // banner is visible. OPTION (Select/View, button 8) is used as the action button
+  // so it does not conflict with ACCEPT (navigation) or BACK (dismissal).
+  useHotkeys({
+    enabled: isMissing && visible && gameId != null,
+    handlers: {
+      OPTION: {
+        handler: () => {
+          hide();
+          setPickerOpen(true);
+        },
+      },
+    },
+  });
 
   return (
+    <>
+    {visible && (
     <div
       className={cn(
         "fixed bottom-8 left-1/2 z-[90] w-[min(92vw,34rem)] -translate-x-1/2",
         "transition-all duration-500 ease-out",
         interactive ? "pointer-events-auto" : "pointer-events-none",
-        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
       )}
     >
       <div
@@ -791,6 +851,22 @@ export function GameMusicNowPlaying() {
           {message && status !== "playing" ? (
             <p className="text-sm text-muted-foreground truncate">{message}</p>
           ) : null}
+
+          {isMissing && gameId != null && (
+            <button
+              type="button"
+              className="mt-1 flex items-center gap-1.5 w-fit text-xs font-medium text-accent hover:text-accent-foreground pointer-events-auto"
+              onClick={() => {
+                hide();
+                setPickerOpen(true);
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <HotkeyIcon hotkey="OPTION" className="text-[9px] py-[6px] px-[5px]" />
+              <DownloadIcon size={11} />
+              Download music
+            </button>
+          )}
 
           {isBlocked && (
             <>
@@ -827,6 +903,123 @@ export function GameMusicNowPlaying() {
         </div>
       </div>
     </div>
+    )}
+
+    {gameId != null && (
+      <MusicPickerDialog
+        gameId={gameId}
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+      />
+    )}
+  </>
+  );
+}
+
+function MusicPickerDialog({
+  gameId,
+  open,
+  onClose,
+}: {
+  gameId: number;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data, status: searchStatus } = useSearchGameSoundtrack(gameId, {
+    enabled: open,
+  });
+  const { mutate: download, status: downloadStatus } =
+    useDownloadGameSoundtrack();
+
+  const candidates = data?.candidates ?? [];
+  const isSearching = searchStatus === "pending" && open;
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const handleDownload = () => {
+    if (!selected) return;
+    download({ gameId, videoId: selected });
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg z-[100]">
+        <DialogHeader>
+          <DialogTitle>Choose Theme Music</DialogTitle>
+          <DialogDescription>
+            Select a YouTube track to use as theme audio for this game. The
+            download runs in the background.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isSearching ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+            <LoaderCircleIcon className="animate-spin" size={20} />
+            <span className="text-sm">Searching YouTube…</span>
+          </div>
+        ) : candidates.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+            <Music2 size={32} className="opacity-40" />
+            <p className="text-sm">No candidates found for this game.</p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-1">
+            {candidates.map((c) => {
+              const isSelected = selected === c.videoId;
+              return (
+                <li
+                  key={c.videoId}
+                  onClick={() => setSelected(c.videoId)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md border p-2 cursor-pointer transition-colors",
+                    isSelected
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-muted/50",
+                  )}
+                >
+                  <img
+                    src={c.thumbnailUrl}
+                    alt={c.title}
+                    className="w-20 h-14 object-cover rounded shrink-0 bg-muted"
+                    loading="lazy"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium line-clamp-2 leading-snug">
+                      {c.title || "Untitled"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {c.durationSecs > 0
+                        ? formatDurationShort(c.durationSecs)
+                        : ""}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!selected || downloadStatus === "pending"}
+            onClick={handleDownload}
+          >
+            {downloadStatus === "pending" ? (
+              <LoaderCircleIcon className="animate-spin" />
+            ) : (
+              <>
+                <DownloadIcon size={14} className="mr-1.5" />
+                Download
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

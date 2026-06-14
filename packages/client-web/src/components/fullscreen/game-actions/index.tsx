@@ -11,6 +11,7 @@ import {
 import { UninstallGameAction } from "./uninstall-game";
 import { InstallGameAction } from "./install-game";
 import { DeleteGameAction } from "./delete-game";
+import { DownloadMusicAction } from "./download-music";
 import { HotkeyButton } from "../hotkey-button";
 import { useState } from "react";
 import { useHotkeys } from "@/providers/hotkeys";
@@ -96,6 +97,7 @@ export function GameActions() {
                 <UninstallGameAction />
               </DesktopOnly>
 
+              <DownloadMusicAction />
               <DeleteGameAction />
             </div>
 

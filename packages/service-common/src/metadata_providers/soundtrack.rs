@@ -1,12 +1,14 @@
 use crate::retrom_dirs::RetromDirs;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::fs;
 use tokio::process::Command;
-use tokio::sync::Mutex;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, warn};
 
 /// Whether automatic game-theme searching/extraction is enabled.
@@ -29,6 +31,198 @@ pub fn game_themes_enabled() -> bool {
 // Without this, a bulk metadata job spawns dozens of tasks that all race to
 // write the binary to the same path, which can corrupt it on Windows.
 static YT_DLP_DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+// Same guard for ffmpeg binary downloads.
+static FFMPEG_DOWNLOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+// Global cap on concurrent YouTube search requests. Without this, a 350-game
+// library triggers 350 simultaneous HTTP fetches and YouTube rate-limits the lot.
+static YOUTUBE_SEARCH_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+
+fn youtube_search_semaphore() -> Arc<Semaphore> {
+    YOUTUBE_SEARCH_SEMAPHORE
+        .get_or_init(|| Arc::new(Semaphore::new(4)))
+        .clone()
+}
+
+// ── YouTube cookies path ──────────────────────────────────────────────────────
+// Set once at service startup (or on config update) by the gRPC service via
+// `set_youtube_cookies_path`. Falls back to env var RETROM_YOUTUBE_COOKIES.
+static YOUTUBE_COOKIES_PATH: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
+
+fn cookies_lock() -> &'static RwLock<Option<PathBuf>> {
+    YOUTUBE_COOKIES_PATH.get_or_init(|| RwLock::new(None))
+}
+
+/// Called at service startup (and on config update) to configure the cookies
+/// path used by all YouTube searches and yt-dlp invocations.
+pub async fn set_youtube_cookies_path(path: Option<PathBuf>) {
+    *cookies_lock().write().await = path;
+}
+
+async fn get_youtube_cookies_path() -> Option<PathBuf> {
+    // Runtime config takes priority.
+    if let Some(p) = cookies_lock().read().await.clone() {
+        return Some(p);
+    }
+    // Fallback to environment variable.
+    std::env::var("RETROM_YOUTUBE_COOKIES").ok().map(PathBuf::from)
+}
+
+// ── Persistent soundtrack URL cache ──────────────────────────────────────────
+// Caches game_name → YouTube URL (or None = confirmed no result) across runs.
+// Uses a lazy-loaded in-process HashMap backed by a JSON file on disk.
+
+#[derive(Serialize, Deserialize, Clone)]
+struct CachedSoundtrackEntry {
+    /// None means we searched and found nothing (negative cache).
+    url: Option<String>,
+    cached_at_secs: u64,
+}
+
+type SoundtrackUrlCache = HashMap<String, CachedSoundtrackEntry>;
+
+/// 30-day TTL for cached entries.
+const CACHE_TTL_SECS: u64 = 30 * 24 * 3600;
+
+static SOUNDTRACK_CACHE: OnceLock<Mutex<Option<SoundtrackUrlCache>>> = OnceLock::new();
+
+fn soundtrack_cache_lock() -> &'static Mutex<Option<SoundtrackUrlCache>> {
+    SOUNDTRACK_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn soundtrack_cache_path() -> PathBuf {
+    RetromDirs::new()
+        .data_dir()
+        .join("soundtrack_url_cache.json")
+}
+
+async fn load_soundtrack_cache_from_disk() -> SoundtrackUrlCache {
+    let path = soundtrack_cache_path();
+    match fs::read_to_string(&path).await {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => HashMap::new(),
+    }
+}
+
+/// Look up a cached result. Returns `Some(Some(url))` for a hit, `Some(None)`
+/// for a confirmed negative, and `None` when there is no (valid) cache entry.
+async fn cache_lookup(key: &str) -> Option<Option<String>> {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut guard = soundtrack_cache_lock().lock().await;
+    if guard.is_none() {
+        *guard = Some(load_soundtrack_cache_from_disk().await);
+    }
+    guard.as_ref()?.get(key).and_then(|e| {
+        if now_secs.saturating_sub(e.cached_at_secs) < CACHE_TTL_SECS {
+            Some(e.url.clone())
+        } else {
+            None // expired
+        }
+    })
+}
+
+/// Store a result (positive or negative) in the cache and persist to disk.
+/// The disk write happens outside the Mutex to avoid holding it across async IO.
+async fn cache_store(key: &str, url: Option<String>) {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let snapshot = {
+        let mut guard = soundtrack_cache_lock().lock().await;
+        if guard.is_none() {
+            *guard = Some(load_soundtrack_cache_from_disk().await);
+        }
+        if let Some(cache) = guard.as_mut() {
+            cache.insert(
+                key.to_string(),
+                CachedSoundtrackEntry { url: url.clone(), cached_at_secs: now_secs },
+            );
+        }
+        // Only snapshot for disk write when we have a positive result.
+        // Negative results (None) are kept in-memory for within-session deduplication
+        // but must not be persisted — a future run (with cookies, better regex, etc.)
+        // should always retry games that previously had no match.
+        if url.is_some() { guard.clone() } else { None }
+    };
+
+    if let Some(cache) = snapshot {
+        let path = soundtrack_cache_path();
+        // Only write positive entries to the on-disk cache.
+        let positive_only: SoundtrackUrlCache = cache
+            .into_iter()
+            .filter(|(_, e)| e.url.is_some())
+            .collect();
+        if let Ok(json) = serde_json::to_string(&positive_only) {
+            let _ = fs::write(&path, json).await;
+        }
+    }
+}
+
+// ── Netscape cookie file parsing ──────────────────────────────────────────────
+// Builds a `Cookie:` header value from a Netscape cookies.txt file.
+// Only cookies for *.youtube.com are included.
+
+fn parse_netscape_cookies(text: &str) -> String {
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.splitn(7, '\t').collect();
+            if fields.len() < 7 {
+                return None;
+            }
+            let domain = fields[0];
+            let name = fields[5];
+            let value = fields[6];
+            // Include .youtube.com and youtube.com cookies.
+            if domain.contains("youtube.com") && !name.is_empty() {
+                Some(format!("{}={}", name, value))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Reads the configured cookies file and returns the `Cookie:` header value,
+/// or `None` if no cookies file is configured or the file can't be read.
+async fn build_cookie_header() -> Option<String> {
+    let path = get_youtube_cookies_path().await?;
+    let text = fs::read_to_string(&path).await.ok()?;
+    let header = parse_netscape_cookies(&text);
+    if header.is_empty() { None } else { Some(header) }
+}
+
+/// Check whether ffmpeg is already available (PATH or our bin dir) WITHOUT downloading.
+/// Used to optionally pass `--ffmpeg-location` to yt-dlp during extraction.
+async fn find_ffmpeg_if_present() -> Option<PathBuf> {
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(out) = Command::new(which_cmd).arg("ffmpeg").output().await {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let line = s.lines().next().unwrap_or("").trim().to_string();
+            if !line.is_empty() {
+                return Some(PathBuf::from(line));
+            }
+        }
+    }
+    let dirs = RetromDirs::new();
+    let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let p = dirs.data_dir().join("bin").join(exe);
+    if p.exists() { Some(p) } else { None }
+}
+
+// Minimum effective score a candidate must reach to be returned from
+// find_soundtrack_url. Prevents gameplay clips and untitled videos from winning
+// when title parsing succeeds but every result scores poorly.
+const MIN_ACCEPT_SCORE: i32 = 30;
 
 fn normalize_query_name(name: &str) -> String {
     name.split_whitespace()
@@ -55,13 +249,20 @@ fn strip_edition_suffixes(name: &str) -> String {
         "definitive edition",
         "ultimate edition",
         "complete edition",
+        "enhanced edition",
         "game of the year edition",
+        "game of the year",
         "goty edition",
+        "goty",
+        "director's cut",
+        "directors cut",
         "anniversary edition",
         "remastered",
         "remaster",
         "hd collection",
         "metal edition",
+        "reloaded",
+        "complete pack",
     ];
 
     let mut current = name.trim().to_string();
@@ -91,26 +292,45 @@ fn strip_edition_suffixes(name: &str) -> String {
     current.trim_end_matches(['(', ' ']).trim().to_string()
 }
 
-fn soundtrack_queries(name: &str) -> Vec<String> {
-    vec![
-        format!("\"{name}\" main theme"),
-        format!("\"{name}\" overture"),
-        format!("\"{name}\" opening theme"),
-        format!("\"{name}\" title theme"),
-        format!("\"{name}\" theme song"),
-        format!("\"{name}\" official soundtrack main theme"),
-        format!("\"{name}\" ost main theme"),
-        format!("\"{name}\" official soundtrack"),
-    ]
+/// Full normalization pipeline for YouTube search: remove bracket/paren segments,
+/// replace colons with spaces, strip edition suffixes, collapse whitespace.
+fn normalize_game_name_for_search(name: &str) -> String {
+    // Remove bracketed/parenthetical segments (ROM tags, disc labels, version numbers).
+    let mut result = String::with_capacity(name.len());
+    let mut bracket_depth = 0u32;
+    let mut paren_depth = 0u32;
+    for ch in name.chars() {
+        match ch {
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            // YouTube treats ':' as a search operator; replace with space to keep the subtitle.
+            ':' if bracket_depth == 0 && paren_depth == 0 => result.push(' '),
+            _ if bracket_depth == 0 && paren_depth == 0 => result.push(ch),
+            _ => {}
+        }
+    }
+    normalize_query_name(&strip_edition_suffixes(result.trim()))
 }
 
 #[derive(Debug)]
 struct YoutubeCandidate {
     video_id: String,
+    title: String,
     score: i32,
     /// Duration in seconds parsed directly from the search-results page (`lengthText`),
     /// when available. Lets us avoid an expensive per-candidate yt-dlp probe.
     duration_secs: Option<u32>,
+}
+
+/// A ranked YouTube soundtrack match returned by the public search API.
+#[derive(Debug, Clone)]
+pub struct SoundtrackCandidate {
+    pub video_id: String,
+    pub title: String,
+    pub duration_secs: Option<u32>,
+    pub thumbnail_url: String,
 }
 
 fn score_title(title: &str, game_name: &str) -> i32 {
@@ -132,6 +352,16 @@ fn score_title(title: &str, game_name: &str) -> i32 {
         "piano arrangement",
         "8bit",
         "chiptune cover",
+        "let's play",
+        "lets play",
+        "playthrough",
+        "no commentary",
+        "part 1",
+        "episode",
+        "fan made",
+        "fan-made",
+        "animated",
+        "animation",
     ]
     .iter()
     .any(|term| title.contains(term))
@@ -194,119 +424,231 @@ fn decode_title(raw: &str) -> String {
     raw.replace("\\u0026", "&").replace("\\\"", "\"")
 }
 
-fn parse_youtube_candidates(body: &str, game_name: &str) -> Vec<YoutubeCandidate> {
-    // Title scoring is the PRIMARY signal, so it must run first and with a window wide
-    // enough to actually reach the title. In modern YouTube `videoRenderer` JSON the
-    // thumbnail block between "videoId" and "title" routinely exceeds 2-3KB, so the old
-    // 2000-char window failed to match almost every result (producing 0 scored candidates
-    // despite a page full of results). We widen it substantially and use a non-greedy
-    // match so it still binds to the nearest (i.e. this video's own) title.
-    let with_title = Regex::new(
-        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,8000}?)"title":\{"runs":\[\{"text":"([^"]+)""#,
-    )
-    .ok();
-    // Duration hint straight from the search page. We build a videoId -> seconds map so
-    // every candidate can carry its duration WITHOUT an expensive per-video yt-dlp probe.
-    let with_length = Regex::new(
-        r#""videoId":"([A-Za-z0-9_-]{11})"(?s:.{0,9000}?)"lengthText":\{"simpleText":"([^"]+)""#,
-    )
-    .ok();
-    let video_id = Regex::new(r#""videoId":"([A-Za-z0-9_-]{11})""#).ok();
-    let mut seen = HashSet::new();
+/// Extract the `ytInitialData` JSON blob embedded in a YouTube search-results page.
+/// YouTube writes the full structured search response as an assignment
+/// `var ytInitialData = {...};` (or just `ytInitialData = {...}`) in a `<script>` tag.
+/// Parsing this gives us accurate videoId↔title pairings because both fields live in
+/// the same `videoRenderer` JSON object — unlike the position-based regex approach, which
+/// can proximity-match a title from an adjacent video block to the wrong videoId.
+///
+/// Uses `serde_json::Deserializer` in streaming mode so it reads exactly one JSON value
+/// starting from the `{` and ignores the trailing `;</script>` text without errors.
+fn extract_yt_initial_data_json(body: &str) -> Option<serde_json::Value> {
+    let key_pos = body.find("ytInitialData")?;
+    let after_key = &body[key_pos + "ytInitialData".len()..];
+    let eq_pos = after_key.find('=')?;
+    let from_val = after_key[eq_pos + 1..].trim_start();
+    if !from_val.starts_with('{') {
+        return None;
+    }
+    let mut de = serde_json::Deserializer::from_str(from_val);
+    serde_json::Value::deserialize(&mut de).ok()
+}
+
+/// Walk the parsed `ytInitialData` object and extract video candidates.
+/// Each `videoRenderer` contains both `videoId` and `title.runs[0].text` in the same
+/// object, guaranteeing correct pairings regardless of surrounding HTML layout.
+fn candidates_from_yt_initial_data(
+    data: &serde_json::Value,
+    game_name: &str,
+) -> Vec<YoutubeCandidate> {
     let mut candidates = Vec::new();
 
-    // Build the duration map first (first occurrence per id wins).
-    let mut durations: HashMap<String, u32> = HashMap::new();
-    if let Some(re) = &with_length {
-        for caps in re.captures_iter(body) {
-            let Some(vid) = caps.get(1).map(|m| m.as_str().to_string()) else {
-                continue;
+    let sections = match data
+        .pointer("/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents")
+        .and_then(|v| v.as_array())
+    {
+        Some(s) => s,
+        None => return candidates,
+    };
+
+    for section in sections {
+        let items = match section
+            .pointer("/itemSectionRenderer/contents")
+            .and_then(|v| v.as_array())
+        {
+            Some(i) => i,
+            None => continue,
+        };
+
+        for item in items {
+            let renderer = match item.get("videoRenderer") {
+                Some(r) => r,
+                None => continue,
             };
-            if durations.contains_key(&vid) {
-                continue;
-            }
-            if let Some(len) = caps.get(2).map(|m| m.as_str()) {
-                if let Some(secs) = parse_duration_to_secs(len) {
-                    durations.insert(vid, secs);
-                }
-            }
-        }
-    }
 
-    // Pass 1 (PRIMARY): score by title. This is what surfaces "main theme", "soundtrack",
-    // "overture", etc. Must run before the length/bare passes so those don't claim the
-    // videoId first and starve title scoring (the original ordering bug).
-    let mut title_match_count = 0usize;
-    let mut sample_titles: Vec<String> = Vec::new();
-    if let Some(with_title) = with_title {
-        for caps in with_title.captures_iter(body) {
-            let Some(video_id) = caps.get(1).map(|m| m.as_str().to_string()) else {
-                continue;
+            let video_id = match renderer.get("videoId").and_then(|v| v.as_str()) {
+                Some(id) => id.to_string(),
+                None => continue,
             };
-            if !seen.insert(video_id.clone()) {
-                continue;
-            }
 
-            let title = caps.get(2).map(|m| decode_title(m.as_str()));
-            title_match_count += 1;
-            if let Some(t) = title.as_deref() {
-                if sample_titles.len() < 5 {
-                    sample_titles.push(t.to_string());
-                }
-            }
-            let score = title
-                .as_deref()
-                .map(|title| score_title(title, game_name))
-                .unwrap_or(0);
+            let raw_title = renderer
+                .pointer("/title/runs/0/text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let title = decode_title(raw_title);
 
-            let duration_secs = durations.get(&video_id).copied();
+            let duration_secs = renderer
+                .pointer("/lengthText/simpleText")
+                .and_then(|v| v.as_str())
+                .and_then(parse_duration_to_secs);
+
+            let score = score_title(&title, game_name);
             candidates.push(YoutubeCandidate {
                 video_id,
+                title,
                 score,
                 duration_secs,
             });
         }
     }
-    // DIAGNOSTIC: how many titles the title-regex actually captured, and a few samples.
-    // If title_match_count is 0 the regex isn't matching YouTube's current markup at all.
-    tracing::debug!(
-        "soundtrack parse: title-regex matched {} videos; sample titles: {:?}",
-        title_match_count,
-        sample_titles
-    );
 
-    // Pass 2: results whose title we couldn't parse but that expose a lengthText.
-    for (vid, secs) in &durations {
-        if !seen.insert(vid.clone()) {
-            continue;
+    candidates
+}
+
+fn parse_youtube_candidates(body: &str, game_name: &str) -> (Vec<YoutubeCandidate>, usize) {
+    // Preferred path: parse the structured ytInitialData JSON blob.
+    // This gives guaranteed title↔videoId pairings because they come from the same
+    // videoRenderer object. Falls through when ytInitialData is absent (bot-detection
+    // page, network error, or YouTube structure change).
+    if let Some(data) = extract_yt_initial_data_json(body) {
+        let candidates = candidates_from_yt_initial_data(&data, game_name);
+        if !candidates.is_empty() {
+            let title_count = candidates.iter().filter(|c| !c.title.is_empty()).count();
+            tracing::debug!(
+                "soundtrack parse (ytInitialData): {} candidates, {} with titles",
+                candidates.len(),
+                title_count
+            );
+            return (candidates, title_count);
         }
-        let score = if *secs > 600 { -120 } else { 5 };
-        candidates.push(YoutubeCandidate {
-            video_id: vid.clone(),
-            score,
-            duration_secs: Some(*secs),
-        });
     }
 
-    // Pass 3: any remaining bare videoIds (last resort, unscored).
-    if let Some(video_id) = video_id {
-        for caps in video_id.captures_iter(body) {
-            let Some(video_id) = caps.get(1).map(|m| m.as_str().to_string()) else {
-                continue;
-            };
-            if !seen.insert(video_id.clone()) {
+    // Fallback: position-based approach. Used when ytInitialData is absent or empty,
+    // e.g. YouTube served a bot-detection interstitial instead of real results.
+    //
+    // Position-based approach: extract all videoId, title, and duration positions
+    // separately then pair by byte-position proximity.  This is robust to YouTube's
+    // changing JSON field order (title before/after videoId) and the 2024+ layout where
+    // an `"accessibility"` block precedes `"runs"` inside both "title" and "lengthText".
+    //
+    // The old single-pass combined regexes (videoId → 32 KB → exact JSON key sequence)
+    // broke when YouTube inserted the accessibility wrapper, yielding 0 title matches for
+    // every game.  The position-based approach is immune to key-ordering changes.
+
+    let vid_re = Regex::new(r#""videoId":"([A-Za-z0-9_-]{11})""#).ok();
+
+    // Title: allow up to 900 lazy chars between "title":{ and "runs":[{"text":" so that
+    // the accessibility block (typically ~150-250 chars) is bridged transparently.
+    let title_re = Regex::new(
+        r#""title":\{(?s:.{0,900}?)"runs":\[\{"text":"([^"]{1,300})""#,
+    )
+    .ok();
+
+    // Duration: allow up to 600 lazy chars between "lengthText":{ and "simpleText":" for
+    // the same reason (accessibility wrapper added by YouTube in 2024).
+    let dur_re = Regex::new(
+        r#""lengthText":\{(?s:.{0,600}?)"simpleText":"([0-9][0-9:]+)""#,
+    )
+    .ok();
+
+    let body_len = body.len();
+
+    // Build sorted position maps.
+    let mut title_pos: Vec<(usize, String)> = Vec::new();
+    if let Some(re) = &title_re {
+        for caps in re.captures_iter(body) {
+            if let (Some(m), Some(t)) = (caps.get(0), caps.get(1)) {
+                title_pos.push((m.start(), decode_title(t.as_str())));
+            }
+        }
+    }
+    title_pos.sort_unstable_by_key(|(p, _)| *p);
+
+    let mut dur_pos: Vec<(usize, u32)> = Vec::new();
+    if let Some(re) = &dur_re {
+        for caps in re.captures_iter(body) {
+            if let (Some(m), Some(t)) = (caps.get(0), caps.get(1)) {
+                if let Some(secs) = parse_duration_to_secs(t.as_str()) {
+                    dur_pos.push((m.start(), secs));
+                }
+            }
+        }
+    }
+    dur_pos.sort_unstable_by_key(|(p, _)| *p);
+
+    // For each unique videoId, find the nearest title and duration within a byte window.
+    // A videoRenderer object is typically 3–10 KB; using 16 KB forward + 4 KB backward
+    // gives enough slack while staying within the same renderer in practice.
+    // Backward matches are penalised 3× to prefer the title that follows the videoId
+    // (the normal JSON ordering).
+    const FORWARD_WINDOW: usize = 16_000;
+    const BACKWARD_WINDOW: usize = 4_000;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut candidates: Vec<YoutubeCandidate> = Vec::new();
+    let mut title_match_count = 0usize;
+    let mut sample_titles: Vec<String> = Vec::new();
+
+    if let Some(re) = &vid_re {
+        for caps in re.captures_iter(body) {
+            let Some(vm) = caps.get(0) else { continue };
+            let Some(v) = caps.get(1) else { continue };
+            let vid = v.as_str().to_string();
+            let vid_pos = vm.start();
+
+            if !seen.insert(vid.clone()) {
                 continue;
             }
 
+            let lo = vid_pos.saturating_sub(BACKWARD_WINDOW);
+            let hi = (vid_pos + FORWARD_WINDOW).min(body_len);
+
+            // Nearest title: forward distance preferred 3× over backward distance.
+            let nearest_title = title_pos
+                .iter()
+                .filter(|(tp, _)| *tp >= lo && *tp <= hi)
+                .min_by_key(|(tp, _)| {
+                    if *tp >= vid_pos {
+                        tp - vid_pos
+                    } else {
+                        (vid_pos - tp).saturating_mul(3)
+                    }
+                });
+
+            let title_str = nearest_title.map(|(_, t)| t.as_str());
+            if let Some(t) = title_str {
+                title_match_count += 1;
+                if sample_titles.len() < 5 {
+                    sample_titles.push(t.to_string());
+                }
+            }
+
+            let score = title_str.map(|t| score_title(t, game_name)).unwrap_or(0);
+
+            // Nearest duration — no directional preference.
+            let dur = dur_pos
+                .iter()
+                .filter(|(dp, _)| *dp >= lo && *dp <= hi)
+                .min_by_key(|(dp, _)| dp.abs_diff(vid_pos))
+                .map(|(_, d)| *d);
+
             candidates.push(YoutubeCandidate {
-                video_id,
-                score: 0,
-                duration_secs: None,
+                video_id: vid,
+                title: title_str.unwrap_or("").to_string(),
+                score,
+                duration_secs: dur,
             });
         }
     }
 
-    candidates
+    tracing::debug!(
+        "soundtrack parse: title-regex matched {} videos (position-based); sample titles: {:?}",
+        title_match_count,
+        sample_titles
+    );
+
+    (candidates, title_match_count)
 }
 
 /// Parse common YouTube duration strings ("3:45", "1:02:30", "45") to seconds.
@@ -368,13 +710,142 @@ async fn probe_video_duration_secs(video_id: &str) -> Option<u32> {
     stdout.parse::<f64>().ok().map(|d| d.round() as u32)
 }
 
+/// Fetch YouTube search results for a single query and return positively-scored
+/// candidates plus the raw title-match count (for the title-guard check).
+async fn fetch_youtube_candidates(
+    client: &reqwest::Client,
+    query: &str,
+    game_name: &str,
+    cookie_header: Option<&str>,
+) -> (Vec<(String, String, i32, Option<u32>)>, usize) {
+    let url = match reqwest::Url::parse_with_params(
+        "https://www.youtube.com/results",
+        &[("search_query", query)],
+    ) {
+        Ok(u) => u,
+        Err(_) => return (Vec::new(), 0),
+    };
+
+    let mut req = client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        )
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+
+    if let Some(cookies) = cookie_header {
+        req = req.header(reqwest::header::COOKIE, cookies);
+    }
+
+    let body = match req.send().await {
+        Ok(resp) => match resp.text().await {
+            Ok(t) => t,
+            Err(_) => return (Vec::new(), 0),
+        },
+        Err(_) => return (Vec::new(), 0),
+    };
+
+    let (candidates, title_count) = parse_youtube_candidates(&body, game_name);
+    let scored_count = candidates.iter().filter(|c| c.score > 0).count();
+    tracing::info!(
+        "soundtrack search query '{}' for '{}': {} candidates ({} scored>0, body {} bytes)",
+        query,
+        game_name,
+        candidates.len(),
+        scored_count,
+        body.len()
+    );
+
+    let positive = candidates
+        .into_iter()
+        .filter(|c| c.score > 0)
+        .map(|c| (c.video_id, c.title, c.score, c.duration_secs))
+        .collect();
+
+    (positive, title_count)
+}
+
+/// Search YouTube for soundtrack candidates for a game and return ranked results.
+/// This is the public entry-point for the per-game Music tab — it runs the same
+/// two-pass YouTube search used by `find_soundtrack_url` but returns all candidates
+/// instead of picking a single winner.
+pub async fn search_soundtrack_candidates(game_name: &str) -> Vec<SoundtrackCandidate> {
+    if !game_themes_enabled() {
+        return Vec::new();
+    }
+
+    let normalized_name = normalize_game_name_for_search(game_name);
+    if normalized_name.is_empty() {
+        return Vec::new();
+    }
+
+    let _permit = match youtube_search_semaphore().acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+
+    let cookie_header = build_cookie_header().await;
+    let cookie_ref = cookie_header.as_deref();
+    let client = reqwest::Client::new();
+
+    let primary_query = format!("{} main theme official soundtrack", normalized_name);
+    let (primary, _) =
+        fetch_youtube_candidates(&client, &primary_query, &normalized_name, cookie_ref).await;
+
+    let all = if primary.is_empty() {
+        let fallback_query = format!("{} OST", normalized_name);
+        let (fallback, _) =
+            fetch_youtube_candidates(&client, &fallback_query, &normalized_name, cookie_ref).await;
+        fallback
+    } else {
+        primary
+    };
+
+    // Deduplicate, keeping highest score per video_id, preserving the title.
+    let mut seen: HashMap<String, (String, i32, Option<u32>)> = HashMap::new();
+    for (vid, title, score, dur) in all {
+        seen.entry(vid)
+            .and_modify(|(t, s, d)| {
+                if score > *s {
+                    *s = score;
+                    if !title.is_empty() {
+                        *t = title.clone();
+                    }
+                }
+                if d.is_none() {
+                    *d = dur;
+                }
+            })
+            .or_insert((title, score, dur));
+    }
+
+    let mut ranked: Vec<(String, String, i32, Option<u32>)> = seen
+        .into_iter()
+        .map(|(v, (t, s, d))| (v, t, s, d))
+        .collect();
+    ranked.sort_by_key(|(_, _, s, _)| std::cmp::Reverse(*s));
+
+    ranked
+        .into_iter()
+        .take(10)
+        .map(|(video_id, title, _, duration_secs)| SoundtrackCandidate {
+            thumbnail_url: format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", video_id),
+            video_id,
+            title,
+            duration_secs,
+        })
+        .collect()
+}
+
 pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
     if !game_themes_enabled() {
         debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search");
         return None;
     }
 
-    let normalized_name = normalize_query_name(&strip_edition_suffixes(game_name));
+    let normalized_name = normalize_game_name_for_search(game_name);
     if normalized_name.is_empty() {
         return None;
     }
@@ -386,68 +857,62 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
         );
     }
 
-    // Fetch all search queries CONCURRENTLY. Previously these ran one-at-a-time, and each
-    // also fired a per-candidate yt-dlp duration probe (a multi-second network call) for up
-    // to 5 candidates — up to 40 sequential yt-dlp invocations, hence the 1-2 minute waits.
-    // Now: 8 HTTP fetches in parallel, and durations come straight from the page (lengthText),
-    // so we no longer probe per candidate at all.
-    let client = reqwest::Client::new();
-    let query_futures = soundtrack_queries(&normalized_name).into_iter().map(|query| {
-        let client = client.clone();
-        let normalized_name = normalized_name.clone();
-        async move {
-            let url = match reqwest::Url::parse_with_params(
-                "https://www.youtube.com/results",
-                &[("search_query", query.as_str())],
-            ) {
-                Ok(u) => u,
-                Err(_) => return Vec::new(),
-            };
-
-            let body = match client
-                .get(url)
-                .header(
-                    reqwest::header::USER_AGENT,
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                )
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.text().await {
-                    Ok(t) => t,
-                    Err(_) => return Vec::new(),
-                },
-                Err(_) => return Vec::new(),
-            };
-
-            let candidates = parse_youtube_candidates(&body, &normalized_name);
-            let scored_count = candidates.iter().filter(|c| c.score > 0).count();
-            tracing::info!(
-                "soundtrack search query '{}' for '{}': {} candidates ({} scored>0, body {} bytes)",
-                query,
-                normalized_name,
-                candidates.len(),
-                scored_count,
-                body.len()
-            );
-
-            // Return all positively-scored candidates for this query (with page-parsed
-            // duration where available). Final validation/selection happens globally below.
-            candidates
-                .into_iter()
-                .filter(|c| c.score > 0)
-                .map(|c| (c.video_id, c.score, c.duration_secs))
-                .collect::<Vec<_>>()
+    // Cache check — avoids re-querying YouTube for the same game.
+    if let Some(cached) = cache_lookup(&normalized_name).await {
+        match &cached {
+            Some(url) => {
+                tracing::info!("soundtrack cache hit for '{}': {}", normalized_name, url);
+                return cached;
+            }
+            None => {
+                tracing::debug!(
+                    "soundtrack negative cache hit for '{}' — skipping search",
+                    normalized_name
+                );
+                return None;
+            }
         }
-    });
+    }
 
-    // Merge candidates from all queries, dedup by video id keeping the highest base score.
+    // Global cap: at most 4 concurrent YouTube searches across all tasks.
+    // Prevents the bulk job from flooding YouTube with 350+ simultaneous requests.
+    let _permit = youtube_search_semaphore().acquire_owned().await.ok()?;
+
+    let cookie_header = build_cookie_header().await;
+    let cookie_ref = cookie_header.as_deref();
+
+    let client = reqwest::Client::new();
+
+    // Primary query — always run.
+    let primary_query = format!("{} main theme official soundtrack", normalized_name);
+    let (primary_candidates, primary_title_count) =
+        fetch_youtube_candidates(&client, &primary_query, &normalized_name, cookie_ref).await;
+
+    // Fallback query — only when primary produced no positively-scored candidates.
+    let (all_candidates, total_title_count) = if primary_candidates.is_empty() {
+        let fallback_query = format!("{} OST", normalized_name);
+        let (fallback_candidates, fallback_title_count) =
+            fetch_youtube_candidates(&client, &fallback_query, &normalized_name, cookie_ref).await;
+        let mut merged = primary_candidates;
+        merged.extend(fallback_candidates);
+        (merged, primary_title_count + fallback_title_count)
+    } else {
+        (primary_candidates, primary_title_count)
+    };
+
+    // Title guard: if the regex matched zero titles across all queries, YouTube's
+    // JSON structure may have changed. Refuse to pick an untitled candidate.
+    if total_title_count == 0 {
+        tracing::warn!(
+            "soundtrack: title regex matched 0 videos for '{}' — YouTube markup may have changed; refusing untitled picks",
+            normalized_name
+        );
+        return None;
+    }
+
+    // Merge by video_id, keeping highest base score.
     let mut merged: HashMap<String, (i32, Option<u32>)> = HashMap::new();
-    for (vid, score, dur) in futures::future::join_all(query_futures)
-        .await
-        .into_iter()
-        .flatten()
-    {
+    for (vid, _title, score, dur) in all_candidates {
         merged
             .entry(vid)
             .and_modify(|(s, d)| {
@@ -465,24 +930,16 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
         merged.into_iter().map(|(v, (s, d))| (v, s, d)).collect();
     ranked.sort_by_key(|(_, s, _)| std::cmp::Reverse(*s));
 
-    // Validate the top candidates by DURATION and pick the best. A video is only accepted
-    // if its duration is KNOWN (from the page, or from a single yt-dlp probe) and falls in
-    // [60s, 600s]. This is the key correctness guard: unknown-duration candidates are no
-    // longer auto-accepted, which previously let 16-second clips (whose lengthText didn't
-    // parse) win, and let >10min videos win and then fail extraction. Probes are bounded
-    // (only the top handful), so this stays fast.
+    // Validate by duration and apply sweet-spot bonuses.
     let mut best: Option<(String, i32, u32)> = None; // (url, effective_score, duration)
     let mut probes_done = 0;
     const MAX_PROBES: usize = 6;
 
     for (vid, base_score, page_dur) in ranked.into_iter().take(12) {
-        // Resolve duration: trust the page value if present, else probe (bounded).
         let dur = match page_dur {
             Some(d) => Some(d),
             None => {
                 if probes_done >= MAX_PROBES {
-                    // Out of probe budget and no page duration — skip rather than risk a
-                    // bad pick. We'd rather choose a slightly lower-scored known-good video.
                     continue;
                 }
                 probes_done += 1;
@@ -492,16 +949,16 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
 
         let dur = match dur {
             Some(d) if (60..=600).contains(&d) => d,
-            _ => continue, // unknown or out-of-range duration -> reject
+            _ => continue,
         };
 
-        let mut effective_score = base_score + 2; // known good duration
+        let mut effective_score = base_score + 2;
         if (90..=420).contains(&dur) {
-            effective_score += 40; // sweet spot for looping
+            effective_score += 40;
         } else if dur > 420 {
             effective_score += 15;
         } else {
-            effective_score -= 25; // 60-89s: acceptable but short
+            effective_score -= 25;
         }
 
         if best.as_ref().map_or(true, |(_, s, _)| effective_score > *s) {
@@ -512,8 +969,6 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
             ));
         }
 
-        // Early exit: a sweet-spot candidate among the top of the ranking is good enough;
-        // no need to keep probing for marginal gains (and keeps selection stable).
         if best
             .as_ref()
             .is_some_and(|(_, _, d)| (90..=420).contains(d))
@@ -525,7 +980,10 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
     if let Some((url, score, dur)) = &best {
         tracing::info!(
             "final short soundtrack choice for query name '{}': {} (score {}, dur {}s)",
-            normalized_name, url, score, dur
+            normalized_name,
+            url,
+            score,
+            dur
         );
     } else {
         tracing::warn!(
@@ -534,7 +992,26 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
         );
     }
 
-    best.map(|(url, _score, _dur)| url)
+    // Quality floor: reject if best effective score is below threshold.
+    let result = best.and_then(|(url, score, _dur)| {
+        if score >= MIN_ACCEPT_SCORE {
+            Some(url)
+        } else {
+            tracing::warn!(
+                "soundtrack: best score {} < MIN_ACCEPT_SCORE {} for '{}' — returning None",
+                score,
+                MIN_ACCEPT_SCORE,
+                normalized_name
+            );
+            None
+        }
+    });
+
+    // Persist to cache (positive and negative alike so we don't hammer YouTube
+    // repeatedly for games with no good result).
+    cache_store(&normalized_name, result.clone()).await;
+
+    result
 }
 
 /// Returns an existing extracted theme audio file (e.g. theme.opus or theme.webm) inside
@@ -600,6 +1077,7 @@ pub async fn try_extract_theme_audio(
     video_id: &str,
     cache_dir: PathBuf,
     force: bool,
+    skip_preflight_probe: bool,
 ) -> Option<PathBuf> {
     if !game_themes_enabled() {
         debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction");
@@ -630,17 +1108,19 @@ pub async fn try_extract_theme_audio(
         }
     }
 
-    // Pre-flight duration guard (belt-and-suspenders with the scrape-time 10min filter).
-    // We refuse to start the download for anything we can prove is >10min.
-    // This protects the "up-front metadata job" and NAS storage from long compilations
-    // even if a long url somehow reached here (manual add, old data, race, etc.).
-    if let Some(dur) = probe_video_duration_secs(video_id).await {
-        if dur > 600 {
-            warn!(
-                "Refusing to yt-dlp extract theme audio for {} ({}s > 10min limit). Only short themes are extracted as persistent game metadata.",
-                video_id, dur
-            );
-            return None;
+    // Pre-flight duration guard: only run when the URL provenance is unknown (e.g. manual
+    // add or legacy path). When called from the bulk job or per-game update path the URL
+    // already passed find_soundtrack_url's [60s, 600s] validation, so the probe is
+    // redundant and just adds a yt-dlp subprocess per game.
+    if !skip_preflight_probe {
+        if let Some(dur) = probe_video_duration_secs(video_id).await {
+            if dur > 600 {
+                warn!(
+                    "Refusing to yt-dlp extract theme audio for {} ({}s > 10min limit). Only short themes are extracted as persistent game metadata.",
+                    video_id, dur
+                );
+                return None;
+            }
         }
     }
 
@@ -660,34 +1140,40 @@ pub async fn try_extract_theme_audio(
         .to_string_lossy()
         .to_string();
 
-    let output = match Command::new(&yt_dlp_path)
-        .args([
-            "--no-playlist",
-            "--no-mtime",
-            // Limit to a solid "theme" chunk (first ~6 minutes). This ensures satisfying loop
-            // lengths (e.g. 2-6min pieces) even if the chosen video is longer within our 10min cap,
-            // without downloading full hour-long compilations. Works without ffmpeg.
-            "--download-sections", "*0:00-6:00",
-            // Prefer direct audio-only (webm/opus or m4a etc, playable in <video> with no ffmpeg).
-            // Fall back to "best" (video+audio) so that extraction almost always succeeds for
-            // any downloadable video (the resulting file, even if it has a video track, is fine
-            // for our tiny offscreen audio-only <video> player; we only care about the audio).
-            // This makes the feature much more reliable across videos that may not have a pure
-            // "bestaudio" format or have download restrictions.
-            "-f",
-            "bestaudio/best",
-            // Make the request look like a normal browser to avoid some bot blocks / consent pages.
-            "--user-agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            // Intentionally omit -x/--audio-format/* to avoid requiring ffmpeg/avconv
-            // on the Retrom server machine. Native audio containers from YT are fine.
-            "-o",
-            &output_template,
-            &yt_url,
-        ])
-        .output()
-        .await
-    {
+    // If ffmpeg is present (system PATH or our bin dir), pass its location to yt-dlp.
+    // This makes --download-sections reliable for all format types (without ffmpeg,
+    // some WebM streams are downloaded in full then truncated in post).
+    let ffmpeg_location = find_ffmpeg_if_present().await;
+    let ffmpeg_location_str = ffmpeg_location
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+
+    let cookies_path = get_youtube_cookies_path().await;
+    let cookies_path_str = cookies_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string());
+
+    let mut cmd = Command::new(&yt_dlp_path);
+    cmd.args([
+        "--no-playlist",
+        "--no-mtime",
+        // Limit to a solid "theme" chunk (first ~6 minutes).
+        "--download-sections", "*0:00-6:00",
+        // Prefer direct audio-only (webm/opus or m4a), fall back to best.
+        "-f", "bestaudio/best",
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "-o", &output_template,
+        &yt_url,
+    ]);
+    if let Some(ref loc) = ffmpeg_location_str {
+        cmd.args(["--ffmpeg-location", loc]);
+    }
+    if let Some(ref cp) = cookies_path_str {
+        cmd.args(["--cookies", cp]);
+    }
+
+    let output = match cmd.output().await {
         Ok(o) => o,
         Err(e) => {
             warn!("Failed to spawn yt-dlp for {}: {}", video_id, e);
@@ -914,6 +1400,202 @@ pub async fn ensure_yt_dlp() -> Option<PathBuf> {
 
     debug!("yt-dlp downloaded and ready at {:?}", exe_path);
     Some(exe_path)
+}
+
+/// Ensures ffmpeg binary is available (downloads if missing). Returns path or None.
+/// Checks: (1) system PATH, (2) our bin dir, (3) auto-downloads eugeneware/ffmpeg-static.
+/// The download is serialized so concurrent calls don't race on the binary file.
+pub async fn ensure_ffmpeg() -> Option<PathBuf> {
+    // Fast paths — no lock needed.
+    if let Some(p) = find_ffmpeg_if_present().await {
+        return Some(p);
+    }
+
+    let dirs = RetromDirs::new();
+    let bin_dir = dirs.data_dir().join("bin");
+    let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe_path = bin_dir.join(exe_name);
+
+    let lock = FFMPEG_DOWNLOAD_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock.lock().await;
+
+    // Re-check after acquiring the lock.
+    if exe_path.exists() {
+        return Some(exe_path);
+    }
+
+    let (asset_name, write_name) = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => ("ffmpeg-win32-x64", "ffmpeg.exe"),
+        ("linux",   "x86_64") => ("ffmpeg-linux-x64", "ffmpeg"),
+        ("macos",   "x86_64") => ("ffmpeg-darwin-x64", "ffmpeg"),
+        ("macos",  "aarch64") => ("ffmpeg-darwin-arm64", "ffmpeg"),
+        _ => {
+            warn!(
+                "No ffmpeg auto-download for {}/{}. Install ffmpeg to enable audio compression.",
+                std::env::consts::OS, std::env::consts::ARCH
+            );
+            return None;
+        }
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Retrom/ffmpeg-fetch (https://github.com/jmberesford/retrom)")
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let release: serde_json::Value = match client
+        .get("https://api.github.com/repos/eugeneware/ffmpeg-static/releases/latest")
+        .send()
+        .await
+    {
+        Ok(r) => r.json().await.unwrap_or(serde_json::json!({})),
+        Err(e) => {
+            warn!("Failed to fetch ffmpeg release info: {}", e);
+            return None;
+        }
+    };
+
+    let assets = release
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+
+    let download_url = assets
+        .iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name))
+        .and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
+        .map(|s| s.to_string());
+
+    let Some(url) = download_url else {
+        warn!(
+            "ffmpeg asset '{}' not found in eugeneware/ffmpeg-static latest release. \
+             Install ffmpeg manually to enable audio compression.",
+            asset_name
+        );
+        return None;
+    };
+
+    tracing::info!(
+        "Downloading ffmpeg from {} (one-time ~60–80 MB download)",
+        url
+    );
+
+    if let Err(e) = fs::create_dir_all(&bin_dir).await {
+        warn!("Failed to create bin dir for ffmpeg: {}", e);
+        return None;
+    }
+
+    let bytes = match client.get(&url).send().await {
+        Ok(r) => match r.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                warn!("Failed to read ffmpeg bytes: {}", e);
+                return None;
+            }
+        },
+        Err(e) => {
+            warn!("ffmpeg download request failed: {}", e);
+            return None;
+        }
+    };
+
+    let out_path = bin_dir.join(write_name);
+    if let Err(e) = fs::write(&out_path, &bytes).await {
+        warn!("Failed to write ffmpeg binary: {}", e);
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(mut perms) = fs::metadata(&out_path).await.map(|m| m.permissions()) {
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&out_path, perms).await;
+        }
+    }
+
+    tracing::info!("ffmpeg downloaded to {:?}", out_path);
+    Some(out_path)
+}
+
+/// Compress a downloaded theme audio file to opus at 64 kbps using ffmpeg.
+/// Replaces the original file on success; returns the final file path either way.
+/// No-ops if ffmpeg is unavailable (returns the original path) or if the file is
+/// already opus-encoded.
+pub async fn compress_theme_audio(audio_path: &Path, cache_dir: &Path) -> PathBuf {
+    // Already opus — nothing to do.
+    if audio_path.extension().and_then(|e| e.to_str()) == Some("opus") {
+        return audio_path.to_path_buf();
+    }
+
+    let compressed = cache_dir.join("theme.opus");
+
+    // Already compressed on a previous run.
+    if compressed.exists() {
+        if audio_path != compressed.as_path() {
+            let _ = tokio::fs::remove_file(audio_path).await;
+        }
+        return compressed;
+    }
+
+    let ffmpeg_path = match ensure_ffmpeg().await {
+        Some(p) => p,
+        None => {
+            debug!(
+                "ffmpeg not available; skipping compression of {:?}",
+                audio_path
+            );
+            return audio_path.to_path_buf();
+        }
+    };
+
+    let Some(in_str) = audio_path.to_str() else {
+        return audio_path.to_path_buf();
+    };
+    let Some(out_str) = compressed.to_str() else {
+        return audio_path.to_path_buf();
+    };
+
+    tracing::debug!(
+        "Compressing theme audio {:?} → {:?} (opus 64 kbps)",
+        audio_path,
+        compressed
+    );
+
+    let result = Command::new(&ffmpeg_path)
+        .args([
+            "-i", in_str,
+            "-c:a", "libopus",
+            "-b:a", "64k",
+            "-vn",   // strip video track
+            "-y",    // overwrite output if present
+            out_str,
+        ])
+        .output()
+        .await;
+
+    match result {
+        Ok(o) if o.status.success() && compressed.exists() => {
+            if audio_path != compressed.as_path() {
+                let _ = tokio::fs::remove_file(audio_path).await;
+            }
+            tracing::info!("Compressed theme audio → {:?}", compressed);
+            compressed
+        }
+        Ok(o) => {
+            warn!(
+                "ffmpeg compression failed for {:?}: {}",
+                audio_path,
+                String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("(no output)")
+            );
+            audio_path.to_path_buf()
+        }
+        Err(e) => {
+            warn!("ffmpeg spawn failed: {}", e);
+            audio_path.to_path_buf()
+        }
+    }
 }
 
 /// Helper to pull video ID from a watch url (for extraction after finding soundtrack).

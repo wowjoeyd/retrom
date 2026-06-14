@@ -10,15 +10,18 @@ use retrom_codegen::{
         get_igdb_search_request::IgdbSearchType,
         get_igdb_search_response::SearchResults,
         metadata_service_server::MetadataService,
-        DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, Game, GameGenre, GameGenreMap,
-        GetGameMetadataRequest, GetGameMetadataResponse, GetIgdbGameSearchResultsRequest,
+        AutoDownloadGameSoundtrackRequest, AutoDownloadGameSoundtrackResponse,
+        DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, DownloadGameSoundtrackRequest,
+        DownloadGameSoundtrackResponse, Game, GameGenre, GameGenreMap, GetGameMetadataRequest,
+        GetGameMetadataResponse, GetIgdbGameSearchResultsRequest,
         GetIgdbGameSearchResultsResponse, GetIgdbPlatformSearchResultsRequest,
         GetIgdbPlatformSearchResultsResponse, GetIgdbSearchRequest, GetIgdbSearchResponse,
         GetLocalMetadataStatusRequest, GetLocalMetadataStatusResponse, GetPlatformMetadataRequest,
         GetPlatformMetadataResponse, IgdbSearchGameResponse, IgdbSearchPlatformResponse,
-        SimilarGameMap, SyncSteamMetadataRequest, SyncSteamMetadataResponse,
-        UpdateGameMetadataRequest, UpdateGameMetadataResponse, UpdatePlatformMetadataRequest,
-        UpdatePlatformMetadataResponse, UpdatedGameMetadata,
+        SearchGameSoundtrackRequest, SearchGameSoundtrackResponse, SimilarGameMap,
+        SoundtrackCandidate as SoundtrackCandidateProto, SyncSteamMetadataRequest,
+        SyncSteamMetadataResponse, UpdateGameMetadataRequest, UpdateGameMetadataResponse,
+        UpdatePlatformMetadataRequest, UpdatePlatformMetadataResponse, UpdatedGameMetadata,
     },
     timestamp::Timestamp,
 };
@@ -28,7 +31,8 @@ use retrom_service_common::{
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
         soundtrack::{
-            extract_video_id_from_url, find_soundtrack_url, find_theme_audio_file,
+            compress_theme_audio, extract_video_id_from_url, find_soundtrack_url,
+            find_theme_audio_file, search_soundtrack_candidates, set_youtube_cookies_path,
             try_extract_theme_audio,
         },
         steam::provider::SteamWebApiProvider,
@@ -42,7 +46,7 @@ use tonic::{Request, Response, Status};
 use tracing::{error, Instrument, Level};
 use walkdir::WalkDir;
 
-use super::jobs::job_manager::JobManager;
+use super::jobs::job_manager::{JobManager, JobOptions};
 
 pub struct MetadataServiceHandlers {
     db_pool: Arc<Pool>,
@@ -367,11 +371,20 @@ impl MetadataService for MetadataServiceHandlers {
     ) -> Result<Response<UpdateGameMetadataResponse>, Status> {
         let request = request.into_inner();
         let mut metadata_to_update = request.metadata;
+        let overwrite_theme_audio = request.overwrite_theme_audio.unwrap_or(false);
         let config = self.config_manager.get_config().await;
-        let store_metadata = config
-            .metadata
+        let meta_cfg = config.metadata.clone();
+        let store_metadata = meta_cfg
+            .as_ref()
             .map(|m| m.store_metadata_locally)
             .unwrap_or(false);
+
+        // Keep the global cookies path in sync with the current server config.
+        let cookies_path = meta_cfg
+            .as_ref()
+            .and_then(|m| m.youtube_cookies_path.as_ref())
+            .map(std::path::PathBuf::from);
+        set_youtube_cookies_path(cookies_path).await;
 
         // Pre-pass: entries that arrived WITHOUT a YouTube URL (the IGDB search-tab path,
         // since get_igdb_game_search_results does not run find_soundtrack_url) get one
@@ -488,16 +501,29 @@ impl MetadataService for MetadataServiceHandlers {
             if let Some(first) = youtube_url {
                 if let Some(vid) = extract_video_id_from_url(first) {
                     if let Some(cache_dir) = metadata.get_cache_dir() {
-                        if find_theme_audio_file(&cache_dir).is_none() {
+                        let needs_extract = overwrite_theme_audio
+                            || find_theme_audio_file(&cache_dir).is_none();
+                        if needs_extract {
                             let game_id = metadata.game_id;
                             let job_name = format!("Extract Theme Audio For Game {}", game_id);
+                            let cache_dir_clone = cache_dir.clone();
                             let extract_task = async move {
-                                match try_extract_theme_audio(&vid, cache_dir, false).await {
-                                    Some(path) => tracing::info!(
-                                        "theme: extracted audio for game {} -> {:?}",
-                                        game_id,
-                                        path
-                                    ),
+                                match try_extract_theme_audio(
+                                    &vid,
+                                    cache_dir_clone.clone(),
+                                    overwrite_theme_audio,
+                                    true,
+                                )
+                                .await
+                                {
+                                    Some(path) => {
+                                        tracing::info!(
+                                            "theme: extracted audio for game {} -> {:?}",
+                                            game_id,
+                                            path
+                                        );
+                                        compress_theme_audio(&path, &cache_dir_clone).await;
+                                    }
                                     None => tracing::warn!(
                                         "theme: extraction FAILED for game {} (video {})",
                                         game_id,
@@ -791,6 +817,7 @@ impl MetadataService for MetadataServiceHandlers {
     ) -> Result<Response<SyncSteamMetadataResponse>, Status> {
         let request = request.into_inner();
         let selectors = request.selectors;
+        let force_refresh = request.force_refresh.unwrap_or(false);
 
         let steam_provider = self.steam_provider.clone();
         let pool = self.db_pool.clone();
@@ -833,17 +860,77 @@ impl MetadataService for MetadataServiceHandlers {
             .map(|game| {
                 let pool = pool.clone();
                 let steam_games = steam_games.clone();
+                let steam_provider = steam_provider.clone();
 
                 async move {
-                    if let Some(steam_game) = steam_games
+                    let steam_game = steam_games
                         .read()
                         .await
                         .iter()
                         .find(|g| g.appid == game.steam_app_id() as u32)
-                    {
+                        .cloned();
+
+                    let Some(steam_game) = steam_game else {
+                        return Ok::<Option<()>, Status>(None);
+                    };
+
+                    if force_refresh {
+                        // Full re-fetch from Steam (name, description, screenshots,
+                        // videos, etc.) using the same provider used during bulk scans.
+                        use retrom_service_common::metadata_providers::GameMetadataProvider;
+                        let full_meta = steam_provider
+                            .get_game_metadata(game.clone(), Some(steam_game))
+                            .await;
+
+                        if let Some(mut meta) = full_meta {
+                            let mut conn = pool
+                                .get()
+                                .await
+                                .map_err(|e| Status::internal(e.to_string()))?;
+
+                            // Preserve any YouTube soundtrack URL stored by a prior music
+                            // download. The full set() below overwrites video_urls with Steam
+                            // CDN links, which would silently clear the user's chosen theme
+                            // reference and break the Theme tab's "Watch on YouTube" link.
+                            if let Ok(existing) = schema::game_metadata::table
+                                .filter(schema::game_metadata::game_id.eq(game.id))
+                                .first::<retrom::GameMetadata>(&mut conn)
+                                .await
+                            {
+                                let yt_urls: Vec<String> = existing
+                                    .video_urls
+                                    .into_iter()
+                                    .filter(|u| {
+                                        let l = u.to_ascii_lowercase();
+                                        l.contains("youtube.com/watch") || l.contains("youtu.be/")
+                                    })
+                                    .collect();
+                                for yt in yt_urls.into_iter().rev() {
+                                    meta.video_urls.insert(0, yt);
+                                }
+                            }
+
+                            // Update existing row; fall back to insert for new games.
+                            let rows = diesel::update(schema::game_metadata::table)
+                                .filter(schema::game_metadata::game_id.eq(game.id))
+                                .set(&meta)
+                                .execute(&mut conn)
+                                .await
+                                .map_err(|e| Status::internal(e.to_string()))?;
+
+                            if rows == 0 {
+                                diesel::insert_into(schema::game_metadata::table)
+                                    .values(&meta)
+                                    .on_conflict_do_nothing()
+                                    .execute(&mut conn)
+                                    .await
+                                    .map_err(|e| Status::internal(e.to_string()))?;
+                            }
+                        }
+                    } else {
+                        // Lightweight sync: playtime + last_played only.
                         let last_played = if steam_game.rtime_last_played > 0 {
                             let dt = DateTime::from_timestamp(steam_game.rtime_last_played, 0);
-
                             dt.map(|dt| Timestamp {
                                 seconds: dt.timestamp(),
                                 nanos: 0,
@@ -864,24 +951,20 @@ impl MetadataService for MetadataServiceHandlers {
                             ..Default::default()
                         };
 
-                        let mut conn = match pool.get().await {
-                            Ok(conn) => conn,
-                            Err(why) => {
-                                return Err(Status::internal(why.to_string()));
-                            }
-                        };
+                        let mut conn = pool
+                            .get()
+                            .await
+                            .map_err(|e| Status::internal(e.to_string()))?;
 
                         diesel::update(schema::game_metadata::table)
                             .filter(schema::game_metadata::game_id.eq(game.id))
                             .set(&updated_meta)
                             .execute(&mut conn)
                             .await
-                            .map_err(|why| Status::internal(why.to_string()))?;
-
-                        Ok(Some(updated_meta))
-                    } else {
-                        Ok(None)
+                            .map_err(|e| Status::internal(e.to_string()))?;
                     }
+
+                    Ok(Some(()))
                 }
                 .instrument(tracing::info_span!("steam_sync_thread"))
             })
@@ -944,5 +1027,283 @@ impl MetadataService for MetadataServiceHandlers {
         }
 
         Ok(Response::new(DeleteLocalMetadataResponse {}))
+    }
+
+    async fn search_game_soundtrack(
+        &self,
+        request: Request<SearchGameSoundtrackRequest>,
+    ) -> Result<Response<SearchGameSoundtrackResponse>, Status> {
+        let game_id = request.into_inner().game_id;
+
+        let mut conn = match self.db_pool.get().await {
+            Ok(c) => c,
+            Err(e) => return Err(Status::internal(e.to_string())),
+        };
+
+        let meta: retrom::GameMetadata = schema::game_metadata::table
+            .filter(schema::game_metadata::game_id.eq(game_id))
+            .first::<retrom::GameMetadata>(&mut conn)
+            .await
+            .map_err(|_| Status::not_found("game metadata not found"))?;
+
+        drop(conn);
+
+        let game_name = meta.name.unwrap_or_default();
+        if game_name.trim().is_empty() {
+            return Ok(Response::new(SearchGameSoundtrackResponse {
+                candidates: vec![],
+            }));
+        }
+
+        // Sync cookies from config before searching.
+        {
+            let cfg = self.config_manager.get_config().await;
+            let cookies_path = cfg
+                .metadata
+                .as_ref()
+                .and_then(|m| m.youtube_cookies_path.as_ref())
+                .map(std::path::PathBuf::from);
+            set_youtube_cookies_path(cookies_path).await;
+        }
+
+        let results = search_soundtrack_candidates(&game_name).await;
+
+        let candidates = results
+            .into_iter()
+            .map(|c| SoundtrackCandidateProto {
+                video_id: c.video_id,
+                title: c.title,
+                duration_secs: c.duration_secs.map(|d| d as i32).unwrap_or(0),
+                thumbnail_url: c.thumbnail_url,
+            })
+            .collect();
+
+        Ok(Response::new(SearchGameSoundtrackResponse { candidates }))
+    }
+
+    async fn download_game_soundtrack(
+        &self,
+        request: Request<DownloadGameSoundtrackRequest>,
+    ) -> Result<Response<DownloadGameSoundtrackResponse>, Status> {
+        let req = request.into_inner();
+        let game_id = req.game_id;
+        let video_id = req.video_id;
+
+        if video_id.is_empty() {
+            return Err(Status::invalid_argument("video_id must not be empty"));
+        }
+
+        let mut conn = match self.db_pool.get().await {
+            Ok(c) => c,
+            Err(e) => return Err(Status::internal(e.to_string())),
+        };
+
+        let meta: retrom::GameMetadata = schema::game_metadata::table
+            .filter(schema::game_metadata::game_id.eq(game_id))
+            .first::<retrom::GameMetadata>(&mut conn)
+            .await
+            .map_err(|_| Status::not_found("game metadata not found"))?;
+
+        // Resolve cache dir before consuming meta.video_urls.
+        let cache_dir = meta.get_cache_dir().unwrap_or_else(|| {
+            RetromDirs::new()
+                .media_dir()
+                .join("games")
+                .join(game_id.to_string())
+        });
+
+        // Place the chosen YouTube URL at position 0, removing any existing YT URLs so
+        // the Videos tab and theme player always reflect the user's explicit selection.
+        let yt_url = format!("https://www.youtube.com/watch?v={}", video_id);
+        let mut new_video_urls: Vec<String> = meta
+            .video_urls
+            .into_iter()
+            .filter(|u| {
+                let lower = u.to_ascii_lowercase();
+                !lower.contains("youtube.com/watch") && !lower.contains("youtu.be/")
+            })
+            .collect();
+        new_video_urls.insert(0, yt_url);
+
+        diesel::update(schema::game_metadata::table)
+            .filter(schema::game_metadata::game_id.eq(game_id))
+            .set(schema::game_metadata::video_urls.eq(&new_video_urls))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        drop(conn);
+
+        let job_manager = self.job_manager.clone();
+        let job_name = format!("Download Soundtrack For Game {}", game_id);
+        let task = async move {
+            match try_extract_theme_audio(&video_id, cache_dir.clone(), true, false).await {
+                Some(path) => {
+                    compress_theme_audio(&path, &cache_dir).await;
+                }
+                None => {
+                    tracing::warn!(
+                        "soundtrack download: extraction failed for game {} video {}",
+                        game_id,
+                        video_id
+                    );
+                }
+            }
+            Ok::<(), ()>(())
+        };
+
+        let job_id = match job_manager.spawn(&job_name, vec![task], None).await {
+            Ok(id) => id.to_string(),
+            Err(e) => return Err(Status::internal(format!("failed to spawn download job: {}", e))),
+        };
+
+        Ok(Response::new(DownloadGameSoundtrackResponse { job_id }))
+    }
+
+    async fn auto_download_game_soundtrack(
+        &self,
+        request: Request<AutoDownloadGameSoundtrackRequest>,
+    ) -> Result<Response<AutoDownloadGameSoundtrackResponse>, Status> {
+        let req = request.into_inner();
+        let game_ids = req.game_ids;
+
+        if game_ids.is_empty() {
+            return Err(Status::invalid_argument("game_ids must not be empty"));
+        }
+
+        let mut conn = match self.db_pool.get().await {
+            Ok(c) => c,
+            Err(e) => return Err(Status::internal(e.to_string())),
+        };
+
+        // Load existing metadata rows — name and cache_dir both come from GameMetadata.
+        let all_meta: Vec<retrom::GameMetadata> = schema::game_metadata::table
+            .filter(schema::game_metadata::game_id.eq_any(&game_ids))
+            .load::<retrom::GameMetadata>(&mut conn)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        drop(conn);
+
+        let db_pool = self.db_pool.clone();
+
+        // Build per-game tasks, skipping games that already have a theme file.
+        let tasks: Vec<_> = all_meta
+            .into_iter()
+            .filter_map(|meta| {
+                let game_id = meta.game_id;
+                let cache_dir = meta.get_cache_dir().unwrap_or_else(|| {
+                    RetromDirs::new()
+                        .media_dir()
+                        .join("games")
+                        .join(game_id.to_string())
+                });
+
+                // Skip if a theme file already exists.
+                if find_theme_audio_file(&cache_dir).is_some() {
+                    return None;
+                }
+
+                let game_name = meta.name.clone().unwrap_or_default();
+                if game_name.trim().is_empty() {
+                    return None;
+                }
+
+                let current_video_urls = meta.video_urls.clone();
+                let pool = db_pool.clone();
+
+                Some(async move {
+                    // Search YouTube for the best candidate.
+                    let url = match find_soundtrack_url(&game_name).await {
+                        Some(u) => u,
+                        None => {
+                            tracing::warn!(
+                                "auto_download: no soundtrack URL found for game {} ({})",
+                                game_id,
+                                game_name
+                            );
+                            return Ok::<(), ()>(());
+                        }
+                    };
+
+                    let video_id = match extract_video_id_from_url(&url) {
+                        Some(id) => id,
+                        None => {
+                            tracing::warn!(
+                                "auto_download: could not extract video_id from URL {} for game {}",
+                                url,
+                                game_id
+                            );
+                            return Ok::<(), ()>(());
+                        }
+                    };
+
+                    // Update video_urls in DB: remove old YT URLs, prepend new one.
+                    let yt_url = format!("https://www.youtube.com/watch?v={}", video_id);
+                    let mut new_video_urls: Vec<String> = current_video_urls
+                        .into_iter()
+                        .filter(|u| {
+                            let lower = u.to_ascii_lowercase();
+                            !lower.contains("youtube.com/watch") && !lower.contains("youtu.be/")
+                        })
+                        .collect();
+                    new_video_urls.insert(0, yt_url);
+
+                    if let Ok(mut conn) = pool.get().await {
+                        let _ = diesel::update(schema::game_metadata::table)
+                            .filter(schema::game_metadata::game_id.eq(game_id))
+                            .set(schema::game_metadata::video_urls.eq(&new_video_urls))
+                            .execute(&mut conn)
+                            .await;
+                    }
+
+                    // Download and compress theme audio.
+                    match try_extract_theme_audio(&video_id, cache_dir.clone(), true, false).await {
+                        Some(path) => {
+                            compress_theme_audio(&path, &cache_dir).await;
+                        }
+                        None => {
+                            tracing::warn!(
+                                "auto_download: extraction failed for game {} video {}",
+                                game_id,
+                                video_id
+                            );
+                        }
+                    }
+
+                    Ok::<(), ()>(())
+                })
+            })
+            .collect();
+
+        if tasks.is_empty() {
+            // All games already have themes — nothing to do. Return a synthetic no-op job id.
+            return Ok(Response::new(AutoDownloadGameSoundtrackResponse {
+                job_id: String::new(),
+            }));
+        }
+
+        let job_manager = self.job_manager.clone();
+        let job_id = match job_manager
+            .spawn(
+                "Auto-Download Game Soundtracks",
+                tasks,
+                Some(JobOptions {
+                    wait_on_jobs: None,
+                    max_concurrency: Some(2),
+                }),
+            )
+            .await
+        {
+            Ok(id) => id.to_string(),
+            Err(e) => {
+                return Err(Status::internal(format!(
+                    "failed to spawn auto-download job: {}",
+                    e
+                )))
+            }
+        };
+
+        Ok(Response::new(AutoDownloadGameSoundtrackResponse { job_id }))
     }
 }

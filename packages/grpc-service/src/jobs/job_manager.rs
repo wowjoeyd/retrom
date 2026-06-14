@@ -7,7 +7,7 @@ use std::{
 use tokio::{
     sync::{
         broadcast::{self, error::RecvError},
-        RwLock,
+        RwLock, Semaphore,
     },
     task::JoinSet,
 };
@@ -28,6 +28,8 @@ type JobId = Uuid;
 #[derive(Debug, Clone)]
 pub struct JobOptions {
     pub wait_on_jobs: Option<Vec<JobId>>,
+    /// Maximum number of tasks to run concurrently. `None` means unlimited (current behavior).
+    pub max_concurrency: Option<usize>,
 }
 
 pub struct JobManager {
@@ -118,7 +120,10 @@ impl JobManager {
             tracing::debug!("No recievers for new job: {:?}", name);
         }
 
-        let mut maybe_wait_ids = opts.and_then(|opts| opts.wait_on_jobs).unwrap_or_default();
+        let (wait_on_jobs, max_concurrency) = opts
+            .map(|o| (o.wait_on_jobs, o.max_concurrency))
+            .unwrap_or((None, None));
+        let mut maybe_wait_ids = wait_on_jobs.unwrap_or_default();
 
         {
             let job_progress = job_progress.read().await;
@@ -163,8 +168,19 @@ impl JobManager {
                 maybe_wait_ids.retain(|id| *id != done_id);
             }
 
-            for task in tasks.into_iter() {
-                join_set.spawn(task.instrument(tracing::info_span!("job_task")));
+            if let Some(max_conc) = max_concurrency {
+                let semaphore = Arc::new(Semaphore::new(max_conc));
+                for task in tasks.into_iter() {
+                    let sem = semaphore.clone();
+                    join_set.spawn(async move {
+                        let _permit = sem.acquire_owned().await.ok();
+                        task.instrument(tracing::info_span!("job_task")).await
+                    });
+                }
+            } else {
+                for task in tasks.into_iter() {
+                    join_set.spawn(task.instrument(tracing::info_span!("job_task")));
+                }
             }
 
             {

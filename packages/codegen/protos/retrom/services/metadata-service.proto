@@ -20,6 +20,10 @@ service MetadataService {
 
   rpc SyncSteamMetadata(SyncSteamMetadataRequest) returns (SyncSteamMetadataResponse);
 
+  rpc SearchGameSoundtrack(SearchGameSoundtrackRequest) returns (SearchGameSoundtrackResponse);
+  rpc DownloadGameSoundtrack(DownloadGameSoundtrackRequest) returns (DownloadGameSoundtrackResponse);
+  rpc AutoDownloadGameSoundtrack(AutoDownloadGameSoundtrackRequest) returns (AutoDownloadGameSoundtrackResponse);
+
   rpc GetLocalMetadataStatus(GetLocalMetadataStatusRequest) returns (GetLocalMetadataStatusResponse);
   rpc DeleteLocalMetadata(DeleteLocalMetadataRequest) returns (DeleteLocalMetadataResponse);
 }
@@ -72,6 +76,8 @@ message GetIgdbGameSearchResultsResponse {
 
 message UpdateGameMetadataRequest {
   repeated UpdatedGameMetadata metadata = 1;
+  // When true, re-download/re-extract the theme audio even if a file already exists.
+  optional bool overwrite_theme_audio = 2;
 }
 
 message UpdateGameMetadataResponse {
@@ -129,6 +135,9 @@ message SyncSteamMetadataRequest {
   }
 
   repeated Selector selectors = 1;
+  // When true, re-fetch all Steam metadata (name, description, screenshots,
+  // videos, etc.) for each selected game, not just playtime/last-played.
+  optional bool force_refresh = 2;
 }
 
 message SyncSteamMetadataResponse {}
@@ -143,3 +152,37 @@ message GetLocalMetadataStatusResponse {
 message DeleteLocalMetadataRequest {}
 
 message DeleteLocalMetadataResponse {}
+
+message SoundtrackCandidate {
+  string video_id = 1;
+  string title = 2;
+  int32 duration_secs = 3;
+  string thumbnail_url = 4;
+}
+
+message SearchGameSoundtrackRequest {
+  int32 game_id = 1;
+}
+
+message SearchGameSoundtrackResponse {
+  repeated SoundtrackCandidate candidates = 1;
+}
+
+message DownloadGameSoundtrackRequest {
+  int32 game_id = 1;
+  string video_id = 2;
+}
+
+message DownloadGameSoundtrackResponse {
+  string job_id = 1;
+}
+
+// Auto-search YouTube and download theme audio for any of the given games that
+// don't already have a theme file.  Used for batch (Phase 3) and auto (Phase 4).
+message AutoDownloadGameSoundtrackRequest {
+  repeated int32 game_ids = 1;
+}
+
+message AutoDownloadGameSoundtrackResponse {
+  string job_id = 1;
+}

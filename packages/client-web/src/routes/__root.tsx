@@ -84,6 +84,9 @@ const modalsSearchSchema = z
       open: z.boolean(),
       id: z.number(),
     }),
+    batchDownloadMusicModal: z.object({
+      open: z.boolean().default(false),
+    }),
   })
   .partial();
 

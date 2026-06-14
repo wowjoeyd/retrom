@@ -51,6 +51,8 @@ impl ServerConfigManager {
                     png_optimization: true,
                     preferred_image_format: None,
                 }),
+                youtube_cookies_path: None,
+                auto_download_music: None,
             }),
             emulator_package_directories: vec![],
             custom_catalog_dir: None,

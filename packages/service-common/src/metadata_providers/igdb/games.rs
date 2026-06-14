@@ -104,7 +104,7 @@ impl IGDBProvider {
         let video_urls: Vec<String> = igdb_match
             .videos
             .into_iter()
-            .map(|video| format!("https://www.youtube.com/embed/{}", video.video_id))
+            .map(|video| format!("https://www.youtube.com/watch?v={}", video.video_id))
             .collect();
 
         retrom::NewGameMetadata {

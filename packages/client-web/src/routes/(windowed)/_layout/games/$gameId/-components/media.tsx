@@ -22,9 +22,11 @@ import { Image } from "@/lib/utils";
 import { cn } from "@retrom/ui/lib/utils";
 import { useGameDetail } from "@/providers/game-details";
 import { createUrl, usePublicUrl, useApiUrl } from "@/utils/urls";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useUpdateGameMetadata } from "@/mutations/useUpdateGameMetadata";
 import { useToast } from "@retrom/ui/hooks/use-toast";
+import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function Media() {
   const publicUrl = usePublicUrl();
@@ -61,15 +63,10 @@ export function Media() {
     if (localPath && publicUrl) {
       return createUrl({ path: localPath, base: publicUrl })?.href;
     }
-    if (publicUrl && game) {
-      // Robust fallback using magic base "theme" (no ext). The ThemePlayer will
-      // try all possible theme.* exts via <source> elements so whatever yt-dlp wrote
-      // (theme.m4a, theme.opus, theme.webm, etc.) will be found and played.
-      const possiblePath = `media/games/${game.id}/theme`;
-      return createUrl({ path: possiblePath, base: publicUrl })?.href;
-    }
+    // No fallback — the server only sets mediaPaths.themeAudioUrl when a theme file
+    // actually exists on disk. If it's absent, no file exists and we show the download prompt.
     return undefined;
-  }, [publicUrl, extraMetadata, game]);
+  }, [publicUrl, extraMetadata]);
 
   const playerBackgroundUrl = useMemo(() => {
     const localBg = extraMetadata?.mediaPaths?.backgroundUrl;
@@ -169,7 +166,7 @@ export function Media() {
   const showImages = !!artwork.length;
   const showScreenshots = !!screenshots.length;
   const showVideos = !!gameMetadata?.videoUrls.length;
-  const showTheme = showVideos || !!themeAudioUrl; // Theme tab for playing the downloaded theme song on loop (local audio if extracted)
+  const showTheme = true; // Always show — renders the audio player or a "download music" prompt
 
   let tabsShown = 0;
   if (showImages) tabsShown++;
@@ -177,11 +174,7 @@ export function Media() {
   if (showVideos) tabsShown++;
   if (showTheme) tabsShown++;
 
-  if (tabsShown === 0) {
-    return null;
-  }
-
-  const defaultTab = showTheme
+  const defaultTab = !!themeAudioUrl
     ? "theme"
     : showImages
       ? "images"
@@ -189,7 +182,7 @@ export function Media() {
         ? "screenshots"
         : showVideos
           ? "videos"
-          : "none";
+          : "theme";
 
   return (
     <Card className="col-span-full">
@@ -220,6 +213,7 @@ export function Media() {
             <ThemePlayer
               themeUrl={themeAudioUrl}
               backgroundUrl={playerBackgroundUrl}
+              gameId={game?.id}
               youtubeUrl={gameMetadata?.videoUrls?.find((u: string) =>
                 /youtube\.com|youtu\.be/.test(u),
               )}
@@ -387,7 +381,7 @@ function VideoItems(props: { videos: string[] }) {
   };
 
   const isAudio = (url: string) =>
-    /\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(url.split("?")[0] || url);
+    /\.(mp3|wav|ogg|opus|m4a|flac|aac)$/i.test(url.split("?")[0] || url);
 
   return (
     <CarouselContent className="h-max">
@@ -436,25 +430,82 @@ function ThemePlayer(props: {
   themeUrl?: string;
   backgroundUrl?: string;
   youtubeUrl?: string;
+  gameId?: number;
 }) {
-  const { themeUrl, backgroundUrl, youtubeUrl } = props;
+  const { themeUrl, backgroundUrl, youtubeUrl, gameId } = props;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Poll for the theme audio file after a download is started in the background.
+  // The download RPC returns immediately (job spawned), so the file won't exist yet
+  // when the modal closes. We check sessionStorage for a pending-download marker set by
+  // MusicTab and re-fetch game-metadata every 4 s until the URL appears (max 2 min).
+  useEffect(() => {
+    if (themeUrl) {
+      if (gameId != null) sessionStorage.removeItem(`pendingTheme_${gameId}`);
+      return;
+    }
+    if (gameId == null || !sessionStorage.getItem(`pendingTheme_${gameId}`)) return;
+
+    const start = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - start > 120_000) {
+        clearInterval(id);
+        sessionStorage.removeItem(`pendingTheme_${gameId}`);
+        return;
+      }
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey.includes("game-metadata"),
+      });
+    }, 4000);
+
+    return () => clearInterval(id);
+  }, [themeUrl, gameId, queryClient]);
 
   if (!themeUrl) {
     return (
-      <div className="w-full aspect-video rounded-lg bg-muted/30 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-muted-foreground">
-            No local theme audio extracted yet (run Download Metadata to
-            populate).
-          </p>
+      <div
+        className="relative w-full aspect-video rounded-lg overflow-hidden bg-muted/30 flex items-center justify-center"
+        style={
+          backgroundUrl
+            ? {
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : undefined
+        }
+      >
+        {backgroundUrl && (
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+        )}
+        <div className="relative z-10 flex flex-col items-center gap-3 text-center px-6">
+          <p className="text-white/80 text-sm">No theme audio downloaded yet.</p>
+          {gameId != null && (
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/80 transition-colors"
+              onClick={() =>
+                navigate({
+                  to: ".",
+                  search: (prev) => ({
+                    ...prev,
+                    updateMetadataModal: { open: true, tab: "music" },
+                  }),
+                })
+              }
+            >
+              Download theme music →
+            </button>
+          )}
           {youtubeUrl && (
             <a
               href={youtubeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-accent underline mt-1 inline-block"
+              className="text-xs text-white/60 underline underline-offset-2 hover:text-white/90"
             >
-              Play the theme on YouTube (in Videos tab too) →
+              Preview on YouTube
             </a>
           )}
         </div>

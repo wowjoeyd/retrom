@@ -1,4 +1,4 @@
-use crate::metadata_providers::{soundtrack::find_soundtrack_url, GameMetadataProvider};
+use crate::metadata_providers::GameMetadataProvider;
 
 use super::{models, provider::SteamWebApiProvider};
 
@@ -25,15 +25,7 @@ impl GameMetadataProvider<models::Game> for SteamWebApiProvider {
             }
         };
 
-        let app_name = app.name.clone();
         let mut metadata = self.app_details_to_game_metadata(app, app_details);
-
-        let soundtrack_query_name = metadata.name.clone().unwrap_or(app_name);
-        if let Some(soundtrack_url) = find_soundtrack_url(&soundtrack_query_name).await {
-            if !metadata.video_urls.iter().any(|url| url == &soundtrack_url) {
-                metadata.video_urls.insert(0, soundtrack_url);
-            }
-        }
 
         metadata.game_id = Some(game.id);
 

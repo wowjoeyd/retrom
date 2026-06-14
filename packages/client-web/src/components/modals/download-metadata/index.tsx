@@ -19,7 +19,6 @@ import { Checkbox } from "@retrom/ui/components/checkbox";
 export function DownloadMetadataModal() {
   const navigate = useNavigate();
   const [overwrite, setOverwrite] = useState(false);
-  const [overwriteThemeAudio, setOverwriteThemeAudio] = useState(false);
   const { downloadMetadataModal } = RootRoute.useSearch();
 
   const { mutate, isPending } = useUpdateLibraryMetadata();
@@ -68,27 +67,6 @@ export function DownloadMetadataModal() {
           </div>
         </div>
 
-        <div className="flex items-top gap-2">
-          <Checkbox
-            id="overwrite-theme-audio"
-            checked={overwriteThemeAudio}
-            onCheckedChange={(event) => setOverwriteThemeAudio(!!event)}
-          />
-
-          <div className={cn("grid gap-1 5 leading-none")}>
-            <label htmlFor="overwrite-theme-audio">
-              Re-extract game theme audio
-            </label>
-
-            <p className="text-sm text-muted-foreground max-w-[60ch]">
-              If a short soundtrack theme has already been downloaded for a
-              game, re-find and overwrite it with a fresh extraction. Normally
-              we skip re-downloading theme audio unless you explicitly request
-              it here (saves bandwidth and time on NAS/local storage).
-            </p>
-          </div>
-        </div>
-
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="secondary">Cancel</Button>
@@ -98,7 +76,7 @@ export function DownloadMetadataModal() {
             className="relative"
             disabled={isPending}
             onClick={() => {
-              mutate({ overwrite, overwriteThemeAudio });
+              mutate({ overwrite });
               close();
             }}
           >
