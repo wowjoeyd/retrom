@@ -1,5 +1,4 @@
 import { JobStatus } from "@retrom/codegen/retrom/jobs_pb";
-import { GetJobSubscriptionResponse } from "@retrom/codegen/retrom/services/job-service_pb";
 import { RetromClient } from "@/providers/retrom-client/client";
 
 export async function pollJobSubscriptions(

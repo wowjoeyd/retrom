@@ -15,11 +15,17 @@ export function useInstallCustomCatalogPackage() {
 
   return useMutation({
     mutationFn: (request: InstallCustomCatalogPackageRequest) => {
-      const client = retromClient.emulatorPackageClient as any;
+      const client = retromClient.emulatorPackageClient as unknown as {
+        installCustomCatalogPackage?: (
+          req: InstallCustomCatalogPackageRequest,
+        ) => Promise<InstallCustomCatalogPackageResponse>;
+      };
       if (typeof client.installCustomCatalogPackage !== "function") {
-        throw new Error("Custom emulator package install is not supported by this server build");
+        throw new Error(
+          "Custom emulator package install is not supported by this server build",
+        );
       }
-      return client.installCustomCatalogPackage(request) as Promise<InstallCustomCatalogPackageResponse>;
+      return client.installCustomCatalogPackage(request);
     },
     onError: (err) => {
       toast({

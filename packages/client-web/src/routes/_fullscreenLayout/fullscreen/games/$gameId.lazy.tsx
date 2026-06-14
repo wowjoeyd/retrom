@@ -56,19 +56,8 @@ function GameComponent() {
   const metaData = meta?.metadata;
   const allVideoUrls = metaData?.videoUrls ?? [];
   const mp = meta?.mediaPaths;
-  // Protobuf JS map-like or plain object interop for per-game mediaPaths (includes themeAudioUrl from yt-dlp extraction).
-  // We use controlled any here for runtime shape from generated client; see also grid-game-list.
-  let mediaPathEntry: any = undefined;
-  if (mp) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mpAny: any = mp as any;
-    if (typeof mpAny.get === "function") {
-      // Support if it's a Map (some protobuf runtimes)
-      mediaPathEntry = (mpAny.get(gameIdNumber) ?? mpAny.get(String(gameIdNumber))) as any;
-    } else {
-      mediaPathEntry = (mpAny[gameIdNumber] ?? mpAny[String(gameIdNumber)]) as any;
-    }
-  }
+  // mediaPaths is typed as { [key: number]: GetGameMetadataResponse_MediaPaths } (protobuf-es plain object)
+  const mediaPathEntry = mp?.[gameIdNumber];
   const themeAudioRel = mediaPathEntry?.themeAudioUrl;
   const publicUrl = usePublicUrl();
   let resolvedThemeAudio =
@@ -112,7 +101,6 @@ function GameComponent() {
     if (enabled && metaData) {
       // Pass only audio candidates -- no YT for previews.
       const audioCandidates = allVideoUrls.filter(isAudioUrl);
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       void gameMusicPlayer.playForGame(
         musicSourceUrl,
         volume,

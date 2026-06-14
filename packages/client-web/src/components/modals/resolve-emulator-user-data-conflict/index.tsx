@@ -19,7 +19,6 @@ import { Spinner } from "@retrom/ui/components/spinner";
 import { Checkbox } from "@retrom/ui/components/checkbox";
 import { CloudIcon, ServerIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { useModalAction, BaseModalActionProps } from "@/providers/modal-action";
 import { useSyncEmulatorUserData } from "@/mutations/useSyncEmulatorUserData";
 
@@ -39,7 +38,9 @@ declare global {
 }
 
 export function ResolveEmulatorUserDataConflictModal() {
-  const { modalState, closeModal } = useModalAction("resolveEmulatorUserDataConflict");
+  const { modalState, closeModal } = useModalAction(
+    "resolveEmulatorUserDataConflict",
+  );
   const { onResolved, onClose, onOpen, emulatorId } = modalState ?? {};
   const [rememberChoice, setRememberChoice] = useState(false);
 
@@ -49,7 +50,8 @@ export function ResolveEmulatorUserDataConflictModal() {
     return value === "local" || value === "cloud" ? value : undefined;
   }, [emulatorId]);
 
-  const { mutateAsync: syncUserData, status: syncStatus } = useSyncEmulatorUserData();
+  const { mutateAsync: syncUserData, status: syncStatus } =
+    useSyncEmulatorUserData();
 
   const close = useCallback(() => {
     onClose?.();
@@ -93,9 +95,12 @@ export function ResolveEmulatorUserDataConflictModal() {
         <DialogHeader>
           <DialogTitle>Emulator User Data Conflict</DialogTitle>
           <DialogDescription className="max-w-[45ch]">
-            Your local user data (firmware, keys, installed games, RAPs etc.) conflicts with the cloud version.
-            Choose which to keep as the source of truth.
-            {rememberedChoice ? ` Last remembered preference: ${rememberedChoice}.` : ""}
+            Your local user data (firmware, keys, installed games, RAPs etc.)
+            conflicts with the cloud version. Choose which to keep as the source
+            of truth.
+            {rememberedChoice
+              ? ` Last remembered preference: ${rememberedChoice}.`
+              : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -106,7 +111,10 @@ export function ResolveEmulatorUserDataConflictModal() {
             </ItemMedia>
             <ItemContent>
               <ItemTitle>Cloud (NAS) Version</ItemTitle>
-              <ItemDescription>Use the version currently on the server as truth (pull to local).</ItemDescription>
+              <ItemDescription>
+                Use the version currently on the server as truth (pull to
+                local).
+              </ItemDescription>
             </ItemContent>
             <ItemActions>
               <Button
@@ -116,7 +124,13 @@ export function ResolveEmulatorUserDataConflictModal() {
                 variant="accent"
                 onClick={() => handleChoice("cloud")}
               >
-                {pending ? <><Spinner /> Select</> : "Select Cloud"}
+                {pending ? (
+                  <>
+                    <Spinner /> Select
+                  </>
+                ) : (
+                  "Select Cloud"
+                )}
               </Button>
             </ItemActions>
           </Item>
@@ -127,7 +141,9 @@ export function ResolveEmulatorUserDataConflictModal() {
             </ItemMedia>
             <ItemContent>
               <ItemTitle>Local Version</ItemTitle>
-              <ItemDescription>Push this PC&apos;s local data as the new cloud truth.</ItemDescription>
+              <ItemDescription>
+                Push this PC&apos;s local data as the new cloud truth.
+              </ItemDescription>
             </ItemContent>
             <ItemActions>
               <Button
@@ -137,7 +153,13 @@ export function ResolveEmulatorUserDataConflictModal() {
                 variant="accent"
                 onClick={() => handleChoice("local")}
               >
-                {pending ? <><Spinner /> Select</> : "Select Local"}
+                {pending ? (
+                  <>
+                    <Spinner /> Select
+                  </>
+                ) : (
+                  "Select Local"
+                )}
               </Button>
             </ItemActions>
           </Item>

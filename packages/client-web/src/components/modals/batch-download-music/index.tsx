@@ -35,8 +35,7 @@ export function BatchDownloadMusicModal() {
   const { mutate: autoDownload, status: downloadStatus } =
     useAutoDownloadGameSoundtrack();
 
-  const isLoading =
-    gamesStatus === "pending" || metaStatus === "pending";
+  const isLoading = gamesStatus === "pending" || metaStatus === "pending";
   const isDownloading = downloadStatus === "pending";
 
   const { missingIds, totalGames } = useMemo(() => {

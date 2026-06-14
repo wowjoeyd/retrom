@@ -25,7 +25,10 @@ export function getLastEmulatorUserDataSync(emulatorId: number) {
   return localStorage.getItem(lastUserDataSyncKey(emulatorId));
 }
 
-export function setLastEmulatorUserDataSync(emulatorId: number, value = new Date()) {
+export function setLastEmulatorUserDataSync(
+  emulatorId: number,
+  value = new Date(),
+) {
   localStorage.setItem(lastUserDataSyncKey(emulatorId), value.toISOString());
 }
 
@@ -56,20 +59,22 @@ export function EmulatorUserDataAutoSync() {
       configs.data.map((config) =>
         pushEmulatorPreserveData({ emulatorId: config.emulatorId }),
       ),
-    ).then((results) => {
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled" && configs.data?.[index]) {
-          setLastEmulatorUserDataSync(configs.data[index].emulatorId);
-        }
+    )
+      .then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === "fulfilled" && configs.data?.[index]) {
+            setLastEmulatorUserDataSync(configs.data[index].emulatorId);
+          }
+        });
+      })
+      .finally(() => {
+        void queryClient.invalidateQueries({
+          predicate: (query) =>
+            ["emulator-sync-status", "emulator-packages"].some((key) =>
+              query.queryKey.includes(key),
+            ),
+        });
       });
-    }).finally(() => {
-      void queryClient.invalidateQueries({
-        predicate: (query) =>
-          ["emulator-sync-status", "emulator-packages"].some((key) =>
-            query.queryKey.includes(key),
-          ),
-      });
-    });
   }, [configs.data, enabled, queryClient]);
 
   return null;

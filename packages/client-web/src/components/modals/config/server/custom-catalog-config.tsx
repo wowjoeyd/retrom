@@ -8,7 +8,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@retrom/ui/components/form";
-import { Input } from "@retrom/ui/components/input";
 import { TabsContent } from "@retrom/ui/components/tabs";
 import { ServerConfig } from "@retrom/codegen/retrom/server/config_pb";
 import { useUpdateServerConfig } from "@/mutations/useUpdateServerConfig";
@@ -79,7 +78,10 @@ export function CustomCatalogConfig(props: {
               <FormItem>
                 <FormLabel>Custom catalog directory</FormLabel>
                 <FormControl>
-                  <BrowseButton field={field} fieldState={form.getFieldState("customCatalogDir")} />
+                  <BrowseButton
+                    field={field}
+                    fieldState={form.getFieldState("customCatalogDir")}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

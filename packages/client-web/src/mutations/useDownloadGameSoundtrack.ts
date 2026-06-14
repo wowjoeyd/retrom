@@ -1,8 +1,6 @@
 import { useRetromClient } from "@/providers/retrom-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  DownloadGameSoundtrackRequestSchema,
-} from "@retrom/codegen/retrom/services/metadata-service_pb";
+import { DownloadGameSoundtrackRequestSchema } from "@retrom/codegen/retrom/services/metadata-service_pb";
 import { create } from "@bufbuild/protobuf";
 import { useToast } from "@retrom/ui/hooks/use-toast";
 
@@ -23,12 +21,11 @@ export function useDownloadGameSoundtrack() {
       retromClient.metadataClient.downloadGameSoundtrack(
         create(DownloadGameSoundtrackRequestSchema, { gameId, videoId }),
       ),
-    onSuccess: (_, { gameId }) => {
+    onSuccess: (_, { gameId: _gameId }) => {
       toast({ title: "Soundtrack download started" });
       return queryClient.invalidateQueries({
         predicate: (q) =>
-          q.queryKey.includes("game-metadata") ||
-          q.queryKey.includes("games"),
+          q.queryKey.includes("game-metadata") || q.queryKey.includes("games"),
       });
     },
     onError: (error) => {

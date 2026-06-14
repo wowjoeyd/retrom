@@ -8,7 +8,9 @@ export function useEmulatorSyncStatus(emulatorId: number | undefined) {
     queryKey: ["emulator-sync-status", emulatorId],
     enabled: checkIsDesktop() && emulatorId !== undefined,
     queryFn: () =>
-      getEmulatorSyncStatus({ emulatorId: emulatorId! }).then((res) => res.status),
+      getEmulatorSyncStatus({ emulatorId: emulatorId! }).then(
+        (res) => res.status,
+      ),
     refetchInterval: (query) =>
       query.state.data === EmulatorSyncStatus.SYNCING ? 1000 : false,
   });

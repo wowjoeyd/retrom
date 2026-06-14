@@ -208,49 +208,48 @@ export const PlayGameButton = forwardRef(
         // file when no default is set (or it doesn't match). Most games — especially
         // single-file ones like PS2 ISOs — never have a defaultFileId, and without this
         // fallback the launcher fails with "Cannot find appropriate file for game".
-        gameFiles?.find((file) => file.id === game.defaultFileId) ?? gameFiles?.[0],
+        gameFiles?.find((file) => file.id === game.defaultFileId) ??
+        gameFiles?.[0],
       [game.defaultFileId, gameFiles],
     );
 
-    const {
-      mutateAsync: maybeSyncEmulatorPackage,
-      status: syncPackageStatus,
-    } = useMutation({
-      mutationFn: async (targetEmulator: RawMessage<Emulator>) => {
-        if (!isEmulatorPackageSyncEnabled() || !localConfig?.managedPaths) {
-          return;
-        }
-
-        const syncToast = toast({
-          title: `Syncing Emulator: ${targetEmulator.name}`,
-          duration: Infinity,
-          dismissible: false,
-          icon: <Spinner className="text-primary" />,
-        });
-
-        const channel = await subscribeToEmulatorSyncUpdates((update) => {
-          if (update.emulatorId !== targetEmulator.id) {
+    const { mutateAsync: maybeSyncEmulatorPackage, status: syncPackageStatus } =
+      useMutation({
+        mutationFn: async (targetEmulator: RawMessage<Emulator>) => {
+          if (!isEmulatorPackageSyncEnabled() || !localConfig?.managedPaths) {
             return;
           }
 
-          syncToast.update({
-            description: `${update.metrics?.percentComplete ?? 0}%`,
+          const syncToast = toast({
+            title: `Syncing Emulator: ${targetEmulator.name}`,
+            duration: Infinity,
+            dismissible: false,
+            icon: <Spinner className="text-primary" />,
           });
-        });
 
-        try {
-          await ensureEmulatorSynced({ emulatorId: targetEmulator.id });
-          syncToast.update({
-            title: `Emulator synced: ${targetEmulator.name}`,
-            dismissible: true,
-            duration: 5000,
+          const channel = await subscribeToEmulatorSyncUpdates((update) => {
+            if (update.emulatorId !== targetEmulator.id) {
+              return;
+            }
+
+            syncToast.update({
+              description: `${update.metrics?.percentComplete ?? 0}%`,
+            });
           });
-        } finally {
-          await unsubscribeFromEmulatorSyncUpdates(channel);
-          toast.dismiss(syncToast.id);
-        }
-      },
-    });
+
+          try {
+            await ensureEmulatorSynced({ emulatorId: targetEmulator.id });
+            syncToast.update({
+              title: `Emulator synced: ${targetEmulator.name}`,
+              dismissible: true,
+              duration: 5000,
+            });
+          } finally {
+            await unsubscribeFromEmulatorSyncUpdates(channel);
+            toast.dismiss(syncToast.id);
+          }
+        },
+      });
 
     const disabled =
       queryStatus !== "success" ||
@@ -270,7 +269,10 @@ export const PlayGameButton = forwardRef(
             await maybeSyncEmulatorSaveStates(emulator);
             await maybeSyncEmulatorPackage(emulator);
           } catch (error) {
-            console.error("Unable to launch game during pre-launch sync", error);
+            console.error(
+              "Unable to launch game during pre-launch sync",
+              error,
+            );
             const errorMsg =
               error instanceof Error
                 ? error.message
@@ -358,7 +360,9 @@ export const PlayGameButton = forwardRef(
         syncPackageStatus === "pending" ? (
           <>
             <Spinner className="h-[1.2rem] w-[1.2rem]" />
-            {syncPackageStatus === "pending" ? "Syncing Emulator" : "Syncing Cloud"}
+            {syncPackageStatus === "pending"
+              ? "Syncing Emulator"
+              : "Syncing Cloud"}
           </>
         ) : queryStatus === "pending" ? (
           <>

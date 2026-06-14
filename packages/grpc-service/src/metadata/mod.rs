@@ -13,12 +13,12 @@ use retrom_codegen::{
         AutoDownloadGameSoundtrackRequest, AutoDownloadGameSoundtrackResponse,
         DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, DownloadGameSoundtrackRequest,
         DownloadGameSoundtrackResponse, Game, GameGenre, GameGenreMap, GetGameMetadataRequest,
-        GetGameMetadataResponse, GetIgdbGameSearchResultsRequest,
-        GetIgdbGameSearchResultsResponse, GetIgdbPlatformSearchResultsRequest,
-        GetIgdbPlatformSearchResultsResponse, GetIgdbSearchRequest, GetIgdbSearchResponse,
-        GetLocalMetadataStatusRequest, GetLocalMetadataStatusResponse, GetPlatformMetadataRequest,
-        GetPlatformMetadataResponse, IgdbSearchGameResponse, IgdbSearchPlatformResponse,
-        SearchGameSoundtrackRequest, SearchGameSoundtrackResponse, SimilarGameMap,
+        GetGameMetadataResponse, GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
+        GetIgdbPlatformSearchResultsRequest, GetIgdbPlatformSearchResultsResponse,
+        GetIgdbSearchRequest, GetIgdbSearchResponse, GetLocalMetadataStatusRequest,
+        GetLocalMetadataStatusResponse, GetPlatformMetadataRequest, GetPlatformMetadataResponse,
+        IgdbSearchGameResponse, IgdbSearchPlatformResponse, SearchGameSoundtrackRequest,
+        SearchGameSoundtrackResponse, SimilarGameMap,
         SoundtrackCandidate as SoundtrackCandidateProto, SyncSteamMetadataRequest,
         SyncSteamMetadataResponse, UpdateGameMetadataRequest, UpdateGameMetadataResponse,
         UpdatePlatformMetadataRequest, UpdatePlatformMetadataResponse, UpdatedGameMetadata,
@@ -401,52 +401,51 @@ impl MetadataService for MetadataServiceHandlers {
             lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
         };
 
-        let soundtrack_lookups =
-            metadata_to_update
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, m)| {
-                    if m.video_urls.iter().any(|u| is_youtube(u)) {
-                        return None;
-                    }
-                    let name = m.name.clone()?;
-                    if name.trim().is_empty() {
-                        return None;
-                    }
-                    let game_id = m.game_id;
-                    let cache_dir = m.get_cache_dir();
-                    let db_pool = self.db_pool.clone();
-                    Some(async move {
-                        // 1. Preserve an existing soundtrack URL from the DB — but ONLY if a
-                        //    theme.* file actually exists. A downloaded theme proves the stored
-                        //    URL was valid and downloadable. If there is NO theme file, the stored
-                        //    URL never worked (e.g. a stale >10min pick from older logic that
-                        //    extraction refuses) — so we ignore it and re-search for a valid one.
-                        let has_theme = cache_dir
-                            .as_ref()
-                            .map_or(false, |d| find_theme_audio_file(d).is_some());
+        let soundtrack_lookups = metadata_to_update
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, m)| {
+                if m.video_urls.iter().any(|u| is_youtube(u)) {
+                    return None;
+                }
+                let name = m.name.clone()?;
+                if name.trim().is_empty() {
+                    return None;
+                }
+                let game_id = m.game_id;
+                let cache_dir = m.get_cache_dir();
+                let db_pool = self.db_pool.clone();
+                Some(async move {
+                    // 1. Preserve an existing soundtrack URL from the DB — but ONLY if a
+                    //    theme.* file actually exists. A downloaded theme proves the stored
+                    //    URL was valid and downloadable. If there is NO theme file, the stored
+                    //    URL never worked (e.g. a stale >10min pick from older logic that
+                    //    extraction refuses) — so we ignore it and re-search for a valid one.
+                    let has_theme = cache_dir
+                        .as_ref()
+                        .is_some_and(|d| find_theme_audio_file(d).is_some());
 
-                        if has_theme {
-                            if let Ok(mut conn) = db_pool.get().await {
-                                if let Ok(existing) = retrom_db::schema::game_metadata::table
-                                    .filter(retrom_db::schema::game_metadata::game_id.eq(game_id))
-                                    .first::<retrom::GameMetadata>(&mut conn)
-                                    .await
+                    if has_theme {
+                        if let Ok(mut conn) = db_pool.get().await {
+                            if let Ok(existing) = retrom_db::schema::game_metadata::table
+                                .filter(retrom_db::schema::game_metadata::game_id.eq(game_id))
+                                .first::<retrom::GameMetadata>(&mut conn)
+                                .await
+                            {
+                                if let Some(url) =
+                                    existing.video_urls.into_iter().find(|u| is_youtube(u))
                                 {
-                                    if let Some(url) =
-                                        existing.video_urls.into_iter().find(|u| is_youtube(u))
-                                    {
-                                        return (idx, Some(url));
-                                    }
+                                    return (idx, Some(url));
                                 }
                             }
                         }
+                    }
 
-                        // 2. No proven-good existing URL — search fresh (returns only
-                        //    duration-validated [60s, 600s] candidates).
-                        (idx, find_soundtrack_url(&name).await)
-                    })
-                });
+                    // 2. No proven-good existing URL — search fresh (returns only
+                    //    duration-validated [60s, 600s] candidates).
+                    (idx, find_soundtrack_url(&name).await)
+                })
+            });
 
         for (idx, url) in join_all(soundtrack_lookups).await {
             if let (Some(url), Some(meta)) = (url, metadata_to_update.get_mut(idx)) {
@@ -501,8 +500,8 @@ impl MetadataService for MetadataServiceHandlers {
             if let Some(first) = youtube_url {
                 if let Some(vid) = extract_video_id_from_url(first) {
                     if let Some(cache_dir) = metadata.get_cache_dir() {
-                        let needs_extract = overwrite_theme_audio
-                            || find_theme_audio_file(&cache_dir).is_none();
+                        let needs_extract =
+                            overwrite_theme_audio || find_theme_audio_file(&cache_dir).is_none();
                         if needs_extract {
                             let game_id = metadata.game_id;
                             let job_name = format!("Extract Theme Audio For Game {}", game_id);
@@ -1154,7 +1153,12 @@ impl MetadataService for MetadataServiceHandlers {
 
         let job_id = match job_manager.spawn(&job_name, vec![task], None).await {
             Ok(id) => id.to_string(),
-            Err(e) => return Err(Status::internal(format!("failed to spawn download job: {}", e))),
+            Err(e) => {
+                return Err(Status::internal(format!(
+                    "failed to spawn download job: {}",
+                    e
+                )))
+            }
         };
 
         Ok(Response::new(DownloadGameSoundtrackResponse { job_id }))

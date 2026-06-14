@@ -39,12 +39,15 @@ declare global {
 async function waitForGameInstalled(gameId: number) {
   return new Promise<void>((resolve, reject) => {
     let channelId: number | undefined;
-    const timeout = window.setTimeout(() => {
-      if (channelId !== undefined) {
-        unsubscribeFromInstallationIndex(channelId).catch(console.error);
-      }
-      reject(new Error("Installation timed out"));
-    }, 30 * 60 * 1000);
+    const timeout = window.setTimeout(
+      () => {
+        if (channelId !== undefined) {
+          unsubscribeFromInstallationIndex(channelId).catch(console.error);
+        }
+        reject(new Error("Installation timed out"));
+      },
+      30 * 60 * 1000,
+    );
 
     subscribeToInstallationIndex((index) => {
       const status = index.installations[gameId];
@@ -62,7 +65,7 @@ async function waitForGameInstalled(gameId: number) {
       })
       .catch((error) => {
         window.clearTimeout(timeout);
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       });
   });
 }
@@ -122,11 +125,11 @@ export function InstallOnPlayModal() {
         ) : showPostStep ? (
           <div className="flex flex-col gap-3 py-2">
             <p className="max-w-[45ch] text-sm text-muted-foreground">
-              Raw files installed. For curated emulators like RPCS3 or Switch forks
-              that require an "internal install" (e.g. PKG/NSP into the emulator's
-              virtual FS), launch the emulator now to complete it inside the app.
-              The installed state will be captured in the emulator package and
-              synced to other PCs.
+              Raw files installed. For curated emulators like RPCS3 or Switch
+              forks that require an &ldquo;internal install&rdquo; (e.g. PKG/NSP into the
+              emulator&apos;s virtual FS), launch the emulator now to complete it
+              inside the app. The installed state will be captured in the
+              emulator package and synced to other PCs.
             </p>
             <Button
               onClick={() => {

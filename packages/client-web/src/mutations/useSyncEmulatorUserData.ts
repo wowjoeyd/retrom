@@ -1,6 +1,4 @@
-import {
-  PushEmulatorPreserveResponse,
-} from "@retrom/codegen/retrom/client/emulator-sync_pb";
+import { PushEmulatorPreserveResponse } from "@retrom/codegen/retrom/client/emulator-sync_pb";
 import {
   pullEmulatorUserData,
   pushEmulatorPreserveData,
@@ -54,9 +52,11 @@ export function useSyncEmulatorUserData(
     onSettled: () =>
       queryClient.invalidateQueries({
         predicate: (query) =>
-          ["emulator-sync-status", "emulator-packages", "local-emulator-configs"].some((key) =>
-            query.queryKey.includes(key),
-          ),
+          [
+            "emulator-sync-status",
+            "emulator-packages",
+            "local-emulator-configs",
+          ].some((key) => query.queryKey.includes(key)),
       }),
     onSuccess: (data, variables, context) => {
       setLastEmulatorUserDataSync(variables.emulatorId);

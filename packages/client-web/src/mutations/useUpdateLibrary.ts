@@ -133,8 +133,9 @@ export function useUpdateLibrary() {
 
           // Auto-download theme audio for new games if the setting is enabled.
           try {
-            const configResp =
-              await retromClient.serverClient.getServerConfig({});
+            const configResp = await retromClient.serverClient.getServerConfig(
+              {},
+            );
             if (configResp.config?.metadata?.autoDownloadMusic) {
               const gamesResp = await retromClient.gameClient.getGames({});
               const gameIds = gamesResp.games.map((g) => g.id);

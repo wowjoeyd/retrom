@@ -40,7 +40,13 @@ import { useConfigStore } from "@/providers/config";
 import { toast } from "@retrom/ui/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon, LoaderCircleIcon, SaveIcon, UploadIcon, DownloadIcon } from "lucide-react";
+import {
+  FolderOpenIcon,
+  LoaderCircleIcon,
+  SaveIcon,
+  UploadIcon,
+  DownloadIcon,
+} from "lucide-react";
 import { useCallback, useState } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { z } from "zod";
@@ -147,8 +153,8 @@ function LocalConfigRow(props: {
       saveStatesPath: config?.saveStatesPath || "",
       linkedPackageId: config?.linkedPackageId ?? undefined,
       managedPaths: config?.managedPaths ?? false,
-      userDataPathsOverride: (config as any)?.userDataPathsOverride ?? [],
-      preservePathsOverride: (config as any)?.preservePathsOverride ?? [],
+      userDataPathsOverride: config?.userDataPathsOverride ?? [],
+      preservePathsOverride: config?.preservePathsOverride ?? [],
     },
     resolver: zodResolver(configSchema),
     mode: "onSubmit",
@@ -175,12 +181,12 @@ function LocalConfigRow(props: {
     error: linkError,
   } = useLinkEmulatorToPackage();
 
-  const {
-    mutateAsync: syncUserData,
-    isPending: userDataSyncPending,
-  } = useSyncEmulatorUserData();
+  const { mutateAsync: syncUserData, isPending: userDataSyncPending } =
+    useSyncEmulatorUserData();
 
-  const { openModal: openUserDataConflict } = useModalAction("resolveEmulatorUserDataConflict");
+  const { openModal: openUserDataConflict } = useModalAction(
+    "resolveEmulatorUserDataConflict",
+  );
 
   const [suggestedUser, setSuggestedUser] = useState<string[]>([]);
   const [suggestedPreserve, setSuggestedPreserve] = useState<string[]>([]);
@@ -194,16 +200,23 @@ function LocalConfigRow(props: {
       setSuggestedPreserve(p);
 
       // Auto-apply to overrides if currently empty (non-destructive suggestion)
-      if ((form.getValues("userDataPathsOverride") || []).length === 0 && u.length > 0) {
+      if (
+        (form.getValues("userDataPathsOverride") || []).length === 0 &&
+        u.length > 0
+      ) {
         form.setValue("userDataPathsOverride", u);
       }
-      if ((form.getValues("preservePathsOverride") || []).length === 0 && p.length > 0) {
+      if (
+        (form.getValues("preservePathsOverride") || []).length === 0 &&
+        p.length > 0
+      ) {
         form.setValue("preservePathsOverride", p);
       }
     } catch (e) {
       toast({
         title: "Analyze failed",
-        description: (e as Error)?.message || "Could not analyze emulator cache",
+        description:
+          (e as Error)?.message || "Could not analyze emulator cache",
       });
     }
   }, [emulator.id, form]);
@@ -372,18 +385,28 @@ function LocalConfigRow(props: {
                   name="userDataPathsOverride"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>User Data Paths Override (one per line)</FormLabel>
+                      <FormLabel>
+                        User Data Paths Override (one per line)
+                      </FormLabel>
                       <FormControl>
                         <textarea
                           className="w-full rounded border p-2 text-sm"
                           rows={3}
                           value={(field.value || []).join("\n")}
-                          onChange={(e) => field.onChange(e.target.value.split(/\n+/).map(s => s.trim()).filter(Boolean))}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value
+                                .split(/\n+/)
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            )
+                          }
                           placeholder="e.g.&#10;dev_hdd0/&#10;games/&#10;keys/"
                         />
                       </FormControl>
                       <FormDescription>
-                        If set, these override the package manifest for auto upstream push of firmware, RAPs, installed titles etc.
+                        If set, these override the package manifest for auto
+                        upstream push of firmware, RAPs, installed titles etc.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -394,18 +417,28 @@ function LocalConfigRow(props: {
                   name="preservePathsOverride"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Preserve Paths Override (one per line)</FormLabel>
+                      <FormLabel>
+                        Preserve Paths Override (one per line)
+                      </FormLabel>
                       <FormControl>
                         <textarea
                           className="w-full rounded border p-2 text-sm"
                           rows={3}
                           value={(field.value || []).join("\n")}
-                          onChange={(e) => field.onChange(e.target.value.split(/\n+/).map(s => s.trim()).filter(Boolean))}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value
+                                .split(/\n+/)
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            )
+                          }
                           placeholder="e.g.&#10;config/&#10;dev_hdd0/"
                         />
                       </FormControl>
                       <FormDescription>
-                        If set, these override for local protection during sync (user mods not overwritten).
+                        If set, these override for local protection during sync
+                        (user mods not overwritten).
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -422,11 +455,15 @@ function LocalConfigRow(props: {
                     Analyze current cache for suggestions
                   </Button>
                 ) : null}
-                {enhancedUserDataEnabled && (suggestedUser.length > 0 || suggestedPreserve.length > 0) && (
-                  <div className="text-xs text-muted-foreground">
-                    Suggested: user_data=[{suggestedUser.join(", ")}] preserve=[{suggestedPreserve.join(", ")}] (applied to empty fields)
-                  </div>
-                )}
+                {enhancedUserDataEnabled &&
+                  (suggestedUser.length > 0 ||
+                    suggestedPreserve.length > 0) && (
+                    <div className="text-xs text-muted-foreground">
+                      Suggested: user_data=[{suggestedUser.join(", ")}]
+                      preserve=[{suggestedPreserve.join(", ")}] (applied to
+                      empty fields)
+                    </div>
+                  )}
               </>
             ) : null}
 
@@ -439,8 +476,10 @@ function LocalConfigRow(props: {
                   </div>
                 ) : null}
                 <p className="text-xs text-muted-foreground">
-                  Firmware, decryption keys, installed games/ROMs, RAP files etc. (config/ is kept local and PC-specific).
-                  Use Push to promote this PC&apos;s data as the cloud source of truth. Use Pull to reset local from cloud.
+                  Firmware, decryption keys, installed games/ROMs, RAP files
+                  etc. (config/ is kept local and PC-specific). Use Push to
+                  promote this PC&apos;s data as the cloud source of truth. Use
+                  Pull to reset local from cloud.
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -449,7 +488,10 @@ function LocalConfigRow(props: {
                     variant="secondary"
                     disabled={userDataSyncPending || pending}
                     onClick={() => {
-                      void syncUserData({ emulatorId: emulator.id, direction: "push" });
+                      void syncUserData({
+                        emulatorId: emulator.id,
+                        direction: "push",
+                      });
                     }}
                   >
                     <UploadIcon className="mr-1 h-4 w-4" />
@@ -461,7 +503,10 @@ function LocalConfigRow(props: {
                     variant="outline"
                     disabled={userDataSyncPending || pending}
                     onClick={() => {
-                      void syncUserData({ emulatorId: emulator.id, direction: "pull" });
+                      void syncUserData({
+                        emulatorId: emulator.id,
+                        direction: "pull",
+                      });
                     }}
                   >
                     <DownloadIcon className="mr-1 h-4 w-4" />
@@ -472,7 +517,9 @@ function LocalConfigRow(props: {
                     size="sm"
                     variant="ghost"
                     disabled={userDataSyncPending || pending}
-                    onClick={() => openUserDataConflict({ emulatorId: emulator.id })}
+                    onClick={() =>
+                      openUserDataConflict({ emulatorId: emulator.id })
+                    }
                   >
                     Resolve conflicts / Smart sync…
                   </Button>

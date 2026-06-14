@@ -22,7 +22,14 @@ import { Image } from "@/lib/utils";
 import { cn } from "@retrom/ui/lib/utils";
 import { useGameDetail } from "@/providers/game-details";
 import { createUrl, usePublicUrl, useApiUrl } from "@/utils/urls";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useUpdateGameMetadata } from "@/mutations/useUpdateGameMetadata";
 import { useToast } from "@retrom/ui/hooks/use-toast";
 import { useNavigate } from "@tanstack/react-router";
@@ -59,7 +66,7 @@ export function Media() {
   }, [publicUrl, extraMetadata, gameMetadata]);
 
   const themeAudioUrl = useMemo(() => {
-    const localPath = (extraMetadata as any)?.mediaPaths?.themeAudioUrl;
+    const localPath = extraMetadata?.mediaPaths?.themeAudioUrl;
     if (localPath && publicUrl) {
       return createUrl({ path: localPath, base: publicUrl })?.href;
     }
@@ -85,17 +92,22 @@ export function Media() {
   const updateGameMetadataMutation = useUpdateGameMetadata();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadCategory, setUploadCategory] = useState<"screenshots" | "artwork" | "videos" | null>(null);
+  const [uploadCategory, setUploadCategory] = useState<
+    "screenshots" | "artwork" | "videos" | null
+  >(null);
 
   const triggerUpload = (cat: "screenshots" | "artwork" | "videos") => {
     setUploadCategory(cat);
     if (fileInputRef.current) {
-      fileInputRef.current.accept = cat === "videos" ? "video/*,audio/*" : "image/*";
+      fileInputRef.current.accept =
+        cat === "videos" ? "video/*,audio/*" : "image/*";
       fileInputRef.current.click();
     }
   };
 
-  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilesSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const files = e.target.files;
     const cat = uploadCategory;
     if (!files || !cat || !game) {
@@ -104,19 +116,34 @@ export function Media() {
       return;
     }
 
-    const subdir = cat === "screenshots" ? "screenshots" : cat === "artwork" ? "artwork" : "videos";
-    const field = cat === "screenshots" ? "screenshotUrls" : cat === "artwork" ? "artworkUrls" : "videoUrls";
+    const subdir =
+      cat === "screenshots"
+        ? "screenshots"
+        : cat === "artwork"
+          ? "artwork"
+          : "videos";
+    const field =
+      cat === "screenshots"
+        ? "screenshotUrls"
+        : cat === "artwork"
+          ? "artworkUrls"
+          : "videoUrls";
 
     const added: string[] = [];
 
     try {
       for (const file of Array.from(files)) {
         const ext = file.name.split(".").pop() || "bin";
-        const base = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-z0-9_-]/gi, "_");
+        const base = file.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/[^a-z0-9_-]/gi, "_");
         const targetPath = `media/games/${game.id}/${subdir}/user-${Date.now()}-${base}.${ext}`;
         const content = new Uint8Array(await file.arrayBuffer());
 
-        const uploadUrl = new URL(`./rest/public/${targetPath}`, apiUrl!).toString();
+        const uploadUrl = new URL(
+          `./rest/public/${targetPath}`,
+          apiUrl,
+        ).toString();
         const body = JSON.stringify({
           stat: { path: targetPath, node_type: 1 },
           content: Array.from(content),
@@ -136,12 +163,16 @@ export function Media() {
       }
 
       if (added.length > 0) {
-        const currentList = (gameMetadata as any)?.[field] ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+        const currentList = ((gameMetadata as any)?.[field] ?? []) as string[];
         const updated = {
           gameId: game.id,
           [field]: [...currentList, ...added],
         };
-        await updateGameMetadataMutation.mutateAsync({ metadata: [updated as any] });
+        await updateGameMetadataMutation.mutateAsync({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          metadata: [updated as any],
+        });
         toast({
           title: `${added.length} file(s) added`,
           description: `Added to ${cat}`,
@@ -445,7 +476,8 @@ function ThemePlayer(props: {
       if (gameId != null) sessionStorage.removeItem(`pendingTheme_${gameId}`);
       return;
     }
-    if (gameId == null || !sessionStorage.getItem(`pendingTheme_${gameId}`)) return;
+    if (gameId == null || !sessionStorage.getItem(`pendingTheme_${gameId}`))
+      return;
 
     const start = Date.now();
     const id = setInterval(() => {
@@ -480,7 +512,9 @@ function ThemePlayer(props: {
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
         )}
         <div className="relative z-10 flex flex-col items-center gap-3 text-center px-6">
-          <p className="text-white/80 text-sm">No theme audio downloaded yet.</p>
+          <p className="text-white/80 text-sm">
+            No theme audio downloaded yet.
+          </p>
           {gameId != null && (
             <button
               type="button"
@@ -569,7 +603,13 @@ function ThemePlayer(props: {
             ))}
           </audio>
         ) : (
-          <audio key={themeUrl} src={themeUrl} controls loop className="w-full" />
+          <audio
+            key={themeUrl}
+            src={themeUrl}
+            controls
+            loop
+            className="w-full"
+          />
         )}
       </div>
     </div>

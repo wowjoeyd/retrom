@@ -38,7 +38,8 @@ export function InputDeviceProvider(props: { children: React.ReactNode }) {
       setInputDevice("gamepad");
     }
     document.addEventListener("gamepad-button-down", onGamepadButton);
-    return () => document.removeEventListener("gamepad-button-down", onGamepadButton);
+    return () =>
+      document.removeEventListener("gamepad-button-down", onGamepadButton);
   }, []);
 
   const value = useMemo(

@@ -5,7 +5,12 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@retrom/ui/components/button";
 import { DialogClose, DialogFooter } from "@retrom/ui/components/dialog";
 import { cn } from "@retrom/ui/lib/utils";
-import { DownloadIcon, ExternalLinkIcon, LoaderCircleIcon, MusicIcon } from "lucide-react";
+import {
+  DownloadIcon,
+  ExternalLinkIcon,
+  LoaderCircleIcon,
+  MusicIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 function formatDuration(secs: number): string {
@@ -13,7 +18,8 @@ function formatDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
   const s = secs % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (h > 0)
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 

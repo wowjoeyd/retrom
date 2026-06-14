@@ -25,7 +25,12 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "Cemu.exe",
-        "preserve_paths": ["controllerProfiles/", "graphicPacks/", "mlc01/", "settings.xml"],
+        "preserve_paths": [
+          "controllerProfiles/",
+          "graphicPacks/",
+          "mlc01/",
+          "settings.xml"
+        ],
         "internal_install_supported": true
       }
     },
@@ -41,7 +46,12 @@
         "archive_type": "appimage",
         "strip_components": 0,
         "executable_glob": "Cemu*.AppImage",
-        "preserve_paths": ["controllerProfiles/", "graphicPacks/", "mlc01/", "settings.xml"],
+        "preserve_paths": [
+          "controllerProfiles/",
+          "graphicPacks/",
+          "mlc01/",
+          "settings.xml"
+        ],
         "internal_install_supported": true
       }
     }

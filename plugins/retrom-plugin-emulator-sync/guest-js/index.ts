@@ -100,39 +100,45 @@ export async function openEmulatorCacheDir(): Promise<void> {
   return invoke("plugin:emulator-sync|open_emulator_cache_dir");
 }
 
-export async function pushEmulatorPreserveData(
-  payload: { emulatorId: number },
-): Promise<PushEmulatorPreserveResponse> {
+export async function pushEmulatorPreserveData(payload: {
+  emulatorId: number;
+}): Promise<PushEmulatorPreserveResponse> {
   return invoke<number[]>("plugin:emulator-sync|push_emulator_preserve_data", {
     payload: toBinary(
       PushEmulatorPreservePayloadSchema,
-      create(PushEmulatorPreservePayloadSchema, { emulatorId: payload.emulatorId }),
+      create(PushEmulatorPreservePayloadSchema, {
+        emulatorId: payload.emulatorId,
+      }),
     ),
   }).then((res) =>
     fromBinary(PushEmulatorPreserveResponseSchema, new Uint8Array(res)),
   );
 }
 
-export async function pullEmulatorUserData(
-  payload: { emulatorId: number },
-): Promise<PushEmulatorPreserveResponse> {
+export async function pullEmulatorUserData(payload: {
+  emulatorId: number;
+}): Promise<PushEmulatorPreserveResponse> {
   return invoke<number[]>("plugin:emulator-sync|pull_emulator_user_data", {
     payload: toBinary(
       PushEmulatorPreservePayloadSchema,
-      create(PushEmulatorPreservePayloadSchema, { emulatorId: payload.emulatorId }),
+      create(PushEmulatorPreservePayloadSchema, {
+        emulatorId: payload.emulatorId,
+      }),
     ),
   }).then((res) =>
     fromBinary(PushEmulatorPreserveResponseSchema, new Uint8Array(res)),
   );
 }
 
-export async function analyzeEmulatorUserData(
-  payload: { emulatorId: number },
-): Promise<AnalyzeEmulatorUserDataResponse> {
+export async function analyzeEmulatorUserData(payload: {
+  emulatorId: number;
+}): Promise<AnalyzeEmulatorUserDataResponse> {
   return invoke<number[]>("plugin:emulator-sync|analyze_emulator_user_data", {
     payload: toBinary(
       AnalyzeEmulatorUserDataPayloadSchema,
-      create(AnalyzeEmulatorUserDataPayloadSchema, { emulatorId: payload.emulatorId }),
+      create(AnalyzeEmulatorUserDataPayloadSchema, {
+        emulatorId: payload.emulatorId,
+      }),
     ),
   }).then((res) =>
     fromBinary(AnalyzeEmulatorUserDataResponseSchema, new Uint8Array(res)),

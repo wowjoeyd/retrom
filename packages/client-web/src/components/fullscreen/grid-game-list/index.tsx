@@ -47,7 +47,13 @@ function formatDurationShort(secs: number): string {
 
 type GameMusicSourceType = "youtube" | "audio";
 
-type GameMusicStatus = "idle" | "loading" | "playing" | "blocked" | "error" | "missing";
+type GameMusicStatus =
+  | "idle"
+  | "loading"
+  | "playing"
+  | "blocked"
+  | "error"
+  | "missing";
 
 type GameMusicState = {
   visible: boolean;
@@ -58,16 +64,49 @@ type GameMusicState = {
   message?: string;
   gameId?: number;
   updatedAt: number;
-  setStatus: (state: Omit<Partial<GameMusicState>, "setStatus" | "hide">) => void;
+  setStatus: (
+    state: Omit<Partial<GameMusicState>, "setStatus" | "hide">,
+  ) => void;
   hide: () => void;
 };
 
+interface YTPlayer {
+  playVideo(): void;
+  stopVideo(): void;
+  destroy(): void;
+  pauseVideo(): void;
+  unMute(): void;
+  mute(): void;
+  setVolume(volume: number): void;
+  getVolume(): number;
+  getPlayerState(): number;
+}
+
+declare global {
+  interface Window {
+    YT:
+      | {
+          Player: new (id: string | HTMLElement, opts: object) => YTPlayer;
+          PlayerState: {
+            UNSTARTED: number;
+            BUFFERING: number;
+            CUED: number;
+            PLAYING: number;
+            PAUSED: number;
+            ENDED: number;
+          };
+        }
+      | undefined;
+    onYouTubeIframeAPIReady: (() => void) | undefined;
+  }
+}
+
 const gameMusic = {
-  player: null as any,
+  player: null as YTPlayer | null,
   audio: null as HTMLMediaElement | null,
   sourceType: null as GameMusicSourceType | null,
   currentVideoId: null as string | null,
-  fadeInterval: null as any,
+  fadeInterval: null as ReturnType<typeof setInterval> | null,
   outgoingFadeInterval: null as ReturnType<typeof setInterval> | null,
   loadingTimeout: null as ReturnType<typeof setTimeout> | null,
   stopTimeout: null as ReturnType<typeof setTimeout> | null,
@@ -102,7 +141,7 @@ const gameMusic = {
   currentGameId: null as number | null,
 
   ensureApi(): Promise<void> {
-    if (this.apiReady && (window as any).YT?.Player) {
+    if (this.apiReady && window.YT?.Player) {
       this.apiReady = true;
       return Promise.resolve();
     }
@@ -112,17 +151,17 @@ const gameMusic = {
     }
 
     this.apiPromise = new Promise((resolve, reject) => {
-      if ((window as any).YT?.Player) {
+      if (window.YT?.Player) {
         this.apiReady = true;
         resolve();
         return;
       }
 
-      const previousReady = (window as any).onYouTubeIframeAPIReady;
+      const previousReady = window.onYouTubeIframeAPIReady;
       const tag = document.createElement("script");
       tag.src = "https://www.youtube.com/iframe_api";
       tag.async = true;
-      (window as any).onYouTubeIframeAPIReady = () => {
+      window.onYouTubeIframeAPIReady = () => {
         previousReady?.();
         this.apiReady = true;
         resolve();
@@ -151,8 +190,7 @@ const gameMusic = {
       state.status === "blocked" ||
       state.status === "error"
     ) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (state.url) this._recordOutcome(state.url, state.status as any);
+      if (state.url && state.status) this._recordOutcome(state.url, state.status);
     }
 
     this._setStatus(state);
@@ -160,12 +198,16 @@ const gameMusic = {
 
   _recordOutcome(url: string, status: GameMusicState["status"]) {
     this.recentResults.set(url, {
-      outcome: status === "playing" ? "playing" : status === "error" ? "error" : "blocked",
+      outcome:
+        status === "playing"
+          ? "playing"
+          : status === "error"
+            ? "error"
+            : "blocked",
       ts: Date.now(),
     });
     // also expose last for any debug consumers
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (gameMusicPlayer as any).lastResult = { url, status };
+    (gameMusicPlayer as unknown as Record<string, unknown>).lastResult = { url, status };
   },
 
   _fadeTo(target: number, durationMs: number) {
@@ -177,13 +219,15 @@ const gameMusic = {
 
     const start = Date.now();
     const getVol = () => {
-      if (this.sourceType === "youtube" && p?.getVolume) return p.getVolume() / 100;
+      if (this.sourceType === "youtube" && p?.getVolume)
+        return p.getVolume() / 100;
       if (a) return a.volume;
       return 0;
     };
     const setVol = (v: number) => {
       const clamped = Math.max(0, Math.min(1, v));
-      if (this.sourceType === "youtube" && p?.setVolume) p.setVolume(Math.round(clamped * 100));
+      if (this.sourceType === "youtube" && p?.setVolume)
+        p.setVolume(Math.round(clamped * 100));
       if (a) a.volume = clamped;
     };
 
@@ -222,8 +266,7 @@ const gameMusic = {
           typeof player.getPlayerState === "function"
             ? player.getPlayerState()
             : null;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        const YT = (window as any).YT;
+        const YT = window.YT;
         const PlayerState = YT?.PlayerState;
 
         if (state === PlayerState?.PLAYING) {
@@ -298,23 +341,29 @@ const gameMusic = {
           url: videoUrl || this.activeStatus.url,
         };
       } else if (videoUrl) {
-        this.activeStatus = { title, url: videoUrl, sourceType: "audio", targetVolume, fadeMs };
+        this.activeStatus = {
+          title,
+          url: videoUrl,
+          sourceType: "audio",
+          targetVolume,
+          fadeMs,
+        };
         this.sourceType = "audio";
       }
       const a = this.audio;
       if (a && this.sourceType === "audio") {
         if (a.paused && videoUrl) {
           // resume if it was paused but we still have the src from previous (no stop happened)
-          const p = a.play();
-          if (p && typeof p.catch === "function") {
-            p.catch((e: any) => { if (e && e.name !== "AbortError") console.warn("resume play error", e); });
-          }
+          void a.play().catch((e: unknown) => {
+            if (e instanceof Error && e.name !== "AbortError")
+              console.warn("resume play error", e);
+          });
         }
         this._fadeTo(targetVolume, Math.max(50, Math.min(fadeMs || 150, 150)));
       }
       if (videoUrl) {
         this._finishStatus({
-          status: (a && !a.paused) ? "playing" : "blocked",
+          status: a && !a.paused ? "playing" : "blocked",
           url: videoUrl,
           title,
           sourceType: this.sourceType || "audio",
@@ -324,7 +373,12 @@ const gameMusic = {
     }
 
     if (!videoUrl) {
-      this._finishStatus({ status: "blocked", url: "", title, sourceType: "audio" });
+      this._finishStatus({
+        status: "blocked",
+        url: "",
+        title,
+        sourceType: "audio",
+      });
       return;
     }
 
@@ -339,7 +393,8 @@ const gameMusic = {
         url: videoUrl,
         title,
         sourceType: "audio",
-        message: "YouTube URLs are not used for game theme music (use Download Metadata for local theme.*)",
+        message:
+          "YouTube URLs are not used for game theme music (use Download Metadata for local theme.*)",
       });
       return;
     }
@@ -350,7 +405,7 @@ const gameMusic = {
       if (recent.outcome === "blocked" || recent.outcome === "error") {
         const looksAudio = isAudioUrl(videoUrl) || videoUrl.includes("/theme");
         this._finishStatus({
-          status: recent.outcome as any,
+          status: recent.outcome,
           url: videoUrl,
           title,
           sourceType: looksAudio ? "audio" : "youtube",
@@ -419,13 +474,21 @@ const gameMusic = {
     if (gameId != null) {
       this.currentGameId = gameId;
     }
-    this.activeStatus = { title, url: videoUrl, sourceType: "audio", targetVolume, fadeMs };
+    this.activeStatus = {
+      title,
+      url: videoUrl,
+      sourceType: "audio",
+      targetVolume,
+      fadeMs,
+    };
     this.lastCandidates = candidates.length ? candidates : [videoUrl];
     this.currentCandidateIndex = this.lastCandidates.indexOf(videoUrl);
     if (this.currentCandidateIndex < 0) this.currentCandidateIndex = 0;
 
-    const isAudio = /\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(videoUrl.split("?")[0] || videoUrl) ||
-      videoUrl.includes("theme"); // magic theme or direct audio
+    const isAudio =
+      /\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(
+        videoUrl.split("?")[0] || videoUrl,
+      ) || videoUrl.includes("theme"); // magic theme or direct audio
 
     if (isAudio) {
       this.sourceType = "audio";
@@ -455,18 +518,26 @@ const gameMusic = {
         await this.audio.play();
         // Re-validate after the await: a rapid subsequent hover may have already
         // hard-reset the element and installed a newer activeStatus/url.
-        if (this.activeStatus?.url !== videoUrl || this.sourceType !== "audio") {
+        if (
+          this.activeStatus?.url !== videoUrl ||
+          this.sourceType !== "audio"
+        ) {
           return;
         }
         this._fadeTo(targetVolume, fadeMs);
-        this._finishStatus({ status: "playing", url: videoUrl, title, sourceType: "audio" });
-      } catch (e: any) {
-        if (e && e.name === "AbortError") return;
+        this._finishStatus({
+          status: "playing",
+          url: videoUrl,
+          title,
+          sourceType: "audio",
+        });
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === "AbortError") return;
         if (this.activeStatus?.url !== videoUrl) return;
         // NotSupportedError or MEDIA_ERR_SRC_NOT_SUPPORTED typically means the file
         // doesn't exist on the server (404 / no theme downloaded yet).
         const isMissing =
-          e?.name === "NotSupportedError" ||
+          (e instanceof Error && e.name === "NotSupportedError") ||
           this.audio?.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
         if (isMissing) {
           this._finishStatus({
@@ -478,7 +549,13 @@ const gameMusic = {
             gameId: this.currentGameId ?? undefined,
           });
         } else {
-          this._finishStatus({ status: "blocked", url: videoUrl, title, sourceType: "audio", message: String(e) });
+          this._finishStatus({
+            status: "blocked",
+            url: videoUrl,
+            title,
+            sourceType: "audio",
+            message: String(e),
+          });
         }
       }
       return;
@@ -500,30 +577,43 @@ const gameMusic = {
     } catch {}
 
     if (!videoId) {
-      this._finishStatus({ status: "error", url: videoUrl, title, sourceType: "youtube", message: "bad url" });
+      this._finishStatus({
+        status: "error",
+        url: videoUrl,
+        title,
+        sourceType: "youtube",
+        message: "bad url",
+      });
       return;
     }
 
     this.currentVideoId = videoId;
-    this.activeStatus = { title, url: videoUrl, sourceType: "youtube", targetVolume, fadeMs };
+    this.activeStatus = {
+      title,
+      url: videoUrl,
+      sourceType: "youtube",
+      targetVolume,
+      fadeMs,
+    };
 
     // Create hidden player
-    const container = document.getElementById("retrom-game-music") || (() => {
-      const c = document.createElement("div");
-      c.id = "retrom-game-music";
-      c.style.position = "absolute";
-      c.style.left = "-9999px";
-      c.style.top = "-9999px";
-      c.style.width = "1px";
-      c.style.height = "1px";
-      document.body.appendChild(c);
-      return c;
-    })();
+    const _container =
+      document.getElementById("retrom-game-music") ||
+      (() => {
+        const c = document.createElement("div");
+        c.id = "retrom-game-music";
+        c.style.position = "absolute";
+        c.style.left = "-9999px";
+        c.style.top = "-9999px";
+        c.style.width = "1px";
+        c.style.height = "1px";
+        document.body.appendChild(c);
+        return c;
+      })();
 
-    // (re)create player
+    // (re)create player — ensureApi() guarantees window.YT is defined here
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-      this.player = new (window as any).YT.Player("retrom-game-music", {
+      this.player = new window.YT!.Player("retrom-game-music", {
         height: "1",
         width: "1",
         videoId,
@@ -539,8 +629,7 @@ const gameMusic = {
           rel: 0,
         },
         events: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onReady: (e: any) => {
+          onReady: (e: { target: YTPlayer }) => {
             const active = this.activeStatus;
             if (!active || active.sourceType !== "youtube") return;
 
@@ -551,7 +640,8 @@ const gameMusic = {
               this.sourceType = "youtube";
               this._startStatePoller?.();
             } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
+              const message =
+                error instanceof Error ? error.message : String(error);
               this._finishStatus({
                 status: "error",
                 title: this.activeStatus?.title,
@@ -561,10 +651,8 @@ const gameMusic = {
               });
             }
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onStateChange: (e: any) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-            if (e.data !== (window as any).YT?.PlayerState?.PLAYING) {
+          onStateChange: (e: { data: number; target: YTPlayer }) => {
+            if (e.data !== window.YT?.PlayerState?.PLAYING) {
               return;
             }
 
@@ -581,13 +669,13 @@ const gameMusic = {
             });
             this._stopStatePoller?.();
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onError: (e: any) => {
+          onError: (e: { data?: number }) => {
             const active = this.activeStatus;
             this._stopStatePoller?.();
 
-            const code = Number(e?.data);
-            const isEmbedRestricted = code === 101 || code === 150 || code === 100;
+            const code = Number(e.data);
+            const isEmbedRestricted =
+              code === 101 || code === 150 || code === 100;
 
             if (isEmbedRestricted && this._tryNextCandidate?.()) {
               return;
@@ -598,18 +686,26 @@ const gameMusic = {
               title: active?.title,
               url: active?.url,
               sourceType: "youtube",
-              message: `YouTube player error ${String(e?.data ?? "")} (often caused by tracking prevention, COI headers, or the video disallowing embeds)`.trim(),
+              message:
+                `YouTube player error ${String(e.data ?? "")} (often caused by tracking prevention, COI headers, or the video disallowing embeds)`.trim(),
             });
           },
         },
       });
     } catch (e) {
-      this._finishStatus({ status: "error", url: videoUrl, title, sourceType: "youtube", message: String(e) });
+      this._finishStatus({
+        status: "error",
+        url: videoUrl,
+        title,
+        sourceType: "youtube",
+        message: String(e),
+      });
     }
   },
 
   _tryNextCandidate() {
-    if (this.currentCandidateIndex + 1 >= this.lastCandidates.length) return false;
+    if (this.currentCandidateIndex + 1 >= this.lastCandidates.length)
+      return false;
     this.currentCandidateIndex++;
     const next = this.lastCandidates[this.currentCandidateIndex];
     if (!next) return false;
@@ -682,21 +778,22 @@ const gameMusic = {
   },
 
   // allow the focus container etc to force a user-gesture playback start (needed for YT in some webviews)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   userActivatePlayback() {
     this._stopStatePoller?.();
     this._clearAllFades?.();
     const p = this.player;
     if (p && typeof p.playVideo === "function") {
-      try { p.playVideo(); } catch {}
+      try {
+        p.playVideo();
+      } catch {}
     }
     const a = this.audio;
     if (a) {
       try {
-        const p = a.play();
-        if (p && typeof p.catch === "function") {
-          p.catch((e: any) => { if (e && e.name !== "AbortError") console.warn("userActivate play error", e); });
-        }
+        void a.play().catch((e: unknown) => {
+          if (e instanceof Error && e.name !== "AbortError")
+            console.warn("userActivate play error", e);
+        });
       } catch {}
     }
   },
@@ -704,20 +801,34 @@ const gameMusic = {
 
 // Public API used by grid cards + detail page + now playing
 export const gameMusicPlayer = {
-  playForGame: (url: string | undefined, vol: number, fade: number, title?: string, cands?: readonly string[], gameId?: number) =>
-    gameMusic.playForGame(url, vol, fade, title, cands, gameId),
-  stop: (fade?: number, url?: string, gameId?: number) => gameMusic.stop(fade, url, gameId),
+  playForGame: (
+    url: string | undefined,
+    vol: number,
+    fade: number,
+    title?: string,
+    cands?: readonly string[],
+    gameId?: number,
+  ) => gameMusic.playForGame(url, vol, fade, title, cands, gameId),
+  stop: (fade?: number, url?: string, gameId?: number) =>
+    gameMusic.stop(fade, url, gameId),
   userActivatePlayback: () => gameMusic.userActivatePlayback?.(),
 };
 
 export function isAudioUrl(url: string): boolean {
-  return /\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test((url || "").split("?")[0]) || (url || "").includes("/theme");
+  return (
+    /\.(mp3|wav|ogg|opus|m4a|flac|webm|aac)$/i.test(
+      (url || "").split("?")[0],
+    ) || (url || "").includes("/theme")
+  );
 }
 
 export function isYoutubeWatchUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) && !u.pathname.includes("/embed");
+    return (
+      (u.hostname.includes("youtube.com") || u.hostname.includes("youtu.be")) &&
+      !u.pathname.includes("/embed")
+    );
   } catch {
     return false;
   }
@@ -736,10 +847,11 @@ export const useGameMusicStatus = create<GameMusicState>()((set) => ({
   hide: () => set({ visible: false, gameId: undefined }),
 }));
 
-export function useGameMusic(gameId: number) {
+export function useGameMusic(_gameId: number) {
   const { rawEnabled, rawVolume, rawFade } = useConfig((s) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fullscreenConfig = s.config?.interface?.fullscreenConfig as any;
+    const fullscreenConfig = s.config?.interface?.fullscreenConfig as
+      | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+      | undefined;
 
     return {
       rawEnabled: fullscreenConfig?.gameMusic?.enabled ?? true,
@@ -756,18 +868,27 @@ export function useGameMusic(gameId: number) {
 }
 
 export function GameMusicNowPlaying() {
-  const { visible, status, title, sourceType, message, updatedAt, hide, url, gameId } =
-    useGameMusicStatus((state) => ({
-      visible: state.visible,
-      status: state.status,
-      title: state.title,
-      sourceType: state.sourceType,
-      message: state.message,
-      updatedAt: state.updatedAt,
-      hide: state.hide,
-      url: state.url,
-      gameId: state.gameId,
-    }));
+  const {
+    visible,
+    status,
+    title,
+    sourceType,
+    message,
+    updatedAt,
+    hide,
+    url,
+    gameId,
+  } = useGameMusicStatus((state) => ({
+    visible: state.visible,
+    status: state.status,
+    title: state.title,
+    sourceType: state.sourceType,
+    message: state.message,
+    updatedAt: state.updatedAt,
+    hide: state.hide,
+    url: state.url,
+    gameId: state.gameId,
+  }));
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -776,7 +897,12 @@ export function GameMusicNowPlaying() {
 
     // Keep "unavailable / missing" visible longer,
     // especially useful when focused in the grid.
-    const hideMs = status === "playing" ? 5000 : (status === "missing" || status === "error" ? 14000 : 9000);
+    const hideMs =
+      status === "playing"
+        ? 5000
+        : status === "missing" || status === "error"
+          ? 14000
+          : 9000;
     const timeout = window.setTimeout(() => hide(), hideMs);
 
     return () => window.clearTimeout(timeout);
@@ -814,105 +940,110 @@ export function GameMusicNowPlaying() {
 
   return (
     <>
-    {visible && (
-    <div
-      className={cn(
-        "fixed bottom-8 left-1/2 z-[90] w-[min(92vw,34rem)] -translate-x-1/2",
-        "transition-all duration-500 ease-out",
-        interactive ? "pointer-events-auto" : "pointer-events-none",
-      )}
-    >
-      <div
-        className={cn(
-          "border bg-background/95 shadow-lg backdrop-blur px-4 py-3",
-          "flex items-center gap-3",
-          isPlaying ? "border-accent" : "border-destructive/60",
-        )}
-      >
+      {visible && (
         <div
           className={cn(
-            "size-10 grid place-items-center border",
-            isPlaying
-              ? "border-accent text-accent-foreground bg-accent/15"
-              : "border-destructive/60 text-destructive bg-destructive/10",
+            "fixed bottom-8 left-1/2 z-[90] w-[min(92vw,34rem)] -translate-x-1/2",
+            "transition-all duration-500 ease-out",
+            interactive ? "pointer-events-auto" : "pointer-events-none",
           )}
         >
-          {isPlaying ? <Music2 size={22} /> : <VolumeX size={22} />}
-        </div>
-
-        <div className="min-w-0 flex flex-col">
-          <p className="text-xs uppercase font-bold text-muted-foreground">
-            {label}
-            {sourceType ? ` via ${sourceType}` : ""}
-          </p>
-          <p className="text-base font-semibold truncate">
-            {title || "Game soundtrack"}
-          </p>
-          {message && status !== "playing" ? (
-            <p className="text-sm text-muted-foreground truncate">{message}</p>
-          ) : null}
-
-          {isMissing && gameId != null && (
-            <button
-              type="button"
-              className="mt-1 flex items-center gap-1.5 w-fit text-xs font-medium text-accent hover:text-accent-foreground pointer-events-auto"
-              onClick={() => {
-                hide();
-                setPickerOpen(true);
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
+          <div
+            className={cn(
+              "border bg-background/95 shadow-lg backdrop-blur px-4 py-3",
+              "flex items-center gap-3",
+              isPlaying ? "border-accent" : "border-destructive/60",
+            )}
+          >
+            <div
+              className={cn(
+                "size-10 grid place-items-center border",
+                isPlaying
+                  ? "border-accent text-accent-foreground bg-accent/15"
+                  : "border-destructive/60 text-destructive bg-destructive/10",
+              )}
             >
-              <HotkeyIcon hotkey="OPTION" className="text-[9px] py-[6px] px-[5px]" />
-              <DownloadIcon size={11} />
-              Download music
-            </button>
-          )}
+              {isPlaying ? <Music2 size={22} /> : <VolumeX size={22} />}
+            </div>
 
-          {isBlocked && (
-            <>
-              <button
-                type="button"
-                className="mt-1 w-fit text-xs font-medium underline underline-offset-2 text-accent hover:text-accent-foreground pointer-events-auto"
-                onClick={() => {
-                  try {
-                    (gameMusicPlayer as any).userActivatePlayback?.();
-                  } catch {}
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                Play preview
-              </button>
+            <div className="min-w-0 flex flex-col">
+              <p className="text-xs uppercase font-bold text-muted-foreground">
+                {label}
+                {sourceType ? ` via ${sourceType}` : ""}
+              </p>
+              <p className="text-base font-semibold truncate">
+                {title || "Game soundtrack"}
+              </p>
+              {message && status !== "playing" ? (
+                <p className="text-sm text-muted-foreground truncate">
+                  {message}
+                </p>
+              ) : null}
 
-              {sourceType === "youtube" && url && (
+              {isMissing && gameId != null && (
                 <button
                   type="button"
-                  className="mt-1 ml-2 w-fit text-xs font-medium underline underline-offset-2 text-muted-foreground hover:text-foreground pointer-events-auto"
+                  className="mt-1 flex items-center gap-1.5 w-fit text-xs font-medium text-accent hover:text-accent-foreground pointer-events-auto"
                   onClick={() => {
-                    try {
-                      window.open(url, "_blank", "noopener,noreferrer");
-                    } catch {}
+                    hide();
+                    setPickerOpen(true);
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
-                  title="Open the full theme video on YouTube in your browser"
                 >
-                  Watch on YouTube
+                  <HotkeyIcon
+                    hotkey="OPTION"
+                    className="text-[9px] py-[6px] px-[5px]"
+                  />
+                  <DownloadIcon size={11} />
+                  Download music
                 </button>
               )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-    )}
 
-    {gameId != null && (
-      <MusicPickerDialog
-        gameId={gameId}
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-      />
-    )}
-  </>
+              {isBlocked && (
+                <>
+                  <button
+                    type="button"
+                    className="mt-1 w-fit text-xs font-medium underline underline-offset-2 text-accent hover:text-accent-foreground pointer-events-auto"
+                    onClick={() => {
+                      try {
+                        gameMusicPlayer.userActivatePlayback();
+                      } catch {}
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    Play preview
+                  </button>
+
+                  {sourceType === "youtube" && url && (
+                    <button
+                      type="button"
+                      className="mt-1 ml-2 w-fit text-xs font-medium underline underline-offset-2 text-muted-foreground hover:text-foreground pointer-events-auto"
+                      onClick={() => {
+                        try {
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        } catch {}
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title="Open the full theme video on YouTube in your browser"
+                    >
+                      Watch on YouTube
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gameId != null && (
+        <MusicPickerDialog
+          gameId={gameId}
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1165,7 +1296,11 @@ function GameListItem(props: {
   // Respect the "Play game music on focus/hover" toggle from either config menu.
   // This makes the checkbox in both the fullscreen menubar config and the general config
   // actually turn the automatic theme music on/off for grid hover + detail pages.
-  const { enabled, volume: musicVolume, fade: musicFade } = useGameMusic(game.id);
+  const {
+    enabled,
+    volume: musicVolume,
+    fade: musicFade,
+  } = useGameMusic(game.id);
 
   // Fetch per-game metadata so we can prefer its theme audio (yt-dlp) on hover/focus in the grid
   const { data: metaForMusic } = useGameMetadata({
@@ -1176,13 +1311,20 @@ function GameListItem(props: {
   const publicUrlForMusic = usePublicUrl();
 
   const musicSourceForHover = useMemo(() => {
-    const mp = metaForMusic?.mediaPaths as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+    const mp: any = metaForMusic?.mediaPaths as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let entry: any;
     if (mp) {
-      if (typeof mp.get === "function") entry = mp.get(game.id) ?? mp.get(String(game.id));
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (typeof mp.get === "function")
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+        entry = mp.get(game.id) ?? mp.get(String(game.id));
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
       else entry = mp[game.id] ?? mp[String(game.id)];
     }
-    const themeRel = entry?.themeAudioUrl;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+    const themeRel: string | undefined = entry?.themeAudioUrl;
     if (themeRel && publicUrlForMusic) {
       // Always pass a fully resolved absolute public URL (with the correct game id) to the player.
       // This guarantees that hovering/focusing a different game produces a distinct source string
@@ -1194,13 +1336,21 @@ function GameListItem(props: {
     if (!themeRel && publicUrlForMusic) {
       // Robust magic base fallback for yt-dlp "theme.*" (any ext) exactly like the prior fixes and
       // the non-fullscreen Theme tab. The player will try theme.m4a, theme.webm, etc.
-      const magic = createUrl({ path: `media/games/${game.id}/theme`, base: publicUrlForMusic })?.href;
+      const magic = createUrl({
+        path: `media/games/${game.id}/theme`,
+        base: publicUrlForMusic,
+      })?.href;
       if (magic) return magic;
     }
-    const firstAudio = (metaForMusic?.metadata.at(0)?.videoUrls || []).find(isAudioUrl);
+    const firstAudio = (metaForMusic?.metadata.at(0)?.videoUrls || []).find(
+      isAudioUrl,
+    );
     // If the audio url from videoUrls is itself a relative local path, resolve it too for consistency.
     if (firstAudio && publicUrlForMusic && !/^https?:/i.test(firstAudio)) {
-      return createUrl({ path: firstAudio, base: publicUrlForMusic })?.href || firstAudio;
+      return (
+        createUrl({ path: firstAudio, base: publicUrlForMusic })?.href ||
+        firstAudio
+      );
     }
     return firstAudio;
   }, [metaForMusic, game.id, publicUrlForMusic]);
@@ -1220,7 +1370,7 @@ function GameListItem(props: {
       // Call playForGame with the configured volume/fade from the shared gameMusic config.
       // The checkbox in both menus controls this (and the detail page already respected it).
       // User gesture from focus/mouse should allow autoplay; the banner provides "Play preview" fallback if blocked.
-      gameMusicPlayer.playForGame(
+      void gameMusicPlayer.playForGame(
         musicSourceForHover,
         musicVolume,
         musicFade,
@@ -1297,23 +1447,32 @@ function GameImage(props: {
   }, [publicUrl, data]);
 
   // Per-game theme audio (from yt-dlp or direct) for grid hover/focus music
-  const themeAudioForThisGame = useMemo(() => {
-    const mp = data?.mediaPaths as any;
+  const _themeAudioForThisGame = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+    const mp: any = data?.mediaPaths as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let entry: any = undefined;
     if (mp) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       if (typeof mp.get === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
         entry = mp.get(game.id) ?? mp.get(String(game.id));
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
         entry = mp[game.id] ?? mp[String(game.id)];
       }
     }
-    const rel = entry?.themeAudioUrl;
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+    const rel: string | undefined = entry?.themeAudioUrl;
     if (rel && publicUrl) {
       return createUrl({ path: rel, base: publicUrl })?.href;
     }
     if (publicUrl) {
       // magic fallback so the player tries theme.* exts
-      return createUrl({ path: `media/games/${game.id}/theme`, base: publicUrl })?.href;
+      return createUrl({
+        path: `media/games/${game.id}/theme`,
+        base: publicUrl,
+      })?.href;
     }
     return undefined;
   }, [data, publicUrl, game.id]);

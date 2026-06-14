@@ -47,11 +47,13 @@ const formSchema = z.object({
         gap: z.coerce.number().min(10).max(250),
         imageType: z.enum(["COVER", "BACKGROUND"]),
       }),
-      gameMusic: z.object({
-        enabled: z.boolean().optional(),
-        volume: z.coerce.number().min(0).max(1),
-        fadeDurationMs: z.coerce.number().min(100).max(5000),
-      }).optional(),
+      gameMusic: z
+        .object({
+          enabled: z.boolean().optional(),
+          volume: z.coerce.number().min(0).max(1),
+          fadeDurationMs: z.coerce.number().min(100).max(5000),
+        })
+        .optional(),
     }),
   }),
 }) satisfies z.ZodSchema<RetromClientConfig_ConfigJson, z.ZodTypeDef, unknown>;
@@ -61,7 +63,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
   const config = useConfig((s) => s.config);
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const fullscreenConfig = config?.interface?.fullscreenConfig as any;
+  const fullscreenConfig = config?.interface?.fullscreenConfig as
+    | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+    | undefined;
 
   const form = useForm<FormSchema>({
     resolver: zodResolver(formSchema),
@@ -81,8 +85,8 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
           },
           gameMusic: {
             enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
-            volume: (fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
-            fadeDurationMs: (fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
+            volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
+            fadeDurationMs: fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
           },
         },
       },
@@ -128,7 +132,8 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
           // (and other fullscreenConfig values).
           form.reset({
             interface: {
-              fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+              fullscreenByDefault:
+                config?.interface?.fullscreenByDefault ?? false,
               fullscreenConfig: {
                 gridList: {
                   columns:
@@ -139,10 +144,10 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
                     "COVER",
                 },
                 gameMusic: {
-                  enabled:
-                    fullscreenConfig?.gameMusic?.enabled ?? true,
-                  volume: (fullscreenConfig?.gameMusic?.volume ?? 0.3) as number,
-                  fadeDurationMs: (fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700) as number,
+                  enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
+                  volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
+                  fadeDurationMs:
+                    fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
                 },
               },
             },
@@ -314,7 +319,8 @@ function ConfigForm() {
               onCheckedChange={field.onChange}
               label="Play game music on focus/hover"
             >
-              Play main theme / song while hovering or selecting a game (fades in/out)
+              Play main theme / song while hovering or selecting a game (fades
+              in/out)
             </ConfigCheckbox>
           </FormItem>
         )}
@@ -326,7 +332,10 @@ function ConfigForm() {
           name="interface.fullscreenConfig.gameMusic.volume"
           render={({ field }) => (
             <FormItem>
-              <FormLabel htmlFor="config-menu-game-music-volume" className="text-xs">
+              <FormLabel
+                htmlFor="config-menu-game-music-volume"
+                className="text-xs"
+              >
                 Music volume
               </FormLabel>
               <ConfigInput
@@ -348,7 +357,10 @@ function ConfigForm() {
           name="interface.fullscreenConfig.gameMusic.fadeDurationMs"
           render={({ field }) => (
             <FormItem>
-              <FormLabel htmlFor="config-menu-game-music-fade" className="text-xs">
+              <FormLabel
+                htmlFor="config-menu-game-music-fade"
+                className="text-xs"
+              >
                 Fade duration (ms)
               </FormLabel>
               <ConfigInput

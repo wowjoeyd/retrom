@@ -5,7 +5,6 @@ import {
   Check,
   ChevronsUpDown,
   LoaderCircleIcon,
-  SearchIcon,
   TrashIcon,
   X,
 } from "lucide-react";

@@ -60,8 +60,9 @@ export default defineConfig(({ mode }) => {
         JSON.stringify(localServiceHost),
       "import.meta.env.VITE_EMULATOR_PACKAGE_SYNC":
         JSON.stringify(emulatorPackageSync),
-      "import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED":
-        JSON.stringify(emulatorPackagesEnabled),
+      "import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED": JSON.stringify(
+        emulatorPackagesEnabled,
+      ),
     },
     base: baseUrl,
     server: {

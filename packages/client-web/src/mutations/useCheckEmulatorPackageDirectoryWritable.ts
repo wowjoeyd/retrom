@@ -1,6 +1,4 @@
-import {
-  CheckEmulatorPackageDirectoryWritableRequestSchema,
-} from "@retrom/codegen/retrom/services/emulator-package-service_pb";
+import { CheckEmulatorPackageDirectoryWritableRequestSchema } from "@retrom/codegen/retrom/services/emulator-package-service_pb";
 import { useRetromClient } from "@/providers/retrom-client";
 import { useMutation } from "@tanstack/react-query";
 import { MessageInitShape } from "@bufbuild/protobuf";

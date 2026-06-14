@@ -4,7 +4,6 @@ use bigdecimal::ToPrimitive;
 use chrono::DateTime;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use retrom_codegen::timestamp::Timestamp;
 use retrom_codegen::retrom::{
     self,
     get_igdb_search_request::IgdbSearchType,
@@ -15,6 +14,7 @@ use retrom_codegen::retrom::{
     NewGameGenre, NewGameGenreMap, NewSimilarGameMap, PlatformMetadata,
     UpdateLibraryMetadataResponse, UpdatedGameMetadata,
 };
+use retrom_codegen::timestamp::Timestamp;
 use retrom_db::schema;
 use retrom_service_common::media_cache::cacheable_media::CacheableMetadata;
 use retrom_service_common::metadata_providers::{
@@ -542,8 +542,10 @@ pub async fn update_metadata(
                 });
                 if has_steam_content && !overwrite {
                     let last_played = if app.rtime_last_played > 0 {
-                        DateTime::from_timestamp(app.rtime_last_played, 0)
-                            .map(|dt| Timestamp { seconds: dt.timestamp(), nanos: 0 })
+                        DateTime::from_timestamp(app.rtime_last_played, 0).map(|dt| Timestamp {
+                            seconds: dt.timestamp(),
+                            nanos: 0,
+                        })
                     } else {
                         None
                     };
@@ -728,7 +730,11 @@ pub async fn update_metadata(
             max_concurrency: Some(4),
         };
         match job_manager
-            .spawn("Compressing Game Audio", compress_tasks, Some(compress_opts))
+            .spawn(
+                "Compressing Game Audio",
+                compress_tasks,
+                Some(compress_opts),
+            )
             .await
         {
             Ok(uuid) => Some(uuid.to_string()),

@@ -1,9 +1,7 @@
 import { useRetromClient } from "@/providers/retrom-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@retrom/ui/hooks/use-toast";
-import {
-  AutoDownloadGameSoundtrackRequestSchema,
-} from "@retrom/codegen/retrom/services/metadata-service_pb";
+import { AutoDownloadGameSoundtrackRequestSchema } from "@retrom/codegen/retrom/services/metadata-service_pb";
 import { create } from "@bufbuild/protobuf";
 
 export function useAutoDownloadGameSoundtrack() {

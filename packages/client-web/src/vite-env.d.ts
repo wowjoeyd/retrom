@@ -10,6 +10,11 @@ const _Vars = [
   "BASE_URL",
   "OTEL_SERVICE_NAME",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "IS_DESKTOP",
+  "RETROM_EMULATOR_PACKAGES_ENABLED",
+  "EMULATOR_PACKAGE_SYNC",
+  "EMULATOR_USER_DATA_ENHANCED",
+  "RETROM_AUTO_SYNC_EMULATOR_USER_DATA",
 ] as const;
 
 type Env = (typeof _Vars)[number] | `VITE_${(typeof _Vars)[number]}`;

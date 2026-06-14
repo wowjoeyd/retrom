@@ -51,7 +51,14 @@
         "archive_type": "zip",
         "strip_components": 0,
         "executable_relative_path": "EmuHawk.exe",
-        "preserve_paths": ["config.ini", "Firmware/", "Movies/", "SaveRAM/", "SaveStates/", "Shaders/"]
+        "preserve_paths": [
+          "config.ini",
+          "Firmware/",
+          "Movies/",
+          "SaveRAM/",
+          "SaveStates/",
+          "Shaders/"
+        ]
       }
     },
     {
@@ -66,7 +73,14 @@
         "archive_type": "tar_gz",
         "strip_components": 0,
         "executable_relative_path": "EmuHawkMono.sh",
-        "preserve_paths": ["config.ini", "Firmware/", "Movies/", "SaveRAM/", "SaveStates/", "Shaders/"]
+        "preserve_paths": [
+          "config.ini",
+          "Firmware/",
+          "Movies/",
+          "SaveRAM/",
+          "SaveStates/",
+          "Shaders/"
+        ]
       }
     }
   ]

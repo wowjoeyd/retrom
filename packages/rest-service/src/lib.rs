@@ -67,11 +67,8 @@ pub fn rest_service(pool: Arc<Pool>) -> Router {
         // Compress text/JSON responses, but NEVER compress binary file downloads
         // (ROMs, emulator packages). Gzipping multi-GB incompressible octet-streams on the
         // fly wastes huge CPU and throttles download throughput to a crawl.
-        .layer(
-            CompressionLayer::new().compress_when(
-                DefaultPredicate::new()
-                    .and(NotForContentType::const_new("application/octet-stream")),
-            ),
-        )
+        .layer(CompressionLayer::new().compress_when(
+            DefaultPredicate::new().and(NotForContentType::const_new("application/octet-stream")),
+        ))
         .layer(axum_middleware::from_fn(cache_control_middleware))
 }

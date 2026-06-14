@@ -36,7 +36,6 @@ import { useConfig } from "@/providers/config";
 import {
   LoaderCircleIcon,
   RefreshCwIcon,
-  SearchIcon,
   Trash2Icon,
 } from "lucide-react";
 import { match } from "ts-pattern";

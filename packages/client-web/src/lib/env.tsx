@@ -8,7 +8,7 @@ export function checkIsDesktop() {
 }
 
 export function isEmulatorPackagesEnabled() {
-  const value =
+  const value: string | undefined =
     import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED ??
     import.meta.env.RETROM_EMULATOR_PACKAGES_ENABLED;
 
@@ -20,7 +20,7 @@ export function isEmulatorPackagesEnabled() {
 }
 
 export function isEmulatorPackageSyncEnabled() {
-  const value =
+  const value: string | undefined =
     import.meta.env.VITE_EMULATOR_PACKAGE_SYNC ??
     import.meta.env.EMULATOR_PACKAGE_SYNC;
 
@@ -32,7 +32,7 @@ export function isEmulatorPackageSyncEnabled() {
 }
 
 export function isEnhancedEmulatorUserDataEnabled() {
-  const value =
+  const value: string | undefined =
     import.meta.env.VITE_EMULATOR_USER_DATA_ENHANCED ??
     import.meta.env.EMULATOR_USER_DATA_ENHANCED;
 

@@ -89,16 +89,12 @@ type SteamConfigShape = Record<
   z.ZodTypeAny
 >;
 const steamSchema = z.object({
-  userId: z
-    .string()
-    .refine((v) => v === "" || STEAMID64_RE.test(v), {
-      message: "Enter a valid 17-digit SteamID64.",
-    }),
-  apiKey: z
-    .string()
-    .refine((v) => v === "" || API_KEY_RE.test(v), {
-      message: "Enter a valid 32-character Steam Web API key.",
-    }),
+  userId: z.string().refine((v) => v === "" || STEAMID64_RE.test(v), {
+    message: "Enter a valid 17-digit SteamID64.",
+  }),
+  apiKey: z.string().refine((v) => v === "" || API_KEY_RE.test(v), {
+    message: "Enter a valid 32-character Steam Web API key.",
+  }),
 }) satisfies z.ZodObject<SteamConfigShape>;
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -163,18 +159,20 @@ export function SteamConfig(props: {
 
     if (checkIsDesktop()) {
       // Tauri: open a native WebviewWindow so the auth page loads inside the app.
-      void import("@tauri-apps/api/webviewWindow").then(({ WebviewWindow }) => {
-        const win = new WebviewWindow("steam-login", {
-          url: steamUrl,
-          width: 600,
-          height: 700,
-          title: "Sign in with Steam",
-          center: true,
-        });
-        // Store a close handle; the BroadcastChannel handler calls this on success.
-        closePendingWindowRef.current = () => void win.close();
-        setSigningIn(true);
-      }).catch(console.error);
+      void import("@tauri-apps/api/webviewWindow")
+        .then(({ WebviewWindow }) => {
+          const win = new WebviewWindow("steam-login", {
+            url: steamUrl,
+            width: 600,
+            height: 700,
+            title: "Sign in with Steam",
+            center: true,
+          });
+          // Store a close handle; the BroadcastChannel handler calls this on success.
+          closePendingWindowRef.current = () => void win.close();
+          setSigningIn(true);
+        })
+        .catch(console.error);
     } else {
       // Browser: standard popup. window.open() is synchronous from a click
       // handler so popup blockers should not trigger.
@@ -377,8 +375,7 @@ export function SteamConfig(props: {
                   <FormDescription>
                     Sign in with Steam above to auto-fill, or paste a SteamID64
                     or a Steam profile URL (
-                    <code className="text-xs">/profiles/&lt;id&gt;</code>
-                    {" "}or{" "}
+                    <code className="text-xs">/profiles/&lt;id&gt;</code> or{" "}
                     <code className="text-xs">/id/&lt;name&gt;</code>
                     ).
                   </FormDescription>

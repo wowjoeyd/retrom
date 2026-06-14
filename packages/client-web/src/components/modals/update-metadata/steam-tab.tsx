@@ -99,11 +99,7 @@ export function SteamTab() {
           disabled={pending || !canSubmit}
           onClick={handleRefresh}
         >
-          {pending ? (
-            <LoaderCircleIcon className="animate-spin" />
-          ) : (
-            "Refresh"
-          )}
+          {pending ? <LoaderCircleIcon className="animate-spin" /> : "Refresh"}
         </Button>
       </DialogFooter>
     </div>

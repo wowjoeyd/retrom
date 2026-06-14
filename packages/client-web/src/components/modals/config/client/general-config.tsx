@@ -42,11 +42,13 @@ const configSchema = z.object({
       fullscreenByDefault: z.boolean(),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
-        gameMusic: z.object({
-          enabled: z.boolean().optional(),
-          volume: z.number().optional(),
-          fadeDurationMs: z.number().optional(),
-        }).optional(),
+        gameMusic: z
+          .object({
+            enabled: z.boolean().optional(),
+            volume: z.number().optional(),
+            fadeDurationMs: z.number().optional(),
+          })
+          .optional(),
       }),
     }),
     installationDir: z.string().optional(),
@@ -65,13 +67,16 @@ export function GeneralConfig() {
   const { config, telemetry } = configStore();
   const { toast } = useToast();
   const [autoSyncUserData, setAutoSyncUserData] = useState(false);
-  const fullscreenConfig = config?.interface?.fullscreenConfig as any;
+  const fullscreenConfig = config?.interface?.fullscreenConfig as
+    | { gameMusic?: { enabled?: boolean; volume?: number; fadeDurationMs?: number } }
+    | undefined;
   const showEmulatorUserDataAutoSync =
     checkIsDesktop() &&
     isEmulatorPackageSyncEnabled() &&
     isEnhancedEmulatorUserDataEnabled();
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAutoSyncUserData(emulatorUserDataAutoSyncEnabled());
   }, []);
 
@@ -89,7 +94,8 @@ export function GeneralConfig() {
             gameMusic: {
               enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
               volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
-              fadeDurationMs: fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
+              fadeDurationMs:
+                fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
             },
           },
         },
@@ -257,8 +263,8 @@ export function GeneralConfig() {
                 </div>
 
                 <p className="text-sm text-muted-foreground max-w-[45ch]">
-                  Local copy of managed emulator packages synced from your server
-                  before launch. Leave empty to use the default location.
+                  Local copy of managed emulator packages synced from your
+                  server before launch. Leave empty to use the default location.
                 </p>
               </FormItem>
             )}
@@ -311,8 +317,8 @@ export function GeneralConfig() {
                     </label>
 
                     <p className="text-sm text-muted-foreground max-w-[45ch]">
-                      Low-frequency background push for managed emulator firmware,
-                      keys, RAPs, and installed emulator-side content.
+                      Low-frequency background push for managed emulator
+                      firmware, keys, RAPs, and installed emulator-side content.
                     </p>
                   </div>
                 </div>
@@ -398,7 +404,9 @@ export function GeneralConfig() {
                       </label>
 
                       <p className="text-sm text-muted-foreground">
-                        Play a game's main theme when selecting or hovering it in fullscreen (loops the extracted soundtrack or uploaded audio).
+                        Play a game&apos;s main theme when selecting or hovering it
+                        in fullscreen (loops the extracted soundtrack or
+                        uploaded audio).
                       </p>
                     </div>
                   </div>
@@ -413,7 +421,9 @@ export function GeneralConfig() {
               name="config.interface.fullscreenConfig.gameMusic.volume"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel htmlFor="fullscreen-game-music-volume">Music volume (0-1)</FormLabel>
+                  <FormLabel htmlFor="fullscreen-game-music-volume">
+                    Music volume (0-1)
+                  </FormLabel>
                   <FormControl>
                     <Input
                       id="fullscreen-game-music-volume"
@@ -422,7 +432,9 @@ export function GeneralConfig() {
                       min="0"
                       max="1"
                       {...field}
-                      onChange={(e) => field.onChange(parseFloat(e.target.value))}
+                      onChange={(e) =>
+                        field.onChange(parseFloat(e.target.value))
+                      }
                     />
                   </FormControl>
                   <FormMessage />
@@ -435,7 +447,9 @@ export function GeneralConfig() {
               name="config.interface.fullscreenConfig.gameMusic.fadeDurationMs"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel htmlFor="fullscreen-game-music-fade">Fade in/out duration (ms)</FormLabel>
+                  <FormLabel htmlFor="fullscreen-game-music-fade">
+                    Fade in/out duration (ms)
+                  </FormLabel>
                   <FormControl>
                     <Input
                       id="fullscreen-game-music-fade"

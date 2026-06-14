@@ -22,6 +22,7 @@ export function useEmulatorCatalog<T = GetEmulatorCatalogResponse>(
     queryKey: ["emulator-catalog", request, retromClient],
     select: selectFn,
     enabled,
-    queryFn: () => retromClient.emulatorPackageClient.getEmulatorCatalog(request),
+    queryFn: () =>
+      retromClient.emulatorPackageClient.getEmulatorCatalog(request),
   });
 }

@@ -1,18 +1,18 @@
 # Retrom Emulation Cloud: Emulator Package Sync Design
 
-| Field | Value |
-|-------|-------|
-| **Author** | JoeyD551 (design draft) |
-| **Date** | 2026-06-10 |
-| **Revision** | 4 (user data production hardening) |
-| **Status** | Draft |
-| **Repository** | `E:\retrom` (fork: JoeyD551/retrom) |
-| **Design doc path** | `design/emulation-cloud.md` (`docs/` is the upstream wiki submodule) |
-| **Setup guide** | `design/emulation-cloud-setup.md` |
-| **Target deployment** | Proxmox server + UNAS Pro SMB share + Windows desktop client |
-| **Git policy** | Fork-only: push to `origin` (JoeyD551/retrom) only; `upstream` read-only; no upstream PRs |
-| **Switch ROM folder** | `switch` (lowercase basename under `content_directories`) |
-| **Switch emulators (catalog)** | Eden, Citron, Ryubing (active maintained forks) |
+| Field                          | Value                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| **Author**                     | JoeyD551 (design draft)                                                                   |
+| **Date**                       | 2026-06-10                                                                                |
+| **Revision**                   | 4 (user data production hardening)                                                        |
+| **Status**                     | Draft                                                                                     |
+| **Repository**                 | `E:\retrom` (fork: JoeyD551/retrom)                                                       |
+| **Design doc path**            | `design/emulation-cloud.md` (`docs/` is the upstream wiki submodule)                      |
+| **Setup guide**                | `design/emulation-cloud-setup.md`                                                         |
+| **Target deployment**          | Proxmox server + UNAS Pro SMB share + Windows desktop client                              |
+| **Git policy**                 | Fork-only: push to `origin` (JoeyD551/retrom) only; `upstream` read-only; no upstream PRs |
+| **Switch ROM folder**          | `switch` (lowercase basename under `content_directories`)                                 |
+| **Switch emulators (catalog)** | Eden, Citron, Ryubing (active maintained forks)                                           |
 
 ---
 
@@ -35,12 +35,12 @@ unchanged files do not need to be re-hashed on every Play.
 
 Retrom today separates **global emulator definitions** from **per-client local paths**:
 
-| Layer | Proto / storage | Role |
-|-------|-----------------|------|
-| `Emulator` | `packages/codegen/protos/retrom/models/emulators.proto` | Name, platforms, save strategy, OS list; no binary path |
-| `EmulatorProfile` | same | Launch args with `{file}`, `{install_dir}` placeholders |
-| `DefaultEmulatorProfile` | same | Per `client_id` + `platform_id` default |
-| `LocalEmulatorConfig` | same → PostgreSQL `local_emulator_configs` | Per `client_id` + `emulator_id`: `executable_path`, save paths |
+| Layer                    | Proto / storage                                         | Role                                                           |
+| ------------------------ | ------------------------------------------------------- | -------------------------------------------------------------- |
+| `Emulator`               | `packages/codegen/protos/retrom/models/emulators.proto` | Name, platforms, save strategy, OS list; no binary path        |
+| `EmulatorProfile`        | same                                                    | Launch args with `{file}`, `{install_dir}` placeholders        |
+| `DefaultEmulatorProfile` | same                                                    | Per `client_id` + `platform_id` default                        |
+| `LocalEmulatorConfig`    | same → PostgreSQL `local_emulator_configs`              | Per `client_id` + `emulator_id`: `executable_path`, save paths |
 
 **ROM install pipeline** (`plugins/retrom-plugin-installer`):
 
@@ -209,13 +209,13 @@ message EmulatorPackageLayoutDefinition {
 
 New module: `packages/grpc-service/src/emulator_packages/layout_parser.rs`
 
-| Token | Meaning |
-|-------|---------|
-| `{root}` | `EmulatorPackageDirectory.path` |
-| `{packageSlug}` | Directory segment or manifest `package_slug` |
-| `{version}` | Version directory segment |
-| `{os}` | `windows` / `linux` / `macos` from manifest |
-| `{file}` | Relative file path within package (scan inventory only) |
+| Token           | Meaning                                                 |
+| --------------- | ------------------------------------------------------- |
+| `{root}`        | `EmulatorPackageDirectory.path`                         |
+| `{packageSlug}` | Directory segment or manifest `package_slug`            |
+| `{version}`     | Version directory segment                               |
+| `{os}`          | `windows` / `linux` / `macos` from manifest             |
+| `{file}`        | Relative file path within package (scan inventory only) |
 
 `EmulatorPackageDirectory` proto (aligned naming with `custom_library_definition` convention):
 
@@ -251,11 +251,7 @@ message EmulatorPackageDirectory {
     "save_data_relative_paths": ["dev_hdd0/home/00000001/savedata"],
     "save_states_relative_paths": []
   },
-  "preserve_paths": [
-    "config/",
-    "dev_hdd0/",
-    "games/"
-  ],
+  "preserve_paths": ["config/", "dev_hdd0/", "games/"],
   "files": [
     {
       "relative_path": "rpcs3.exe",
@@ -267,13 +263,13 @@ message EmulatorPackageDirectory {
 }
 ```
 
-| Field | Purpose |
-|-------|---------|
-| `package_slug` + `version` | Stable identity for indexing and cache paths |
+| Field                      | Purpose                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `package_slug` + `version` | Stable identity for indexing and cache paths                                                           |
 | `executable.relative_path` | Resolved under cache root → written to `LocalEmulatorConfig.executable_path` when `managed_paths=true` |
-| `preserve_paths` | Prefixes excluded from overwrite on NAS upgrade and client cache refresh |
-| `files[]` | Authoritative inventory for sync and delta detection |
-| `retrom.catalog_id` | Links catalog entry → installed instance (optional for fully custom packages) |
+| `preserve_paths`           | Prefixes excluded from overwrite on NAS upgrade and client cache refresh                               |
+| `files[]`                  | Authoritative inventory for sync and delta detection                                                   |
+| `retrom.catalog_id`        | Links catalog entry → installed instance (optional for fully custom packages)                          |
 
 **Versioning strategy**: Package version is the directory name and manifest field. Server stores `(package_slug, version)` as unique key. Catalog installs always write a new version directory, never in-place overwrite of `preserve_paths` content.
 
@@ -290,11 +286,11 @@ pub fn compare_package_versions(a: &str, b: &str) -> Ordering {
 }
 ```
 
-| Example slug | Versions | "Latest" pick |
-|--------------|----------|---------------|
-| `rpcs3` | `0.0.34-17089`, `0.0.33-17000` | `0.0.34-17089` (semver prefix, then build suffix) |
-| `pcsx2` | `v2.0.2`, `v2.0.1` | Strip `v` prefix, semver compare |
-| `custom-emu` | `nightly-2026-06-01`, `nightly-2026-05-01` | Lexicographic, then `created_at` |
+| Example slug | Versions                                   | "Latest" pick                                     |
+| ------------ | ------------------------------------------ | ------------------------------------------------- |
+| `rpcs3`      | `0.0.34-17089`, `0.0.33-17000`             | `0.0.34-17089` (semver prefix, then build suffix) |
+| `pcsx2`      | `v2.0.2`, `v2.0.1`                         | Strip `v` prefix, semver compare                  |
+| `custom-emu` | `nightly-2026-06-01`, `nightly-2026-05-01` | Lexicographic, then `created_at`                  |
 
 `GetEmulatorPackages` returns per-slug `latest_package_id` (computed at scan time) **in addition to** all version rows. Client sync uses **pinned** `linked_package_id` when set; UI "Update to latest" sets `linked_package_id` to `latest_package_id`.
 
@@ -358,11 +354,11 @@ pub fn resolve_platform_ids(
 }
 ```
 
-| Catalog `folder_names` | `platforms.path` on disk | Result |
-|------------------------|--------------------------|--------|
-| `["ps3"]` | `/mnt/retrom/roms/ps3` | Matches → `platform_id` |
-| `["ps3"]` | `/mnt/retrom/roms/PlayStation 3` | **No match** — UI warns; user renames folder or edits catalog overlay |
-| `["PS3"]` | `...\ps3` | Case-insensitive match |
+| Catalog `folder_names` | `platforms.path` on disk         | Result                                                                |
+| ---------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| `["ps3"]`              | `/mnt/retrom/roms/ps3`           | Matches → `platform_id`                                               |
+| `["ps3"]`              | `/mnt/retrom/roms/PlayStation 3` | **No match** — UI warns; user renames folder or edits catalog overlay |
+| `["PS3"]`              | `...\ps3`                        | Case-insensitive match                                                |
 
 **Prerequisite**: User must run **Update Library** so platform rows exist before catalog install links `Emulator.supported_platforms`. If zero IDs resolved, install still creates `Emulator` with `supported_platforms: []` and surfaces warning in job result.
 
@@ -376,11 +372,11 @@ Similar entries for PCSX2, DuckStation, RPCS3, etc. Users add overlays via `Serv
 
 **Switch catalog entries (PR 6)** — all use `"supported_platform_folder_names": ["switch"]`:
 
-| `catalog_id` | Display name | Notes |
-|--------------|--------------|-------|
-| `eden-windows-x64` | Eden | Yuzu-lineage fork; upstream repo/artifacts verified at catalog authoring time |
-| `citron-windows-x64` | Citron | Maintained Switch fork |
-| `ryubing-windows-x64` | Ryubing | Ryujinx-lineage fork |
+| `catalog_id`          | Display name | Notes                                                                         |
+| --------------------- | ------------ | ----------------------------------------------------------------------------- |
+| `eden-windows-x64`    | Eden         | Yuzu-lineage fork; upstream repo/artifacts verified at catalog authoring time |
+| `citron-windows-x64`  | Citron       | Maintained Switch fork                                                        |
+| `ryubing-windows-x64` | Ryubing      | Ryujinx-lineage fork                                                          |
 
 Exact `upstream` blocks (GitHub repo, asset patterns, executable paths) are finalized when implementing PR 6 against live release pages.
 
@@ -426,9 +422,7 @@ Env override (rollback): `RETROM_EMULATOR_PACKAGES_ENABLED=false` skips service 
   "content_directories": [
     { "path": "/mnt/retrom/roms", "storage_type": "MULTI_FILE_GAME" }
   ],
-  "emulator_package_directories": [
-    { "path": "/mnt/retrom/emulators" }
-  ],
+  "emulator_package_directories": [{ "path": "/mnt/retrom/emulators" }],
   "emulator_packages": { "rescan_interval_hours": 24 },
   "custom_catalog_dir": "/mnt/retrom/catalog-custom"
 }
@@ -595,15 +589,15 @@ Register in `rest_service()` (`lib.rs`):
 
 New `packages/codegen/protos/retrom/services/emulator-package-service.proto`:
 
-| RPC | Request | Response |
-|-----|---------|----------|
-| `GetEmulatorPackages` | `GetEmulatorPackagesRequest { repeated int32 ids; string package_slug; string catalog_id; }` | `GetEmulatorPackagesResponse { repeated EmulatorPackage packages; map<string, int32> latest_package_id_by_slug; }` |
-| `GetEmulatorPackageFiles` | `GetEmulatorPackageFilesRequest { int32 package_id; }` | `GetEmulatorPackageFilesResponse { repeated EmulatorPackageFile files; }` |
-| `UpdateEmulatorPackages` | `UpdateEmulatorPackagesRequest {}` | `UpdateEmulatorPackagesResponse { repeated string job_ids; }` |
-| `GetEmulatorCatalog` | `GetEmulatorCatalogRequest {}` | `GetEmulatorCatalogResponse { repeated EmulatorCatalogEntry entries; }` |
-| `CheckEmulatorPackageDirectoryWritable` | `CheckEmulatorPackageDirectoryWritableRequest { uint32 directory_index; }` | `CheckEmulatorPackageDirectoryWritableResponse { bool writable; optional string error_message; }` |
-| `InstallCatalogPackage` | `InstallCatalogPackageRequest` (below) | `InstallCatalogPackageResponse { string job_id; }` |
-| `LinkEmulatorToPackage` | `LinkEmulatorToPackageRequest` (below) | `LinkEmulatorToPackageResponse { LocalEmulatorConfig local_config; }` |
+| RPC                                     | Request                                                                                      | Response                                                                                                           |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `GetEmulatorPackages`                   | `GetEmulatorPackagesRequest { repeated int32 ids; string package_slug; string catalog_id; }` | `GetEmulatorPackagesResponse { repeated EmulatorPackage packages; map<string, int32> latest_package_id_by_slug; }` |
+| `GetEmulatorPackageFiles`               | `GetEmulatorPackageFilesRequest { int32 package_id; }`                                       | `GetEmulatorPackageFilesResponse { repeated EmulatorPackageFile files; }`                                          |
+| `UpdateEmulatorPackages`                | `UpdateEmulatorPackagesRequest {}`                                                           | `UpdateEmulatorPackagesResponse { repeated string job_ids; }`                                                      |
+| `GetEmulatorCatalog`                    | `GetEmulatorCatalogRequest {}`                                                               | `GetEmulatorCatalogResponse { repeated EmulatorCatalogEntry entries; }`                                            |
+| `CheckEmulatorPackageDirectoryWritable` | `CheckEmulatorPackageDirectoryWritableRequest { uint32 directory_index; }`                   | `CheckEmulatorPackageDirectoryWritableResponse { bool writable; optional string error_message; }`                  |
+| `InstallCatalogPackage`                 | `InstallCatalogPackageRequest` (below)                                                       | `InstallCatalogPackageResponse { string job_id; }`                                                                 |
+| `LinkEmulatorToPackage`                 | `LinkEmulatorToPackageRequest` (below)                                                       | `LinkEmulatorToPackageResponse { LocalEmulatorConfig local_config; }`                                              |
 
 **`InstallCatalogPackageRequest`** — `client_id` is **required in message body** (plugins do not inject `x-client-id` globally; only `useDefaultEmulatorProfiles.ts` sets that header manually):
 
@@ -766,26 +760,26 @@ Client env flag: `EMULATOR_PACKAGE_SYNC=false` disables sync calls in UI and lau
 
 **Commands**:
 
-| Command | Description |
-|---------|-------------|
-| `ensure_emulator_synced` | Blocking sync; returns cache executable `PathBuf` |
-| `get_emulator_sync_status` | Per-emulator status |
-| `get_emulator_sync_index` | Map `emulator_id → EmulatorSyncStatus` |
-| `subscribe_to_emulator_sync_updates` | Progress channel (bytes, percent) |
-| `abort_emulator_sync` | Cancel in-flight sync |
-| `open_emulator_cache_dir` | Open in Explorer |
+| Command                              | Description                                       |
+| ------------------------------------ | ------------------------------------------------- |
+| `ensure_emulator_synced`             | Blocking sync; returns cache executable `PathBuf` |
+| `get_emulator_sync_status`           | Per-emulator status                               |
+| `get_emulator_sync_index`            | Map `emulator_id → EmulatorSyncStatus`            |
+| `subscribe_to_emulator_sync_updates` | Progress channel (bytes, percent)                 |
+| `abort_emulator_sync`                | Cancel in-flight sync                             |
+| `open_emulator_cache_dir`            | Open in Explorer                                  |
 
 **Workspace wiring** (PR 10):
 
-| File | Change |
-|------|--------|
-| Root `Cargo.toml` | Add `plugins/retrom-plugin-emulator-sync` to `[workspace.members]` |
-| `packages/client/Cargo.toml` | `retrom-plugin-emulator-sync = { path = "../../plugins/..." }` |
-| `packages/client/src/main.rs` | `.plugin(retrom_plugin_emulator_sync::init())` **after** line 116 installer, **before** line 117 launcher |
-| `plugins/retrom-plugin-emulator-sync/project.json` | Nx project (mirror installer) |
-| `plugins/retrom-plugin-emulator-sync/package.json` | `"name": "@retrom/plugin-emulator-sync"` |
-| `packages/client-web/package.json` | `"@retrom/plugin-emulator-sync": "workspace:*"` |
-| `plugins/retrom-plugin-emulator-sync/permissions/` | Autogenerated Tauri permissions |
+| File                                               | Change                                                                                                    |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Root `Cargo.toml`                                  | Add `plugins/retrom-plugin-emulator-sync` to `[workspace.members]`                                        |
+| `packages/client/Cargo.toml`                       | `retrom-plugin-emulator-sync = { path = "../../plugins/..." }`                                            |
+| `packages/client/src/main.rs`                      | `.plugin(retrom_plugin_emulator_sync::init())` **after** line 116 installer, **before** line 117 launcher |
+| `plugins/retrom-plugin-emulator-sync/project.json` | Nx project (mirror installer)                                                                             |
+| `plugins/retrom-plugin-emulator-sync/package.json` | `"name": "@retrom/plugin-emulator-sync"`                                                                  |
+| `packages/client-web/package.json`                 | `"@retrom/plugin-emulator-sync": "workspace:*"`                                                           |
+| `plugins/retrom-plugin-emulator-sync/permissions/` | Autogenerated Tauri permissions                                                                           |
 
 **gRPC access**: Via `retrom-plugin-service-client` `get_emulator_package_client()` (PR 3).
 
@@ -803,12 +797,12 @@ async fn resolve_package_for_client(emulator_id: i32, client_id: i32) -> Result<
 }
 ```
 
-| Scenario | Behavior |
-|----------|----------|
-| `linked_package_id` set | Sync that exact version |
-| User clicks "Update to latest" in UI | Server returns `latest_package_id` for slug; UI calls `UpdateLocalEmulatorConfigs` to bump pin |
-| `managed_paths=true` but no `linked_package_id` | Error before sync; UI prompts package link |
-| Two clients, different pins | Supported — each `LocalEmulatorConfig` row independent |
+| Scenario                                        | Behavior                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `linked_package_id` set                         | Sync that exact version                                                                        |
+| User clicks "Update to latest" in UI            | Server returns `latest_package_id` for slug; UI calls `UpdateLocalEmulatorConfigs` to bump pin |
+| `managed_paths=true` but no `linked_package_id` | Error before sync; UI prompts package link                                                     |
+| Two clients, different pins                     | Supported — each `LocalEmulatorConfig` row independent                                         |
 
 **Proto** (`LocalEmulatorConfig`):
 
@@ -876,7 +870,7 @@ const { data: localConfigs } = useLocalEmulatorConfigs({
 
 const { mutateAsync: maybeSyncEmulatorPackage } = useMutation({
   mutationFn: async (emulator: RawMessage<Emulator>) => {
-    const localConfig = localConfigs;  // from hook closure / refetch before mutate
+    const localConfig = localConfigs; // from hook closure / refetch before mutate
     if (!localConfig?.managedPaths) return;
 
     const syncToast = toast({
@@ -885,9 +879,12 @@ const { mutateAsync: maybeSyncEmulatorPackage } = useMutation({
       icon: <Spinner />,
     });
 
-    const unsubscribe = await subscribeToEmulatorSyncUpdates(emulator.id, (p) => {
-      syncToast.update({ description: `${p.percentComplete}%` });
-    });
+    const unsubscribe = await subscribeToEmulatorSyncUpdates(
+      emulator.id,
+      (p) => {
+        syncToast.update({ description: `${p.percentComplete}%` });
+      },
+    );
 
     try {
       await ensureEmulatorSynced({ emulatorId: emulator.id });
@@ -920,13 +917,13 @@ let executable_path = if local_config.managed_paths.unwrap_or(false) {
 
 **Desktop `ActionButton` state matrix**:
 
-| ROM installed | Emulator configured | WASM core | Primary button | On click |
-|---------------|---------------------|-----------|----------------|----------|
-| Yes | Yes | No | **Play** | Save sync → emulator sync → launch |
-| Yes | Yes | Yes | **Play** | Launch EmulatorJS webview |
-| No | Yes | No | **Play** | Install-on-play modal → install → play chain |
-| No | No | No | **Play** (label: Add Emulator) | Navigate to Manage Emulators (`shouldAddEmulator`) |
-| No | * | No | **Install** (secondary, **new**) | Game detail dropdown + fullscreen actions — see below |
+| ROM installed | Emulator configured | WASM core | Primary button                   | On click                                              |
+| ------------- | ------------------- | --------- | -------------------------------- | ----------------------------------------------------- |
+| Yes           | Yes                 | No        | **Play**                         | Save sync → emulator sync → launch                    |
+| Yes           | Yes                 | Yes       | **Play**                         | Launch EmulatorJS webview                             |
+| No            | Yes                 | No        | **Play**                         | Install-on-play modal → install → play chain          |
+| No            | No                  | No        | **Play** (label: Add Emulator)   | Navigate to Manage Emulators (`shouldAddEmulator`)    |
+| No            | \*                  | No        | **Install** (secondary, **new**) | Game detail dropdown + fullscreen actions — see below |
 
 **UX change from today**: `InstallGameButton` is **only** rendered from `action-button/index.tsx` (lines 47–53). Game detail `actions.tsx` has Play-with, Show Files, Uninstall — **no Install**. Fullscreen `game-actions/index.tsx` has Uninstall/Delete only. Switching primary to always `PlayGameButton` **removes the only Install entry** unless we add one.
 
@@ -935,11 +932,13 @@ let executable_path = if local_config.managed_paths.unwrap_or(false) {
 1. **`actions.tsx` dropdown** — new `Install Game` item before Show Files:
 
 ```tsx
-{installationState !== InstallationStatus.INSTALLED && (
-  <DropdownMenuItem onSelect={() => installGame({ gameId: game.id })}>
-    Install Game
-  </DropdownMenuItem>
-)}
+{
+  installationState !== InstallationStatus.INSTALLED && (
+    <DropdownMenuItem onSelect={() => installGame({ gameId: game.id })}>
+      Install Game
+    </DropdownMenuItem>
+  );
+}
 ```
 
 2. **`fullscreen/game-actions/install-game.tsx`** (new) — mirror `uninstall-game.tsx`; register in `game-actions/index.tsx`.
@@ -981,27 +980,32 @@ sequenceDiagram
 
 #### 3.5 Manage Emulators UI extensions
 
-| Tab | Content |
-|-----|---------|
-| **Catalog** | Browse catalog; Install to NAS flow (§2.6.2); deprecated warnings |
-| **Packages** | Server-indexed packages; link/unlink; "Update to latest" |
-| **All Emulators** | Existing `emulator-list.tsx` |
-| **Local Paths** | Managed paths UX (§3.5.1) |
+| Tab               | Content                                                           |
+| ----------------- | ----------------------------------------------------------------- |
+| **Catalog**       | Browse catalog; Install to NAS flow (§2.6.2); deprecated warnings |
+| **Packages**      | Server-indexed packages; link/unlink; "Update to latest"          |
+| **All Emulators** | Existing `emulator-list.tsx`                                      |
+| **Local Paths**   | Managed paths UX (§3.5.1)                                         |
 
 ##### 3.5.1 `local-configs.tsx` form changes (managed paths)
 
 When `managedPaths === true`:
 
 ```tsx
-const configSchema = z.object({
-  managedPaths: z.boolean().default(false),
-  executablePath: z.string().optional(),
-  saveDataPath: z.string().optional(),
-  saveStatesPath: z.string().optional(),
-}).refine(
-  (data) => data.managedPaths || (data.executablePath?.length ?? 0) > 0,
-  { message: "Executable path is required when not managed", path: ["executablePath"] }
-);
+const configSchema = z
+  .object({
+    managedPaths: z.boolean().default(false),
+    executablePath: z.string().optional(),
+    saveDataPath: z.string().optional(),
+    saveStatesPath: z.string().optional(),
+  })
+  .refine(
+    (data) => data.managedPaths || (data.executablePath?.length ?? 0) > 0,
+    {
+      message: "Executable path is required when not managed",
+      path: ["executablePath"],
+    },
+  );
 ```
 
 - **Executable field**: read-only `Input`; value from `useEmulatorSyncStatus` cache path or `localConfig.executablePath`; placeholder `"Synced from NAS package"`.
@@ -1017,33 +1021,33 @@ const configSchema = z.object({
 
 ### Proto additions (summary)
 
-| File | Change |
-|------|--------|
-| `server/config.proto` | `EmulatorPackageDirectory`, `EmulatorPackageLayoutDefinition`, `EmulatorPackagesConfig`, `emulator_package_directories`, `custom_catalog_dir`, `emulator_packages` |
-| `models/emulator-packages.proto` | **NEW** |
-| `models/emulators.proto` | `linked_package_id`, `managed_paths` on `LocalEmulatorConfig` only |
-| `services/emulator-package-service.proto` | **NEW** — full request/response messages (§2.5) |
-| `client/client-config.proto` | `emulator_cache_dir` |
-| `client/emulator-sync.proto` | **NEW** |
+| File                                      | Change                                                                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `server/config.proto`                     | `EmulatorPackageDirectory`, `EmulatorPackageLayoutDefinition`, `EmulatorPackagesConfig`, `emulator_package_directories`, `custom_catalog_dir`, `emulator_packages` |
+| `models/emulator-packages.proto`          | **NEW**                                                                                                                                                            |
+| `models/emulators.proto`                  | `linked_package_id`, `managed_paths` on `LocalEmulatorConfig` only                                                                                                 |
+| `services/emulator-package-service.proto` | **NEW** — full request/response messages (§2.5)                                                                                                                    |
+| `client/client-config.proto`              | `emulator_cache_dir`                                                                                                                                               |
+| `client/emulator-sync.proto`              | **NEW**                                                                                                                                                            |
 
 ### REST
 
-| Endpoint | Status |
-|----------|--------|
-| `GET /rest/file/{fileId}` | Unchanged |
-| `GET /rest/emulator-package-file/{fileId}` | **NEW** |
+| Endpoint                                          | Status             |
+| ------------------------------------------------- | ------------------ |
+| `GET /rest/file/{fileId}`                         | Unchanged          |
+| `GET /rest/emulator-package-file/{fileId}`        | **NEW**            |
 | `GET /rest/emulator-package/{packageId}/manifest` | **NEW** (optional) |
 
 ### Tauri plugins & service client
 
-| Component | Change |
-|-----------|--------|
-| `retrom-plugin-service-client` | `get_emulator_package_client()` + TS export if needed |
-| `packages/retrom-download/` | **NEW** lightweight crate (`reqwest`, `tokio`, `futures`, `thiserror`) — client plugins only |
-| `retrom-plugin-installer` | Dep `retrom-download`; refactor `desktop.rs` lines 174–206 (PR 9) |
-| `retrom-plugin-emulator-sync` | **NEW** |
-| `retrom-plugin-launcher` | Idempotent path guard only |
-| `retrom-plugin-config` | `emulator_cache_dir` |
+| Component                      | Change                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `retrom-plugin-service-client` | `get_emulator_package_client()` + TS export if needed                                        |
+| `packages/retrom-download/`    | **NEW** lightweight crate (`reqwest`, `tokio`, `futures`, `thiserror`) — client plugins only |
+| `retrom-plugin-installer`      | Dep `retrom-download`; refactor `desktop.rs` lines 174–206 (PR 9)                            |
+| `retrom-plugin-emulator-sync`  | **NEW**                                                                                      |
+| `retrom-plugin-launcher`       | Idempotent path guard only                                                                   |
+| `retrom-plugin-config`         | `emulator_cache_dir`                                                                         |
 
 ---
 
@@ -1070,13 +1074,13 @@ erDiagram
 
 ### Storage estimates
 
-| Item | Estimate |
-|------|----------|
-| RPCS3 package | ~120–200 MB |
-| PCSX2 | ~30–50 MB |
-| Switch emulator (Eden / Citron / Ryubing) | ~50–100 MB each |
-| Per-client full cache (3–5 emulators) | 0.5–2 GB |
-| DB rows per package | 1 package + 500–5000 file rows |
+| Item                                      | Estimate                       |
+| ----------------------------------------- | ------------------------------ |
+| RPCS3 package                             | ~120–200 MB                    |
+| PCSX2                                     | ~30–50 MB                      |
+| Switch emulator (Eden / Citron / Ryubing) | ~50–100 MB each                |
+| Per-client full cache (3–5 emulators)     | 0.5–2 GB                       |
+| DB rows per package                       | 1 package + 500–5000 file rows |
 
 ---
 
@@ -1100,11 +1104,11 @@ erDiagram
 
 ### Alternative E: Extend existing `EmulatorService` instead of new `EmulatorPackageService`
 
-| Pros | Cons |
-|------|------|
+| Pros                                          | Cons                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Fewer gRPC services in `lib.rs` lines 168–179 | `emulators/mod.rs` is CRUD-only on `shared_pool`; scan/install jobs need `library_pool` + `JobManager` |
-| Simpler `service-client` surface | Blurs emulator metadata vs package file inventory concerns |
-| | Catalog install is I/O-heavy like `LibraryService`, not like `GetEmulators` |
+| Simpler `service-client` surface              | Blurs emulator metadata vs package file inventory concerns                                             |
+|                                               | Catalog install is I/O-heavy like `LibraryService`, not like `GetEmulators`                            |
 
 **Rejected**: New `EmulatorPackageService` registered alongside `LibraryService` on `library_pool` keeps job isolation and matches REST file serving boundary.
 
@@ -1112,15 +1116,15 @@ erDiagram
 
 ## Security & Privacy Considerations
 
-| Threat | Severity | Mitigation |
-|--------|----------|------------|
-| Malicious upstream binary | High | User-initiated install; catalog pins official repos; optional upstream checksum in catalog |
-| MITM on download | Medium | HTTPS only |
-| Path traversal / **zip slip** | High | `safe_extract` in `service-common`: canonicalize each entry under `target_root`; reject `..` and absolute paths; wrap `sevenz_rust2` / `async_zip` (note: `emulator_js/mod.rs` line 82 uses raw `decompress_file` — **do not** copy that pattern for catalog) |
-| Unauthorized REST file access | Medium | Same gap as ROM `/rest/file`; document; optional JWT follow-up (not PR 5 — REST-only PR) |
-| SMB credential exposure | Medium | Dedicated NAS user; RO mounts for ROM-only paths |
-| Supply-chain in catalog JSON | Medium | Schema validation; `installable` / `deprecated` flags |
-| Unmaintained upstream emulators | Low | Do not catalog dead upstreams; Eden/Citron/Ryubing point to maintained forks only |
+| Threat                          | Severity | Mitigation                                                                                                                                                                                                                                                    |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Malicious upstream binary       | High     | User-initiated install; catalog pins official repos; optional upstream checksum in catalog                                                                                                                                                                    |
+| MITM on download                | Medium   | HTTPS only                                                                                                                                                                                                                                                    |
+| Path traversal / **zip slip**   | High     | `safe_extract` in `service-common`: canonicalize each entry under `target_root`; reject `..` and absolute paths; wrap `sevenz_rust2` / `async_zip` (note: `emulator_js/mod.rs` line 82 uses raw `decompress_file` — **do not** copy that pattern for catalog) |
+| Unauthorized REST file access   | Medium   | Same gap as ROM `/rest/file`; document; optional JWT follow-up (not PR 5 — REST-only PR)                                                                                                                                                                      |
+| SMB credential exposure         | Medium   | Dedicated NAS user; RO mounts for ROM-only paths                                                                                                                                                                                                              |
+| Supply-chain in catalog JSON    | Medium   | Schema validation; `installable` / `deprecated` flags                                                                                                                                                                                                         |
+| Unmaintained upstream emulators | Low      | Do not catalog dead upstreams; Eden/Citron/Ryubing point to maintained forks only                                                                                                                                                                             |
 
 **Privacy**: No new emulator telemetry.
 
@@ -1128,13 +1132,13 @@ erDiagram
 
 ## Observability
 
-| Signal | Location |
-|--------|----------|
-| Package scan duration / count | `EmulatorPackageResolver` tracing |
-| Catalog install job | `JobManager` status |
-| Sync bytes / duration | `retrom-plugin-emulator-sync` logs + OTel |
-| Play pre-launch timing | `play-game-button` span: `emulator_sync_ms` |
-| REST 404 on deleted files | `emulator_package_file.rs` |
+| Signal                        | Location                                    |
+| ----------------------------- | ------------------------------------------- |
+| Package scan duration / count | `EmulatorPackageResolver` tracing           |
+| Catalog install job           | `JobManager` status                         |
+| Sync bytes / duration         | `retrom-plugin-emulator-sync` logs + OTel   |
+| Play pre-launch timing        | `play-game-button` span: `emulator_sync_ms` |
+| REST 404 on deleted files     | `emulator_package_file.rs`                  |
 
 **Metrics**: `retrom_emulator_sync_bytes_total`, `retrom_emulator_sync_duration_seconds`, `retrom_emulator_package_scan_packages_total`
 
@@ -1142,21 +1146,21 @@ erDiagram
 
 ## Rollout Plan
 
-| Phase | Scope |
-|-------|-------|
-| 1 | Server proto, DB, scanner, REST |
-| 2 | Catalog + install job |
-| 3 | Client sync plugin + service-client + download helper |
-| 4 | Play UX (install modal + emulator sync in PlayGameButton) |
-| 5 | Manage Emulators UI + scheduler |
+| Phase | Scope                                                     |
+| ----- | --------------------------------------------------------- |
+| 1     | Server proto, DB, scanner, REST                           |
+| 2     | Catalog + install job                                     |
+| 3     | Client sync plugin + service-client + download helper     |
+| 4     | Play UX (install modal + emulator sync in PlayGameButton) |
+| 5     | Manage Emulators UI + scheduler                           |
 
 ### Feature flags (PR 14)
 
-| Flag | Default (fork) | Guards |
-|------|----------------|--------|
-| `RETROM_EMULATOR_PACKAGES_ENABLED=false` | `true` | `EmulatorPackageService` registration in `grpc-service/src/lib.rs`; scheduler; REST route nest |
-| `EMULATOR_PACKAGE_SYNC=false` | `true` | `maybeSyncEmulatorPackage` in `play-game-button.tsx`; launcher managed-path guard |
-| Manage Emulators Catalog/Packages tabs | hidden when server disabled | Query server capability bit or config |
+| Flag                                     | Default (fork)              | Guards                                                                                         |
+| ---------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `RETROM_EMULATOR_PACKAGES_ENABLED=false` | `true`                      | `EmulatorPackageService` registration in `grpc-service/src/lib.rs`; scheduler; REST route nest |
+| `EMULATOR_PACKAGE_SYNC=false`            | `true`                      | `maybeSyncEmulatorPackage` in `play-game-button.tsx`; launcher managed-path guard              |
+| Manage Emulators Catalog/Packages tabs   | hidden when server disabled | Query server capability bit or config                                                          |
 
 **Rollback**: Set flags false; manual `executable_path` unchanged; DB tables dormant.
 
@@ -1174,48 +1178,48 @@ erDiagram
 
 ## References
 
-| Resource | Path |
-|----------|------|
-| Emulator protos | `packages/codegen/protos/retrom/models/emulators.proto` |
-| Server config | `packages/codegen/protos/retrom/server/config.proto` |
-| Codegen Diesel models | `packages/codegen/build.rs` (lines 58–117) |
-| Service client | `plugins/retrom-plugin-service-client/src/lib.rs` |
-| ROM REST handler | `packages/rest-service/src/file.rs` |
-| ROM installer | `plugins/retrom-plugin-installer/src/desktop.rs` |
-| Play command | `plugins/retrom-plugin-launcher/src/commands.rs` |
-| Play button orchestration | `packages/client-web/src/components/action-button/play-game-button.tsx` |
-| Library scanner | `packages/grpc-service/src/library/content_resolver/` |
-| Platform path storage | `packages/grpc-service/src/library/content_resolver/platform_resolver.rs` (lines 156–162) |
-| Game detail actions | `packages/client-web/src/routes/(windowed)/_layout/games/$gameId/-components/actions.tsx` |
-| Fullscreen game actions | `packages/client-web/src/components/fullscreen/game-actions/index.tsx` |
-| Local emulator configs hook | `packages/client-web/src/queries/useLocalEmulatorConfigs.ts` |
-| Library DB pool | `packages/grpc-service/src/lib.rs` (lines 89–96) |
-| Server libraries UI | `packages/client-web/src/components/modals/config/server/libraries-config/index.tsx` |
-| Manage emulators UI | `packages/client-web/src/components/modals/manage-emulators/local-configs.tsx` |
-| EmulatorJS upstream | `packages/service-common/src/emulator_js/mod.rs` |
-| DB schema | `packages/db/src/schema.rs` |
-| Client plugins | `packages/client/src/main.rs` (lines 116–117) |
+| Resource                    | Path                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| Emulator protos             | `packages/codegen/protos/retrom/models/emulators.proto`                                   |
+| Server config               | `packages/codegen/protos/retrom/server/config.proto`                                      |
+| Codegen Diesel models       | `packages/codegen/build.rs` (lines 58–117)                                                |
+| Service client              | `plugins/retrom-plugin-service-client/src/lib.rs`                                         |
+| ROM REST handler            | `packages/rest-service/src/file.rs`                                                       |
+| ROM installer               | `plugins/retrom-plugin-installer/src/desktop.rs`                                          |
+| Play command                | `plugins/retrom-plugin-launcher/src/commands.rs`                                          |
+| Play button orchestration   | `packages/client-web/src/components/action-button/play-game-button.tsx`                   |
+| Library scanner             | `packages/grpc-service/src/library/content_resolver/`                                     |
+| Platform path storage       | `packages/grpc-service/src/library/content_resolver/platform_resolver.rs` (lines 156–162) |
+| Game detail actions         | `packages/client-web/src/routes/(windowed)/_layout/games/$gameId/-components/actions.tsx` |
+| Fullscreen game actions     | `packages/client-web/src/components/fullscreen/game-actions/index.tsx`                    |
+| Local emulator configs hook | `packages/client-web/src/queries/useLocalEmulatorConfigs.ts`                              |
+| Library DB pool             | `packages/grpc-service/src/lib.rs` (lines 89–96)                                          |
+| Server libraries UI         | `packages/client-web/src/components/modals/config/server/libraries-config/index.tsx`      |
+| Manage emulators UI         | `packages/client-web/src/components/modals/manage-emulators/local-configs.tsx`            |
+| EmulatorJS upstream         | `packages/service-common/src/emulator_js/mod.rs`                                          |
+| DB schema                   | `packages/db/src/schema.rs`                                                               |
+| Client plugins              | `packages/client/src/main.rs` (lines 116–117)                                             |
 
 ---
 
 ## Key Decisions
 
-| # | Decision | Rationale |
-|---|----------|-----------|
-| K1 | Manifest-based Emulator Package | Hash sync, versioning, NAS updates without DB blobs |
-| K2 | Dedicated `EmulatorPackageLayoutDefinition` parser | ROM macros incompatible; explicit `{packageSlug}` / `{version}` tokens |
-| K3 | Separate `retrom-plugin-emulator-sync` | Domain separation from ROM installer |
-| K4 | Full package copy to local cache | Windows reliability; user requirement |
-| K5 | Install job in `service-common` | Reuse `reqwest`/`sevenz-rust2`/`sha2` deps; keep grpc-service thin |
-| K6 | Catalog metadata only in repo | Legal safety |
-| K7 | Per-client `linked_package_id` only (no global slug on `Emulator`) | Version pinning; multi-client independence |
-| K8 | Emulator sync in `PlayGameButton`, not launcher | Matches save sync UX; visible progress |
-| K9 | New version = new NAS directory + `compare_package_versions` without `semver` crate | Handles RPCS3-style build tags |
-| K10 | REST mirror `/rest/emulator-package-file/{id}` | Proven ROM pattern |
-| K11 | `library_pool` for package service | Same isolation as `LibraryService` |
-| K12 | `game_files`-style `is_deleted` on package files | Consistent soft-delete scan semantics |
-| K13 | `packages/retrom-download` for plugin REST streaming | `service-common` is server-only; plugins cannot depend on it |
-| K14 | Catalog `supported_platform_folder_names` → resolve to `platform_id` | `platforms.path` is absolute; basename match after library scan |
+| #   | Decision                                                                            | Rationale                                                              |
+| --- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| K1  | Manifest-based Emulator Package                                                     | Hash sync, versioning, NAS updates without DB blobs                    |
+| K2  | Dedicated `EmulatorPackageLayoutDefinition` parser                                  | ROM macros incompatible; explicit `{packageSlug}` / `{version}` tokens |
+| K3  | Separate `retrom-plugin-emulator-sync`                                              | Domain separation from ROM installer                                   |
+| K4  | Full package copy to local cache                                                    | Windows reliability; user requirement                                  |
+| K5  | Install job in `service-common`                                                     | Reuse `reqwest`/`sevenz-rust2`/`sha2` deps; keep grpc-service thin     |
+| K6  | Catalog metadata only in repo                                                       | Legal safety                                                           |
+| K7  | Per-client `linked_package_id` only (no global slug on `Emulator`)                  | Version pinning; multi-client independence                             |
+| K8  | Emulator sync in `PlayGameButton`, not launcher                                     | Matches save sync UX; visible progress                                 |
+| K9  | New version = new NAS directory + `compare_package_versions` without `semver` crate | Handles RPCS3-style build tags                                         |
+| K10 | REST mirror `/rest/emulator-package-file/{id}`                                      | Proven ROM pattern                                                     |
+| K11 | `library_pool` for package service                                                  | Same isolation as `LibraryService`                                     |
+| K12 | `game_files`-style `is_deleted` on package files                                    | Consistent soft-delete scan semantics                                  |
+| K13 | `packages/retrom-download` for plugin REST streaming                                | `service-common` is server-only; plugins cannot depend on it           |
+| K14 | Catalog `supported_platform_folder_names` → resolve to `platform_id`                | `platforms.path` is absolute; basename match after library scan        |
 
 ---
 
@@ -1226,6 +1230,7 @@ erDiagram
 **Title**: `feat(codegen): emulator package protos and config fields`
 
 **Files**:
+
 - `packages/codegen/protos/retrom/models/emulator-packages.proto` (new)
 - `packages/codegen/protos/retrom/server/config.proto`
 - `packages/codegen/protos/retrom/models/emulators.proto`
@@ -1245,6 +1250,7 @@ erDiagram
 **Title**: `feat(db): emulator package tables, indexes, LocalEmulatorConfig fields`
 
 **Files**:
+
 - `packages/db/migrations/YYYY-MM-DD-emulator-packages/up.sql`, `down.sql`
 - `packages/db/src/schema.rs`, `schema.patch` (per `diesel.toml`)
 - `packages/codegen/build.rs` — add `EmulatorPackage`, `EmulatorPackageFile` to `queryable_models` / insertable / changeset arrays
@@ -1261,6 +1267,7 @@ erDiagram
 **Title**: `feat(plugin-service-client): EmulatorPackageService client`
 
 **Files**:
+
 - `plugins/retrom-plugin-service-client/src/lib.rs` — `get_emulator_package_client()`
 - `plugins/retrom-plugin-service-client/src/desktop.rs` (if connection setup needed)
 - `packages/codegen` (ensure service stub exported)
@@ -1276,6 +1283,7 @@ erDiagram
 **Title**: `feat(grpc-service): emulator package scan on library_pool`
 
 **Files**:
+
 - `packages/service-common/src/config/mod.rs`
 - `packages/service-common/src/emulator_packages/version.rs` (new)
 - `packages/grpc-service/src/emulator_packages/` (`mod.rs`, `resolver.rs`, `manifest.rs`, `layout_parser.rs`, `service.rs`)
@@ -1292,6 +1300,7 @@ erDiagram
 **Title**: `feat(rest-service): GET /rest/emulator-package-file/{fileId}`
 
 **Files**:
+
 - `packages/rest-service/src/emulator_package_file.rs` (new)
 - `packages/rest-service/src/lib.rs`
 
@@ -1306,6 +1315,7 @@ erDiagram
 **Title**: `feat(service-common): built-in emulator catalog JSON`
 
 **Files**:
+
 - `packages/service-common/src/emulator_catalog/` (JSON + `mod.rs`)
 - `packages/service-common/src/emulator_catalog/platform_resolve.rs` (new)
 - `packages/grpc-service/src/emulator_packages/catalog.rs`
@@ -1321,6 +1331,7 @@ erDiagram
 **Title**: `feat(service-common): catalog install, safe extract, manifest emission`
 
 **Files**:
+
 - `packages/service-common/src/emulator_catalog_install/mod.rs` (new)
 - `packages/service-common/src/emulator_catalog_install/safe_extract.rs` (new)
 - `packages/service-common/src/emulator_catalog_install/emit_manifest.rs` (new)
@@ -1339,6 +1350,7 @@ erDiagram
 **Title**: `feat(plugin-config): emulator_cache_dir`
 
 **Files**:
+
 - `plugins/retrom-plugin-config/src/config_manager.rs`
 - `packages/client-web/src/components/modals/config/client/`
 
@@ -1351,6 +1363,7 @@ erDiagram
 **Title**: `feat(retrom-download): lightweight REST streaming helper for plugins`
 
 **Files**:
+
 - `packages/retrom-download/Cargo.toml` (new) — deps: `reqwest`, `tokio`, `futures`, `thiserror`, `tracing` only
 - `packages/retrom-download/src/lib.rs` — `stream_to_file(uri, dest, on_progress)`
 - Root `Cargo.toml` — add `packages/retrom-download` to `[workspace.members]` and `[workspace.dependencies]`
@@ -1369,6 +1382,7 @@ erDiagram
 **Title**: `feat(plugins): retrom-plugin-emulator-sync`
 
 **Files**:
+
 - `plugins/retrom-plugin-emulator-sync/` (full crate)
 - Root `Cargo.toml` workspace members
 - `packages/client/Cargo.toml`, `packages/client/src/main.rs` (plugin order: after installer line 116, before launcher 117)
@@ -1387,6 +1401,7 @@ erDiagram
 **Title**: `feat(plugin-launcher): managed_paths executable existence guard`
 
 **Files**:
+
 - `plugins/retrom-plugin-launcher/src/commands.rs`
 - `plugins/retrom-plugin-launcher/src/error.rs`
 
@@ -1401,6 +1416,7 @@ erDiagram
 **Title**: `feat(client-web): install-on-play modal and emulator sync orchestration`
 
 **Files**:
+
 - `packages/client-web/src/components/action-button/index.tsx`
 - `packages/client-web/src/components/action-button/play-game-button.tsx` — `useLocalEmulatorConfigs` + `maybeSyncEmulatorPackage`
 - `packages/client-web/src/components/modals/install-on-play/` (new)
@@ -1419,6 +1435,7 @@ erDiagram
 **Title**: `feat(client-web): catalog, packages, managed local paths`
 
 **Files**:
+
 - `packages/client-web/src/components/modals/manage-emulators/` (catalog-tab, packages-tab, local-configs schema §3.5.1)
 - `packages/client-web/src/components/modals/config/server/` — emulator package roots editor
 - Queries/mutations for catalog, install, link
@@ -1434,6 +1451,7 @@ erDiagram
 **Title**: `feat(grpc-service): emulator package rescan scheduler and feature flags`
 
 **Files**:
+
 - `packages/grpc-service/src/emulator_packages/scheduler.rs`
 - `packages/grpc-service/src/lib.rs` — flag guards
 - `packages/rest-service/src/lib.rs` — flag guards
@@ -1449,6 +1467,7 @@ erDiagram
 **Title**: `docs: emulation cloud setup guide`
 
 **Files**:
+
 - `docs/emulation-cloud.md` (new)
 - `docker/docker-compose.yml`, `nix/nixos/service.nix` examples
 
@@ -1485,4 +1504,4 @@ flowchart LR
 
 ---
 
-*End of design document (revision 3).*
+_End of design document (revision 3)._

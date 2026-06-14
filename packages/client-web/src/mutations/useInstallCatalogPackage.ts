@@ -1,6 +1,4 @@
-import {
-  InstallCatalogPackageRequestSchema,
-} from "@retrom/codegen/retrom/services/emulator-package-service_pb";
+import { InstallCatalogPackageRequestSchema } from "@retrom/codegen/retrom/services/emulator-package-service_pb";
 import { pollJobSubscriptions } from "@/lib/pollJobSubscriptions";
 import { useRetromClient } from "@/providers/retrom-client";
 import { useToast } from "@retrom/ui/hooks/use-toast";
@@ -42,9 +40,12 @@ export function useInstallCatalogPackage() {
 
       await queryClient.invalidateQueries({
         predicate: (query) =>
-          ["emulator-packages", "emulator-catalog", "emulators", "local-emulator-configs"].some(
-            (key) => query.queryKey.includes(key),
-          ),
+          [
+            "emulator-packages",
+            "emulator-catalog",
+            "emulators",
+            "local-emulator-configs",
+          ].some((key) => query.queryKey.includes(key)),
       });
     },
   });

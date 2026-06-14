@@ -73,7 +73,9 @@ export function EmulatorPackageRootsConfig(props: {
   const handleSubmit = useCallback(
     async (values: EmulatorPackageRootsSchema) => {
       const emulatorPackageDirectories =
-        values.emulatorPackageDirectories.filter((dir) => dir.newly !== "removed");
+        values.emulatorPackageDirectories.filter(
+          (dir) => dir.newly !== "removed",
+        );
 
       try {
         const next = {

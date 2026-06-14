@@ -8,11 +8,11 @@ For architecture and API details, see [`emulation-cloud.md`](emulation-cloud.md)
 
 ## Overview
 
-| Layer | Role |
-|-------|------|
-| **NAS / share** | Source of truth for ROM trees (`content_directories`) and emulator package trees (`emulator_package_directories`) |
-| **Retrom server** | Indexes packages, serves files over REST, runs catalog install jobs, optional scheduled rescans |
-| **Desktop client** | Installs ROMs to `installation_dir`, syncs emulator packages to `emulator_cache_dir`, launches from local cache |
+| Layer              | Role                                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| **NAS / share**    | Source of truth for ROM trees (`content_directories`) and emulator package trees (`emulator_package_directories`) |
+| **Retrom server**  | Indexes packages, serves files over REST, runs catalog install jobs, optional scheduled rescans                   |
+| **Desktop client** | Installs ROMs to `installation_dir`, syncs emulator packages to `emulator_cache_dir`, launches from local cache   |
 
 Emulators are **never** executed directly from UNC/SMB paths. The client copies the full package tree to a local cache and updates `executable_path` after sync.
 
@@ -51,20 +51,18 @@ Edit server config (`RETROM_CONFIG`, default `{data_dir}/config.json`) via **Set
   "content_directories": [
     { "path": "/mnt/retrom/roms", "storage_type": "MULTI_FILE_GAME" }
   ],
-  "emulator_package_directories": [
-    { "path": "/mnt/retrom/emulators" }
-  ],
+  "emulator_package_directories": [{ "path": "/mnt/retrom/emulators" }],
   "emulator_packages": {
     "rescan_interval_hours": 24
   }
 }
 ```
 
-| Field | Purpose |
-|-------|---------|
-| `emulator_package_directories[].path` | Root(s) where package trees live. Default on-disk layout: `{root}/{packageSlug}/{version}/**` |
-| `emulator_packages.rescan_interval_hours` | Automatic NAS rescan interval. `0` disables the scheduler. Default: `24` |
-| `custom_catalog_dir` | Optional directory of extra catalog JSON overlays |
+| Field                                     | Purpose                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `emulator_package_directories[].path`     | Root(s) where package trees live. Default on-disk layout: `{root}/{packageSlug}/{version}/**` |
+| `emulator_packages.rescan_interval_hours` | Automatic NAS rescan interval. `0` disables the scheduler. Default: `24`                      |
+| `custom_catalog_dir`                      | Optional directory of extra catalog JSON overlays                                             |
 
 ### On-disk package layout
 
@@ -81,8 +79,8 @@ After catalog install or manual placement:
 
 ### Server environment variables
 
-| Variable | Default | Effect |
-|----------|---------|--------|
+| Variable                           | Default          | Effect                                                                                                           |
+| ---------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `RETROM_EMULATOR_PACKAGES_ENABLED` | enabled (`true`) | Set to `false` to disable `EmulatorPackageService`, REST `/rest/emulator-package-file`, and the rescan scheduler |
 
 When disabled, existing `local_emulator_configs` with manual `executable_path` values are unchanged.
@@ -93,23 +91,23 @@ When disabled, existing `local_emulator_configs` with manual `executable_path` v
 
 Open **Settings → Client Configuration** on the desktop app.
 
-| Setting | Purpose |
-|---------|---------|
-| **Installation directory** | Local ROM cache (`installation_dir/{gameId}/`) |
+| Setting                      | Purpose                                                              |
+| ---------------------------- | -------------------------------------------------------------------- |
+| **Installation directory**   | Local ROM cache (`installation_dir/{gameId}/`)                       |
 | **Emulator cache directory** | Local emulator package cache (default: `{app_data}/emulator-cache/`) |
-| **Server hostname / port** | Must reach gRPC-web and REST on the Retrom server |
+| **Server hostname / port**   | Must reach gRPC-web and REST on the Retrom server                    |
 
 ### Client environment variables
 
-| Variable | Default | Effect |
-|----------|---------|--------|
-| `EMULATOR_PACKAGE_SYNC` | enabled | Set to `false` to skip emulator sync in Play flow and launcher managed-path guard |
-| `VITE_RETROM_EMULATOR_PACKAGES_ENABLED` | enabled | Build-time flag; set to `false` to hide Catalog/Packages UI |
-| `VITE_EMULATOR_PACKAGE_SYNC` | enabled | Build-time mirror of `EMULATOR_PACKAGE_SYNC` for the web bundle |
-| `EMULATOR_USER_DATA_ENHANCED` | disabled | Enables advanced user-data helpers such as analyzer UI and app-start background push setting |
-| `VITE_EMULATOR_USER_DATA_ENHANCED` | disabled | Build-time mirror for the desktop/web UI bundle |
-| `EMULATOR_USER_DATA_MAX_WALK_FILES` | `20000` | Safety cap for one user-data push walk |
-| `EMULATOR_USER_DATA_LARGE_WARNING_BYTES` | `26843545600` | Log warning threshold for very large emulator user-data trees |
+| Variable                                 | Default       | Effect                                                                                       |
+| ---------------------------------------- | ------------- | -------------------------------------------------------------------------------------------- |
+| `EMULATOR_PACKAGE_SYNC`                  | enabled       | Set to `false` to skip emulator sync in Play flow and launcher managed-path guard            |
+| `VITE_RETROM_EMULATOR_PACKAGES_ENABLED`  | enabled       | Build-time flag; set to `false` to hide Catalog/Packages UI                                  |
+| `VITE_EMULATOR_PACKAGE_SYNC`             | enabled       | Build-time mirror of `EMULATOR_PACKAGE_SYNC` for the web bundle                              |
+| `EMULATOR_USER_DATA_ENHANCED`            | disabled      | Enables advanced user-data helpers such as analyzer UI and app-start background push setting |
+| `VITE_EMULATOR_USER_DATA_ENHANCED`       | disabled      | Build-time mirror for the desktop/web UI bundle                                              |
+| `EMULATOR_USER_DATA_MAX_WALK_FILES`      | `20000`       | Safety cap for one user-data push walk                                                       |
+| `EMULATOR_USER_DATA_LARGE_WARNING_BYTES` | `26843545600` | Log warning threshold for very large emulator user-data trees                                |
 
 ---
 
@@ -183,14 +181,14 @@ When a newer package version is indexed on the NAS:
 
 ## Built-in catalog (Windows)
 
-| Catalog ID | Emulator | Platform folder |
-|------------|----------|-----------------|
-| `rpcs3` | RPCS3 | `ps3` |
-| `pcsx2` | PCSX2 | (see catalog entry) |
+| Catalog ID    | Emulator    | Platform folder     |
+| ------------- | ----------- | ------------------- |
+| `rpcs3`       | RPCS3       | `ps3`               |
+| `pcsx2`       | PCSX2       | (see catalog entry) |
 | `duckstation` | DuckStation | (see catalog entry) |
-| `eden` | Eden | `switch` |
-| `citron` | Citron | `switch` |
-| `ryubing` | Ryubing | `switch` |
+| `eden`        | Eden        | `switch`            |
+| `citron`      | Citron      | `switch`            |
+| `ryubing`     | Ryubing     | `switch`            |
 
 Catalog contains metadata and upstream URLs only; binaries are downloaded to **your** NAS on install.
 
@@ -268,16 +266,16 @@ Use this list to verify the emulation cloud stack after setup.
 
 ## Troubleshooting
 
-| Symptom | Things to check |
-|---------|-----------------|
-| Catalog/Packages tabs missing | Server flag off or `GetEmulatorCatalog` unavailable; check `RETROM_EMULATOR_PACKAGES_ENABLED` |
-| Install to NAS write test fails | SMB mount read-only, permissions, or wrong path index in Emulator Roots |
-| Catalog install: zero platforms linked | Run **Update Library**; platform folder basename must match catalog (e.g. `switch`) |
-| Play: "Executable not in cache" | Use **Play** (not raw launcher); ensure `EMULATOR_PACKAGE_SYNC` is not `false` |
-| Sync stuck / failed | Server reachable; REST file endpoint enabled; disk space in emulator cache dir |
-| Scheduler not running | `RETROM_EMULATOR_PACKAGES_ENABLED=false`, or `rescan_interval_hours: 0` |
-| Firmware/RAPs missing on another PC | Confirm the paths are in `user_data_paths` or local overrides, Push from the working PC, then Pull/Play on the other PC |
-| Push takes too long | Check `sync_state.json`, lower path scope, or raise `EMULATOR_USER_DATA_MAX_WALK_FILES` after confirming the paths are correct |
+| Symptom                                | Things to check                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Catalog/Packages tabs missing          | Server flag off or `GetEmulatorCatalog` unavailable; check `RETROM_EMULATOR_PACKAGES_ENABLED`                                  |
+| Install to NAS write test fails        | SMB mount read-only, permissions, or wrong path index in Emulator Roots                                                        |
+| Catalog install: zero platforms linked | Run **Update Library**; platform folder basename must match catalog (e.g. `switch`)                                            |
+| Play: "Executable not in cache"        | Use **Play** (not raw launcher); ensure `EMULATOR_PACKAGE_SYNC` is not `false`                                                 |
+| Sync stuck / failed                    | Server reachable; REST file endpoint enabled; disk space in emulator cache dir                                                 |
+| Scheduler not running                  | `RETROM_EMULATOR_PACKAGES_ENABLED=false`, or `rescan_interval_hours: 0`                                                        |
+| Firmware/RAPs missing on another PC    | Confirm the paths are in `user_data_paths` or local overrides, Push from the working PC, then Pull/Play on the other PC        |
+| Push takes too long                    | Check `sync_state.json`, lower path scope, or raise `EMULATOR_USER_DATA_MAX_WALK_FILES` after confirming the paths are correct |
 
 ---
 
