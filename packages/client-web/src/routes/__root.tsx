@@ -10,6 +10,7 @@ import { serverConfigTabSchema } from "@/components/modals/config/server";
 import { clientConfigTabSchema } from "@/components/modals/config/client";
 import { InstallationIndexProvider } from "@/providers/installation-index";
 import { InstallationProgressProvider } from "@/providers/installation-progress";
+import { useEffect } from "react";
 
 const modalsSearchSchema = z
   .object({
@@ -83,6 +84,9 @@ const modalsSearchSchema = z
       open: z.boolean(),
       id: z.number(),
     }),
+    batchDownloadMusicModal: z.object({
+      open: z.boolean().default(false),
+    }),
   })
   .partial();
 
@@ -93,6 +97,15 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  // Detect Steam OpenID callback before initialising any Tauri-dependent
+  // providers. The WebviewWindow that Steam redirects back to runs this check
+  // synchronously; if it matches, we render a minimal component that broadcasts
+  // the SteamID64 and closes the window — no plugin calls, no capability errors.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("openid.mode") === "id_res") {
+    return <SteamOpenIdCallback params={params} />;
+  }
+
   return (
     <InputDeviceProvider>
       <ConfigProvider>
@@ -110,5 +123,26 @@ function RootComponent() {
         </RetromClientProvider>
       </ConfigProvider>
     </InputDeviceProvider>
+  );
+}
+
+function SteamOpenIdCallback({ params }: { params: URLSearchParams }) {
+  useEffect(() => {
+    const claimedId = params.get("openid.claimed_id") ?? "";
+    const m = claimedId.match(/\/(\d{17})$/);
+    if (m) {
+      const channel = new BroadcastChannel("retrom-steam-openid");
+      channel.postMessage({ steamId64: m[1] });
+      channel.close();
+    }
+    // Works for browser script-opened popups; in Tauri the parent closes the
+    // WebviewWindow via its stored ref after receiving the broadcast.
+    window.close();
+  }, [params]);
+
+  return (
+    <div className="h-screen w-screen grid place-items-center bg-background text-muted-foreground text-sm">
+      Signing in with Steam…
+    </div>
   );
 }

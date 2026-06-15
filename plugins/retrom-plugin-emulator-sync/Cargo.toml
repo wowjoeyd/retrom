@@ -1,0 +1,35 @@
+[package]
+name = "retrom-plugin-emulator-sync"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Emulator package sync plugin for the Retrom desktop client"
+rust-version = "1.80"
+exclude = ["/examples", "/dist", "/guest-js", "/node_modules"]
+links = "tauri-plugin-emulator-sync"
+
+[dependencies]
+tauri = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+retrom-codegen = { workspace = true }
+retrom-plugin-config = { workspace = true }
+retrom-plugin-service-client = { workspace = true }
+retrom-download = { workspace = true }
+reqwest = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+prost = { workspace = true }
+walkdir = { workspace = true }
+tauri-plugin-opener = { workspace = true }
+sha2 = { workspace = true }
+
+[build-dependencies]
+tauri-plugin = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["tauri-plugin"]

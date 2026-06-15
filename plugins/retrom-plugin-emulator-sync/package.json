@@ -1,0 +1,20 @@
+{
+  "name": "@retrom/plugin-emulator-sync",
+  "type": "module",
+  "exports": {
+    "types": "./dist/index.d.ts",
+    "default": "./dist/index.js"
+  },
+  "files": [
+    "dist/**"
+  ],
+  "dependencies": {
+    "@tauri-apps/api": "catalog:",
+    "@bufbuild/protobuf": "catalog:",
+    "@retrom/codegen": "workspace:*"
+  },
+  "devDependencies": {
+    "@retrom/configs": "workspace:*",
+    "vite": "catalog:"
+  }
+}

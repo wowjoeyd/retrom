@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-abort-emulator-sync"
+description = "Enables the abort_emulator_sync command without any pre-configured scope."
+commands.allow = ["abort_emulator_sync"]
+
+[[permission]]
+identifier = "deny-abort-emulator-sync"
+description = "Denies the abort_emulator_sync command without any pre-configured scope."
+commands.deny = ["abort_emulator_sync"]

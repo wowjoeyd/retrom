@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-open-emulator-cache-dir"
+description = "Enables the open_emulator_cache_dir command without any pre-configured scope."
+commands.allow = ["open_emulator_cache_dir"]
+
+[[permission]]
+identifier = "deny-open-emulator-cache-dir"
+description = "Denies the open_emulator_cache_dir command without any pre-configured scope."
+commands.deny = ["open_emulator_cache_dir"]

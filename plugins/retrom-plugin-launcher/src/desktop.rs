@@ -127,6 +127,7 @@ impl<R: Runtime> Launcher<R> {
 
             let request = tonic::Request::new(UpdateGameMetadataRequest {
                 metadata: vec![updated_metadata],
+                overwrite_theme_audio: None,
             });
 
             if let Err(why) = metadata_client.update_game_metadata(request).await {

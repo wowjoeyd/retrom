@@ -10,7 +10,7 @@
       "http://*.local:*"
     ]
   },
-  "windows": ["main", "emulator-js"],
+  "windows": ["main", "emulator-js", "steam-login"],
   "permissions": [
     "core:path:default",
     "core:event:default",
@@ -72,6 +72,7 @@
     "config:allow-get-config",
     "config:allow-set-config",
     "config:allow-is-flatpak",
-    "save-manager:default"
+    "save-manager:default",
+    "emulator-sync:default"
   ]
 }

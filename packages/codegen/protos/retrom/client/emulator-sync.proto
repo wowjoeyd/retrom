@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package retrom.client.emulator_sync;
+
+import "google/protobuf/timestamp.proto";
+
+enum EmulatorSyncStatus {
+  EMULATOR_SYNC_STATUS_UNSPECIFIED = 0;
+  EMULATOR_SYNC_STATUS_SYNCED = 1;
+  EMULATOR_SYNC_STATUS_SYNCING = 2;
+  EMULATOR_SYNC_STATUS_OUT_OF_DATE = 3;
+  EMULATOR_SYNC_STATUS_NOT_CACHED = 4;
+  EMULATOR_SYNC_STATUS_FAILED = 5;
+}
+
+message EmulatorSyncMetrics {
+  double bytes_per_second = 1;
+  uint64 bytes_transferred = 2;
+  uint64 total_bytes = 3;
+  uint32 percent_complete = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message EmulatorSyncProgressUpdate {
+  int32 emulator_id = 1;
+  EmulatorSyncStatus status = 2;
+  EmulatorSyncMetrics metrics = 3;
+}
+
+message EnsureEmulatorSyncedPayload {
+  int32 emulator_id = 1;
+}
+
+message GetEmulatorSyncStatusPayload {
+  int32 emulator_id = 1;
+}
+
+message GetEmulatorSyncStatusResponse {
+  int32 emulator_id = 1;
+  EmulatorSyncStatus status = 2;
+}
+
+message EmulatorSyncIndex {
+  map<int32, EmulatorSyncStatus> emulators = 1;
+}
+
+message PushEmulatorPreservePayload {
+  int32 emulator_id = 1;
+}
+
+message PushEmulatorPreserveResponse {
+  int32 emulator_id = 1;
+  uint32 files_uploaded = 2;
+  uint64 bytes_uploaded = 3;
+}
+
+message PullEmulatorUserDataPayload {
+  int32 emulator_id = 1;
+}
+
+message PullEmulatorUserDataResponse {
+  int32 emulator_id = 1;
+  uint32 files_uploaded = 2;
+  uint64 bytes_uploaded = 3;
+}
+
+message AnalyzeEmulatorUserDataPayload {
+  int32 emulator_id = 1;
+}
+
+message AnalyzeEmulatorUserDataResponse {
+  int32 emulator_id = 1;
+  repeated string suggested_user_data_paths = 2;
+  repeated string suggested_preserve_paths = 3;
+}
