@@ -1,3 +1,23 @@
+## [Unreleased]
+
+### Added
+
+- Added managed emulator package catalog support with package install, update, delete, and custom install workflows.
+- Added emulator package download/streaming support, built-in emulator catalog definitions, and multi-OS install targets.
+- Added emulator user-data sync support for managed emulator configurations, including path inference, preserve-path handling, startup sync, and conflict resolution.
+- Added user-managed game theme music search, import, assignment, playback, and missing-music flows for local server libraries.
+- Added Steam sign-in, vanity URL resolution, and Steam metadata sync support.
+
+### Changed
+
+- Expanded emulator configuration screens with catalog, packages, local paths, install-on-play, and sync status workflows.
+- Improved fullscreen music playback, metadata refresh flows, emulator tab layout, and controller/touch input handling.
+- Improved emulator package install scheduling, launch error handling, and Windows path normalization.
+
+### Fixed
+
+- Fixed validation, formatting, Buf, ESLint, TypeScript, and cargo lint issues for the emulation-cloud work.
+
 ## [0.8.4](https://github.com/JMBeresford/retrom/compare/v0.8.3...v0.8.4) (2026-06-14)
 
 ### Features

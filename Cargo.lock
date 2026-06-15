@@ -9298,7 +9298,7 @@ dependencies = [
 
 [[package]]
 name = "retrom-download"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "futures",
  "reqwest 0.12.28",
@@ -9359,7 +9359,7 @@ dependencies = [
 
 [[package]]
 name = "retrom-plugin-emulator-sync"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "prost 0.14.3",
  "reqwest 0.12.28",
