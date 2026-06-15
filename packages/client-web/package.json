@@ -32,6 +32,7 @@
     "@retrom/codegen": "workspace:*",
     "@retrom/plugin-config": "workspace:*",
     "@retrom/plugin-installer": "workspace:*",
+    "@retrom/plugin-emulator-sync": "workspace:*",
     "@retrom/plugin-launcher": "workspace:*",
     "@retrom/plugin-standalone": "workspace:*",
     "@retrom/plugin-save-manager": "workspace:*",

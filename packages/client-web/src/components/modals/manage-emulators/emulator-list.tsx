@@ -1,5 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { DialogClose, DialogFooter } from "@retrom/ui/components/dialog";
+import { Input } from "@retrom/ui/components/input";
 import {
   Check,
   ChevronsUpDown,
@@ -34,7 +35,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@retrom/ui/components/form";
-import { Input } from "@retrom/ui/components/input";
 import {
   Popover,
   PopoverContent,
@@ -120,8 +120,21 @@ export function EmulatorList(props: {
   const pending = isPending || deletionPending;
   const changeset = form.watch("emulators");
 
+  const [search, setSearch] = useState("");
+
+  const filteredEmulators = useMemo(() => {
+    const list = Object.values(changeset);
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? list.filter((e) => e.name.toLowerCase().includes(q))
+      : list;
+    return filtered
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => Number(a.builtIn) - Number(b.builtIn));
+  }, [changeset, search]);
+
   return (
-    <>
+    <div className="flex flex-col h-full min-h-0">
       <CreateEmulator
         platforms={platforms}
         onSuccess={(emulator) => {
@@ -130,13 +143,19 @@ export function EmulatorList(props: {
           });
         }}
       />
+      <div className="mb-3">
+        <Input
+          placeholder="Search emulators by name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-sm"
+        />
+      </div>
       <Form {...form}>
-        <form>
-          <Accordion type="single" collapsible>
-            {Object.values(changeset)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .sort((a, b) => Number(a.builtIn) - Number(b.builtIn))
-              .map((emulator) => {
+        <form className="flex flex-1 min-h-0 flex-col">
+          <div className="app-scrollbar flex-1 min-h-0 overflow-y-auto pr-1 pb-2">
+            <Accordion type="single" collapsible>
+              {filteredEmulators.map((emulator) => {
                 return (
                   <FormField
                     key={emulator.id}
@@ -517,11 +536,12 @@ export function EmulatorList(props: {
                   />
                 );
               })}
-          </Accordion>
+            </Accordion>
+          </div>
         </form>
       </Form>
 
-      <DialogFooter className="border-none mt-8">
+      <DialogFooter className="border-none mt-4 shrink-0">
         <div className="flex justify-end col-span-4 gap-4">
           <DialogClose asChild>
             <Button variant="secondary" onClick={() => form.reset()}>
@@ -542,6 +562,6 @@ export function EmulatorList(props: {
           </Button>
         </div>
       </DialogFooter>
-    </>
+    </div>
   );
 }

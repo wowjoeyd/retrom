@@ -1,0 +1,61 @@
+{
+  "catalog_id": "pcsx2",
+  "display_name": "PCSX2",
+  "description": "PlayStation 2 emulator",
+  "supported_platform_folder_names": ["ps2"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["iso", "bin", "cso", "chd"],
+    "custom_args": ["-batch", "{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "PCSX2/pcsx2",
+        "asset_pattern": "pcsx2-.*-windows-x64-Qt\\.7z",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "7z",
+        "strip_components": 0,
+        "executable_relative_path": "pcsx2-qt.exe",
+        "preserve_paths": ["memcards/", "inis/", "snapshots/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "PCSX2/pcsx2",
+        "asset_pattern": "pcsx2-.*-macos-.*\\.tar\\.xz",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "tar_xz",
+        "strip_components": 0,
+        "executable_relative_path": "pcsx2-qt.app/Contents/MacOS/pcsx2-qt",
+        "preserve_paths": ["memcards/", "inis/", "snapshots/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "PCSX2/pcsx2",
+        "asset_pattern": "pcsx2-v.*-linux-appimage-x64-Qt\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "pcsx2-*.AppImage",
+        "preserve_paths": ["memcards/", "inis/", "snapshots/"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "catalog_id": "ryubing",
+  "display_name": "Ryubing",
+  "description": "Nintendo Switch emulator (Ryujinx-lineage fork)",
+  "supported_platform_folder_names": ["switch"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["nsp", "xci", "nca"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "forge_release",
+        "url": "https://git.ryujinx.app/api/v1/repos/ryubing/ryujinx/releases/latest",
+        "asset_pattern": ".*win.*x64.*\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "Ryubing.exe",
+        "preserve_paths": ["portable/", "games/"],
+        "internal_install_supported": true
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "forge_release",
+        "url": "https://git.ryujinx.app/api/v1/repos/ryubing/ryujinx/releases/latest",
+        "asset_pattern": ".*macos.*\\.tar\\.gz",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "tar_gz",
+        "strip_components": 0,
+        "executable_relative_path": "Ryubing.app/Contents/MacOS/Ryubing",
+        "preserve_paths": ["portable/", "games/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "forge_release",
+        "url": "https://git.ryujinx.app/api/v1/repos/ryubing/ryujinx/releases/latest",
+        "asset_pattern": ".*linux.*x64.*\\.tar\\.gz",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "tar_gz",
+        "strip_components": 0,
+        "executable_relative_path": "Ryubing",
+        "preserve_paths": ["portable/", "games/"]
+      }
+    }
+  ]
+}

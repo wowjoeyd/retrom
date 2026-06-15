@@ -16,15 +16,23 @@ import { IgdbConfig } from "./igdb-config";
 import { SteamConfig } from "./steam-config";
 import { SavesConfig } from "./saves-config";
 import { LibrariesConfig } from "./libraries-config";
+import { EmulatorPackageRootsConfig } from "./emulator-package-roots-config";
+import { CustomCatalogConfig } from "./custom-catalog-config";
+import { EmulatorPackagesConfig } from "./emulator-packages-config";
 import { TelemetryConfig } from "./telemetry-config";
 import { z } from "zod";
 import { Route as RootRoute } from "@/routes/__root";
 import { MetadataConfig } from "./metadata-config";
+import { useEmulatorPackagesAvailable } from "@/queries/useEmulatorPackagesAvailable";
+import { isEmulatorPackagesEnabled } from "@/lib/env";
 
 type ServerTabs = Exclude<keyof ServerConfigJson, "connection">;
 export const serverConfigTabSchema = z
   .enum([
     "contentDirectories",
+    "emulatorPackageDirectories",
+    "customCatalogDir",
+    "emulatorPackages",
     "igdb",
     "steam",
     "saves",
@@ -38,6 +46,18 @@ const tabItems: Record<ServerTabs, { value: ServerTabs; name: string }> = {
     value: "contentDirectories",
     name: "Content Directories",
   },
+  emulatorPackageDirectories: {
+    value: "emulatorPackageDirectories",
+    name: "Emulator Roots",
+  },
+  customCatalogDir: {
+    value: "customCatalogDir",
+    name: "Custom Catalog",
+  },
+  emulatorPackages: {
+    value: "emulatorPackages",
+    name: "Emulator Packages",
+  },
   metadata: { value: "metadata", name: "Metadata" },
   igdb: { value: "igdb", name: "IGDB" },
   steam: { value: "steam", name: "Steam" },
@@ -45,9 +65,24 @@ const tabItems: Record<ServerTabs, { value: ServerTabs; name: string }> = {
   telemetry: { value: "telemetry", name: "Telemetry" },
 };
 
+const emulatorPackageTabs: ServerTabs[] = [
+  "emulatorPackageDirectories",
+  "customCatalogDir",
+  "emulatorPackages",
+];
+
 export function ServerConfigTab() {
   const { data, status } = useServerConfig();
   const tab = RootRoute.useSearch({ select: (s) => s.configModal?.serverTab });
+  const { data: packagesAvailable } = useEmulatorPackagesAvailable();
+
+  const showEmulatorPackageTabs =
+    isEmulatorPackagesEnabled() && packagesAvailable === true;
+
+  const visibleTabs = Object.values(tabItems).filter(
+    ({ value }) =>
+      showEmulatorPackageTabs || !emulatorPackageTabs.includes(value),
+  );
 
   function LoadingState() {
     return (
@@ -86,9 +121,16 @@ export function ServerConfigTab() {
       ) : status === "error" || !data?.config ? (
         <ErrorState />
       ) : (
-        <Tabs defaultValue={tab ?? "contentDirectories"} className="w-full">
+        <Tabs
+          defaultValue={
+            tab && visibleTabs.some((item) => item.value === tab)
+              ? tab
+              : "contentDirectories"
+          }
+          className="w-full"
+        >
           <TabsList className="w-full">
-            {Object.values(tabItems).map(({ value, name }) => (
+            {visibleTabs.map(({ value, name }) => (
               <TabsTrigger key={value} value={value} className="w-full text-sm">
                 {name}
               </TabsTrigger>
@@ -98,6 +140,13 @@ export function ServerConfigTab() {
           {/* <Separator className="mt-4" /> */}
 
           <LibrariesConfig currentConfig={data.config} />
+          {showEmulatorPackageTabs ? (
+            <>
+              <EmulatorPackageRootsConfig currentConfig={data.config} />
+              <CustomCatalogConfig currentConfig={data.config} />
+              <EmulatorPackagesConfig currentConfig={data.config} />
+            </>
+          ) : null}
           <MetadataConfig currentConfig={data.config} />
           <IgdbConfig currentConfig={data.config} />
           <SteamConfig currentConfig={data.config} />

@@ -45,7 +45,7 @@ pub async fn get_server(
             std::env::var(OTEL_EXPORTER_OTLP_ENDPOINT).unwrap_or("endpoint unset".into())
         );
     } else {
-        tracing::warn!("OpenTelemetry Tracing is disabled, no telemetry data will be collected.");
+        tracing::debug!("OpenTelemetry Tracing is disabled, no telemetry data will be collected.");
     }
 
     let (mut port, mut db_url) = (DEFAULT_PORT, DEFAULT_DB_URL.to_string());
@@ -114,7 +114,7 @@ pub async fn get_server(
             match retrom_db::get_db_connection_sync(&db_url_clone) {
                 Ok(conn) => retry::OperationResult::Ok(conn),
                 Err(diesel::ConnectionError::BadConnection(err)) => {
-                    tracing::info!("Error connecting to database, is the server running and accessible? Retrying...");
+                    tracing::debug!("Error connecting to database, is the server running and accessible? Retrying...");
                     retry::OperationResult::Retry(err)
                 },
                 _ => retry::OperationResult::Err("Could not connect to database".to_string())
@@ -228,7 +228,9 @@ pub async fn get_server(
                                     .serve_connection(socket, hyper_service)
                                     .await
                             {
-                                tracing::error!("Error serving connection for {}: {}", addr, err);
+                                // Usually a benign client disconnect / aborted preflight; keep at
+                                // debug so it doesn't spam the log at ERROR.
+                                tracing::debug!("Error serving connection for {}: {}", addr, err);
                             }
                         }
                         .instrument(info_span!("connection", %addr)),

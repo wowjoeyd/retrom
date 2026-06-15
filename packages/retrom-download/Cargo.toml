@@ -1,0 +1,15 @@
+[package]
+name = "retrom-download"
+resolver = "2"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Lightweight REST streaming download helper for Retrom client plugins"
+
+[dependencies]
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "rt"] }
+futures = { workspace = true }
+thiserror = { workspace = true }

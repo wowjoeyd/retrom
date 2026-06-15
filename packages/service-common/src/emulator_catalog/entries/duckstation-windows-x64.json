@@ -1,0 +1,61 @@
+{
+  "catalog_id": "duckstation",
+  "display_name": "DuckStation",
+  "description": "PlayStation 1 emulator",
+  "supported_platform_folder_names": ["psx", "ps1"],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["bin", "cue", "img", "iso", "chd", "pbp"],
+    "custom_args": ["-batch", "{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "duckstation-windows-x64-release\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "duckstation-qt-x64-*.exe",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "duckstation-mac-release\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "DuckStation.app/Contents/MacOS/DuckStation",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "stenzek/duckstation",
+        "asset_pattern": "DuckStation-x64\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "DuckStation*.AppImage",
+        "preserve_paths": ["memcards/", "savestates/", "settings/"]
+      }
+    }
+  ]
+}

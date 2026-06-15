@@ -5,6 +5,7 @@ use rustls_platform_verifier::ConfigVerifierExt;
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 use tokio_rustls::rustls::crypto;
+use tokio_rustls::rustls::ClientConfig;
 use tonic_web::GrpcWebClientLayer;
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -31,7 +32,7 @@ impl<R: Runtime> RetromPluginServiceClient<R> {
                 .expect("Failed to install default crypto provider");
         }
 
-        let tls = rustls_platform_verifier::tls_config();
+        let tls = <ClientConfig as ConfigVerifierExt>::with_platform_verifier();
 
         let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
         http.enforce_http(false);

@@ -26,6 +26,7 @@ import {
 } from "@retrom/codegen/retrom/models/emulators_pb";
 import { Badge } from "@retrom/ui/components/badge";
 import { usePlayGame } from "@/mutations/usePlayGame";
+import { useInstallGame } from "@/mutations/useInstallGame";
 import { checkIsDesktop, PlatformDependent } from "@/lib/env";
 import { useNavigate } from "@tanstack/react-router";
 import { Core } from "@/lib/emulatorjs";
@@ -39,6 +40,7 @@ export function Actions() {
   const installationState = useInstallationStatus(game.id);
   const { openModal: openDeleteGameModal } = useModalAction("deleteGameModal");
   const { mutate: playGame } = usePlayGame(game);
+  const { mutate: installGame } = useInstallGame(game.id);
   const navigate = useNavigate();
   const apiUrl = useApiUrl();
   const downloadUrl = useMemo(
@@ -178,6 +180,16 @@ export function Actions() {
           />
 
           <DropdownMenuSeparator />
+
+          <PlatformDependent
+            desktop={
+              installationState !== InstallationStatus.INSTALLED ? (
+                <DropdownMenuItem onSelect={() => installGame(undefined)}>
+                  Install Game
+                </DropdownMenuItem>
+              ) : null
+            }
+          />
 
           <DropdownMenuItem asChild>
             <Link to="." search={{ updateMetadataModal: { open: true } }}>

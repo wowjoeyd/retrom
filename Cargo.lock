@@ -1675,6 +1675,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
+name = "constant_time_eq"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5743,6 +5749,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
+
+[[package]]
 name = "lzma-rust2"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8329,7 +8345,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -8400,7 +8416,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe500dc80e757a75e1e8fb7290e448d62dfba3105ece1d058579cb00b58151cd"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "prost 0.14.3",
  "prost-build",
  "prost-types",
@@ -9217,6 +9233,7 @@ dependencies = [
  "pq-sys",
  "retrom-codegen",
  "retrom-plugin-config",
+ "retrom-plugin-emulator-sync",
  "retrom-plugin-installer",
  "retrom-plugin-launcher",
  "retrom-plugin-save-manager",
@@ -9280,6 +9297,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retrom-download"
+version = "0.8.3"
+dependencies = [
+ "futures",
+ "reqwest 0.12.28",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "retrom-grpc-service"
 version = "0.8.4"
 dependencies = [
@@ -9298,6 +9325,9 @@ dependencies = [
  "retrom-service-common",
  "retrom-telemetry",
  "sanitize-filename",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -9328,6 +9358,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "retrom-plugin-emulator-sync"
+version = "0.8.3"
+dependencies = [
+ "prost 0.14.3",
+ "reqwest 0.12.28",
+ "retrom-codegen",
+ "retrom-download",
+ "retrom-plugin-config",
+ "retrom-plugin-service-client",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-opener",
+ "thiserror 1.0.69",
+ "tokio",
+ "tonic 0.14.5",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
 name = "retrom-plugin-installer"
 version = "0.8.4"
 dependencies = [
@@ -9335,6 +9388,7 @@ dependencies = [
  "prost 0.14.3",
  "reqwest 0.12.28",
  "retrom-codegen",
+ "retrom-download",
  "retrom-plugin-config",
  "retrom-plugin-service-client",
  "retrom-plugin-steam",
@@ -9480,6 +9534,8 @@ dependencies = [
  "retrom-codegen",
  "retrom-db",
  "retrom-service-common",
+ "serde",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
@@ -9528,16 +9584,20 @@ dependencies = [
  "deunicode",
  "directories",
  "dotenvy",
+ "flate2",
  "futures",
+ "glob",
  "libcaesium",
  "prost 0.14.3",
  "rayon",
+ "regex",
  "reqwest 0.12.28",
  "retrom-codegen",
  "serde",
  "serde_json",
  "sevenz-rust2",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -9545,6 +9605,10 @@ dependencies = [
  "tower 0.5.3",
  "tracing",
  "url",
+ "walkdir",
+ "xz2",
+ "zip 2.4.2",
+ "zstd 0.13.3",
 ]
 
 [[package]]
@@ -15380,7 +15444,7 @@ dependencies = [
  "aes",
  "byteorder",
  "bzip2 0.4.4",
- "constant_time_eq",
+ "constant_time_eq 0.1.5",
  "crc32fast",
  "crossbeam-utils",
  "flate2",
@@ -15389,6 +15453,36 @@ dependencies = [
  "sha1",
  "time",
  "zstd 0.11.2+zstd.1.5.2",
+]
+
+[[package]]
+name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "aes",
+ "arbitrary",
+ "bzip2 0.5.2",
+ "constant_time_eq 0.3.1",
+ "crc32fast",
+ "crossbeam-utils",
+ "deflate64",
+ "displaydoc",
+ "flate2",
+ "getrandom 0.3.4",
+ "hmac 0.12.1",
+ "indexmap 2.13.0",
+ "lzma-rs",
+ "memchr",
+ "pbkdf2 0.12.2",
+ "sha1",
+ "thiserror 2.0.18",
+ "time",
+ "xz2",
+ "zeroize",
+ "zopfli",
+ "zstd 0.13.3",
 ]
 
 [[package]]

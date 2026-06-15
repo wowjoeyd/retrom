@@ -8,11 +8,13 @@ members = [
   "packages/grpc-service",
   "packages/rest-service",
   "packages/service-common",
+  "packages/retrom-download",
   "packages/telemetry",
   "packages/webdav-service",
 
   "plugins/retrom-plugin-config/",
   "plugins/retrom-plugin-installer/",
+  "plugins/retrom-plugin-emulator-sync/",
   "plugins/retrom-plugin-launcher/",
   "plugins/retrom-plugin-service-client/",
   "plugins/retrom-plugin-standalone/",
@@ -110,9 +112,11 @@ retrom-service = { path = "./packages/service" }
 retrom-grpc-service = { path = "./packages/grpc-service" }
 retrom-rest-service = { path = "./packages/rest-service" }
 retrom-service-common = { path = "./packages/service-common" }
+retrom-download = { path = "./packages/retrom-download" }
 retrom-telemetry = { path = "./packages/telemetry" }
 retrom-codegen = { path = "./packages/codegen" }
 retrom-plugin-installer = { path = "./plugins/retrom-plugin-installer" }
+retrom-plugin-emulator-sync = { path = "./plugins/retrom-plugin-emulator-sync" }
 retrom-plugin-launcher = { path = "./plugins/retrom-plugin-launcher" }
 retrom-plugin-service-client = { path = "./plugins/retrom-plugin-service-client" }
 retrom-plugin-steam = { path = "./plugins/retrom-plugin-steam" }
@@ -164,6 +168,11 @@ pq-sys = { version = "0.6", features = ["bundled"] }
 openssl-sys = { version = "0.9.100", features = ["vendored"] }
 tempfile = "3.16.0"
 walkdir = "2.5.0"
+zip = "2.2.2"
+tar = "0.4.44"
+xz2 = "0.1.7"
+zstd = "0.13.3"
+flate2 = "1.1.2"
 zeroize = "1.8.1"
 rayon = { version = "1.11.0" }
 ludusavi = { version = "0.30", default-features = false, git = "https://github.com/mtkennerly/ludusavi.git", rev = "fea63791158bcb0159ce5388d6c52cd5e7348326" }

@@ -41,6 +41,14 @@ export default defineConfig(({ mode }) => {
   }
 
   const baseUrl = process.env.VITE_BASE_URL || "/";
+  const emulatorPackageSync =
+    process.env.EMULATOR_PACKAGE_SYNC ??
+    process.env.VITE_EMULATOR_PACKAGE_SYNC ??
+    "";
+  const emulatorPackagesEnabled =
+    process.env.RETROM_EMULATOR_PACKAGES_ENABLED ??
+    process.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED ??
+    "";
 
   // https://vitejs.dev/config/
   return {
@@ -50,6 +58,11 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_RETROM_VERSION": JSON.stringify(localVersion),
       "import.meta.env.VITE_RETROM_LOCAL_SERVICE_HOST":
         JSON.stringify(localServiceHost),
+      "import.meta.env.VITE_EMULATOR_PACKAGE_SYNC":
+        JSON.stringify(emulatorPackageSync),
+      "import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED": JSON.stringify(
+        emulatorPackagesEnabled,
+      ),
     },
     base: baseUrl,
     server: {

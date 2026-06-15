@@ -20,7 +20,12 @@ pub async fn main() {
 
             let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,".into())
-                .add_directive("app=info".parse().unwrap());
+                .add_directive("app=info".parse().unwrap())
+                // Silence noisy OpenTelemetry/axum-otel internals (e.g. "BatchSpanProcessor
+                // .ExportError" when no collector is reachable, and "SpanDisabled" warnings).
+                .add_directive("opentelemetry=off".parse().unwrap())
+                .add_directive("opentelemetry_sdk=off".parse().unwrap())
+                .add_directive("axum_tracing_opentelemetry=off".parse().unwrap());
 
             let fmt_layer = tracing_subscriber::fmt::layer()
                 .pretty()
@@ -114,6 +119,7 @@ pub async fn main() {
         .plugin(retrom_plugin_service_client::init())
         .plugin(retrom_plugin_steam::init())
         .plugin(retrom_plugin_installer::init())
+        .plugin(retrom_plugin_emulator_sync::init())
         .plugin(retrom_plugin_launcher::init().await)
         .plugin(retrom_plugin_webdav_client::init())
         .plugin(retrom_plugin_save_manager::init())

@@ -118,6 +118,15 @@ message LocalEmulatorConfig {
   optional string nickname = 7;
   optional string save_data_path = 8;
   optional string save_states_path = 9;
+  optional int32 linked_package_id = 10;
+  bool managed_paths = 11;
+  // Optional overrides for the paths declared in the package's retrom-emulator-package.json manifest.
+  // If non-empty, these are used in preference to the manifest values for:
+  // - user_data_paths_override: paths for auto upstream push of shareable data (firmware, RAPs, installed game state, keys).
+  // - preserve_paths_override: paths protected from overwrite/prune during sync (local mods win).
+  // This makes the system extensible to any emulator (curated or custom) by letting users specify the relevant dirs.
+  repeated string user_data_paths_override = 12;
+  repeated string preserve_paths_override = 13;
 }
 
 message NewLocalEmulatorConfig {
@@ -129,6 +138,8 @@ message NewLocalEmulatorConfig {
   optional string nickname = 6;
   optional string save_data_path = 7;
   optional string save_states_path = 8;
+  optional int32 linked_package_id = 9;
+  optional bool managed_paths = 10;
 }
 
 message UpdatedLocalEmulatorConfig {
@@ -141,4 +152,6 @@ message UpdatedLocalEmulatorConfig {
   optional string nickname = 7;
   optional string save_data_path = 8;
   optional string save_states_path = 9;
+  optional int32 linked_package_id = 10;
+  optional bool managed_paths = 11;
 }

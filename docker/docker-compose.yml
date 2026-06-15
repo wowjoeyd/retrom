@@ -38,12 +38,19 @@ services:
     # environment:
     # RUST_LOG: DEBUG
     # RUST_BACKTRACE: 1
+    # Emulation cloud: set false to disable emulator package gRPC, REST, and scheduler
+    # RETROM_EMULATOR_PACKAGES_ENABLED: "false"
+    # Game themes: set false to disable automatic YouTube theme search/download during
+    # metadata refresh (themes are the dominant storage cost for large libraries).
+    # RETROM_GAME_THEMES_ENABLED: "false"
     ports:
       - 5111:5101
       - 3010:3000
     volumes:
       - ${CONTENT_DIR1:-./mock_content/}/:/lib1
       - ${CONTENT_DIR2:-./mock_content_single}:/lib2
+      # Emulation cloud: mount emulator package roots (map to emulator_package_directories in config)
+      - ${EMULATOR_DIR:-./mock_emulators}:/emulators
       - ${CONFIG_DIR:-./config_dev/}:/app/config
     depends_on:
       - retrom-db

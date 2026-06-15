@@ -7,6 +7,42 @@ export function checkIsDesktop() {
   );
 }
 
+export function isEmulatorPackagesEnabled() {
+  const value: string | undefined =
+    import.meta.env.VITE_RETROM_EMULATOR_PACKAGES_ENABLED ??
+    import.meta.env.RETROM_EMULATOR_PACKAGES_ENABLED;
+
+  if (!value) {
+    return true;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
+export function isEmulatorPackageSyncEnabled() {
+  const value: string | undefined =
+    import.meta.env.VITE_EMULATOR_PACKAGE_SYNC ??
+    import.meta.env.EMULATOR_PACKAGE_SYNC;
+
+  if (!value) {
+    return true;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
+export function isEnhancedEmulatorUserDataEnabled() {
+  const value: string | undefined =
+    import.meta.env.VITE_EMULATOR_USER_DATA_ENHANCED ??
+    import.meta.env.EMULATOR_USER_DATA_ENHANCED;
+
+  if (!value) {
+    return false;
+  }
+
+  return !["false", "0", "no"].includes(String(value).toLowerCase());
+}
+
 export function DesktopOnly(props: PropsWithChildren) {
   return checkIsDesktop() ? <> {props.children} </> : <></>;
 }

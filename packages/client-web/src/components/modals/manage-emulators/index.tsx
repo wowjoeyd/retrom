@@ -29,6 +29,11 @@ import {
   TabsTrigger,
 } from "@retrom/ui/components/tabs";
 import { LocalConfigs } from "./local-configs";
+import { CatalogTab } from "./catalog-tab";
+import { CustomEmulatorTab } from "./custom-emulator-tab";
+import { PackagesTab } from "./packages-tab";
+import { useEmulatorPackagesAvailable } from "@/queries/useEmulatorPackagesAvailable";
+import { isEmulatorPackagesEnabled } from "@/lib/env";
 
 export type PlatformWithMetadata = Platform & { metadata?: PlatformMetadata };
 
@@ -110,16 +115,18 @@ export function ManageEmulatorsModal() {
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className="w-[min(96vw,48rem)] max-w-[min(96vw,48rem)] sm:max-w-[min(96vw,48rem)] overflow-hidden h-[85dvh] max-h-[85dvh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Manage Emulators</DialogTitle>
           <DialogDescription className="max-w-[70ch]">
-            Manage existing emulator definitions and/or create new ones.
-            Configure paths to your local emulators in the Local Paths tab.
+            Manage emulator definitions, install packages to your NAS from the
+            catalog, and configure local paths for desktop play.
           </DialogDescription>
         </DialogHeader>
 
-        <Content />
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <Content />
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -144,10 +151,17 @@ function Content() {
         })),
   });
 
+  const { data: packagesAvailable, status: packagesAvailableStatus } =
+    useEmulatorPackagesAvailable();
+
+  const showPackageTabs =
+    isEmulatorPackagesEnabled() && packagesAvailable === true;
+
   const pending =
     emulatorsStatus === "pending" ||
     platformsStatus === "pending" ||
-    emulatorConfigsStatus === "pending";
+    emulatorConfigsStatus === "pending" ||
+    (isEmulatorPackagesEnabled() && packagesAvailableStatus === "pending");
 
   const error =
     emulatorsStatus === "error" ||
@@ -161,10 +175,26 @@ function Content() {
       An error occurred while fetching data. Please try again.
     </p>
   ) : (
-    <Tabs defaultValue="emulators">
-      <div className="w-full mb-6">
-        <TabsList className="flex w-full">
-          <TabsTrigger value="emulators" className="w-full">
+    <Tabs
+      defaultValue={showPackageTabs ? "catalog" : "emulators"}
+      className="flex flex-col h-full min-h-0"
+    >
+      <div className="w-full mb-4 shrink-0">
+        <TabsList className="flex w-full flex-wrap h-auto gap-1">
+          {showPackageTabs ? (
+            <>
+              <TabsTrigger value="catalog" className="flex-1 min-w-[7rem]">
+                Catalog
+              </TabsTrigger>
+              <TabsTrigger value="packages" className="flex-1 min-w-[7rem]">
+                Packages
+              </TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1 min-w-[7rem]">
+                Custom
+              </TabsTrigger>
+            </>
+          ) : null}
+          <TabsTrigger value="emulators" className="flex-1 min-w-[7rem]">
             All Emulators
           </TabsTrigger>
 
@@ -173,7 +203,7 @@ function Content() {
               <TabsTrigger
                 asChild
                 disabled={!checkIsDesktop()}
-                className="w-full"
+                className="flex-1 min-w-[7rem]"
                 value="local-configs"
               >
                 <TooltipTrigger className="disabled:pointer-events-auto">
@@ -189,11 +219,42 @@ function Content() {
         </TabsList>
       </div>
 
-      <TabsContent value="emulators" className={cn("h-fit", "")}>
+      {showPackageTabs ? (
+        <>
+          <TabsContent
+            value="catalog"
+            className="flex-1 min-h-0 overflow-hidden"
+          >
+            <CatalogTab />
+          </TabsContent>
+
+          <TabsContent
+            value="packages"
+            className="flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            <PackagesTab emulators={emulators} configs={emulatorConfigs} />
+          </TabsContent>
+
+          <TabsContent
+            value="custom"
+            className="flex-1 min-h-0 min-w-0 overflow-hidden"
+          >
+            <CustomEmulatorTab />
+          </TabsContent>
+        </>
+      ) : null}
+
+      <TabsContent
+        value="emulators"
+        className={cn("flex-1 min-h-0 overflow-hidden", "")}
+      >
         <EmulatorList platforms={platforms} emulators={emulators} />
       </TabsContent>
 
-      <TabsContent value="local-configs">
+      <TabsContent
+        value="local-configs"
+        className="flex-1 min-h-0 overflow-hidden"
+      >
         <LocalConfigs emulators={emulators} configs={emulatorConfigs} />
       </TabsContent>
     </Tabs>

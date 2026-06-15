@@ -1,5 +1,6 @@
 use axum::Router;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use emulator_packages::EmulatorPackageServiceHandlers;
 use emulators::EmulatorServiceHandlers;
 use file_explorer::FileExplorerServiceHandlers;
 use games::GameServiceHandlers;
@@ -12,6 +13,7 @@ use retrom_codegen::{
     descriptors::retrom::FILE_DESCRIPTOR_SET,
     retrom::{
         client_service_server::ClientServiceServer,
+        emulator_package_service_server::EmulatorPackageServiceServer,
         emulator_service_server::EmulatorServiceServer,
         file_explorer_service_server::FileExplorerServiceServer,
         game_service_server::GameServiceServer,
@@ -39,6 +41,7 @@ use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub mod clients;
+pub mod emulator_packages;
 pub mod emulators;
 pub mod file_explorer;
 pub mod games;
@@ -121,6 +124,15 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         config_manager.clone(),
     ));
 
+    let emulator_packages_enabled = emulator_packages::emulator_packages_enabled();
+
+    let emulator_package_service =
+        EmulatorPackageServiceServer::new(EmulatorPackageServiceHandlers::new(
+            library_pool.clone(),
+            job_manager.clone(),
+            config_manager.clone(),
+        ));
+
     let metadata_service = MetadataServiceServer::new(MetadataServiceHandlers::new(
         shared_pool.clone(),
         igdb_client.clone(),
@@ -129,6 +141,22 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         job_manager.clone(),
         config_manager.clone(),
     ));
+
+    // Proactively ensure yt-dlp binary is downloaded for the soundtrack theme audio extraction feature.
+    // This makes the fullscreen game music preview "just work" in dev (pnpm nx dev retrom-client)
+    // and prod without the user manually installing yt-dlp. The binary is placed in the app's
+    // data dir (bin/yt-dlp or .exe) on first service start if missing.
+    tokio::spawn(async {
+        match retrom_service_common::metadata_providers::soundtrack::ensure_yt_dlp().await {
+            Some(path) => tracing::info!(
+                "yt-dlp binary ensured for theme audio extraction at {:?}",
+                path
+            ),
+            None => tracing::warn!(
+                "Could not ensure yt-dlp binary (theme audio extraction may fall back)"
+            ),
+        }
+    });
 
     let game_service = GameServiceServer::new(GameServiceHandlers::new(shared_pool.clone()));
     let platform_service = PlatformServiceServer::new(PlatformServiceHandlers::new(
@@ -165,8 +193,25 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
 
     let reflection_router = reflection_route_builder.routes();
 
+    routes_builder.add_service(library_service);
+
+    if emulator_packages_enabled {
+        routes_builder.add_service(emulator_package_service);
+
+        let scheduler_pool = library_pool.clone();
+        let scheduler_jobs = job_manager.clone();
+        let scheduler_config = config_manager.clone();
+        tokio::spawn(async move {
+            emulator_packages::run_emulator_package_scheduler(
+                scheduler_pool,
+                scheduler_jobs,
+                scheduler_config,
+            )
+            .await;
+        });
+    }
+
     routes_builder
-        .add_service(library_service)
         .add_service(game_service)
         .add_service(platform_service)
         .add_service(metadata_service)

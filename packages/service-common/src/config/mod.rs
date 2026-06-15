@@ -1,8 +1,8 @@
 use crate::retrom_dirs::RetromDirs;
 use config::{Config, ConfigError, File};
 use retrom_codegen::retrom::{
-    metadata_config::OptimizationConfig, ContentDirectory, MetadataConfig, SavesConfig,
-    ServerConfig, StorageType,
+    metadata_config::OptimizationConfig, ContentDirectory, EmulatorPackagesConfig, MetadataConfig,
+    SavesConfig, ServerConfig, StorageType,
 };
 use std::path::PathBuf;
 use tokio::sync::RwLock;
@@ -51,6 +51,13 @@ impl ServerConfigManager {
                     png_optimization: true,
                     preferred_image_format: None,
                 }),
+                youtube_cookies_path: None,
+                auto_download_music: None,
+            }),
+            emulator_package_directories: vec![],
+            custom_catalog_dir: None,
+            emulator_packages: Some(EmulatorPackagesConfig {
+                rescan_interval_hours: Some(24),
             }),
             ..Default::default()
         }

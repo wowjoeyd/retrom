@@ -20,7 +20,7 @@ import { Game } from "@retrom/codegen/retrom/models/games_pb";
 import { useDefaultEmulator } from "@/queries/useDefaultEmulator";
 import { useGameFiles } from "@/queries/useGameFiles";
 import { useMutation } from "@tanstack/react-query";
-import { checkIsDesktop } from "@/lib/env";
+import { checkIsDesktop, isEmulatorPackageSyncEnabled } from "@/lib/env";
 import { match } from "ts-pattern";
 import {
   SaveSyncStatus,
@@ -34,6 +34,16 @@ import { Emulator } from "@retrom/codegen/retrom/models/emulators_pb";
 import { Spinner } from "@retrom/ui/components/spinner";
 import { RawMessage } from "@/utils/protos";
 import { useSyncEmulatorSaveStates } from "@/mutations/useSyncEmulatorSaveStates";
+import { useLocalEmulatorConfigs } from "@/queries/useLocalEmulatorConfigs";
+import { useConfig } from "@/providers/config";
+import { useInstallationStatus } from "@/queries/useInstallationStatus";
+import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
+import { Emulator_OperatingSystem } from "@retrom/codegen/retrom/models/emulators_pb";
+import {
+  ensureEmulatorSynced,
+  subscribeToEmulatorSyncUpdates,
+  unsubscribeFromEmulatorSyncUpdates,
+} from "@retrom/plugin-emulator-sync";
 
 type PlayGameButtonProps = { game: Game } & ComponentProps<typeof Button>;
 
@@ -44,9 +54,12 @@ export const PlayGameButton = forwardRef(
   ) => {
     const { game } = props;
     const resolveSaveConflictModal = useModalAction("resolveCloudSaveConflict");
+    const installOnPlayModal = useModalAction("installOnPlay");
+    const clientId = useConfig((store) => store.config?.clientInfo?.id);
     const { mutateAsync: syncEmulatorSaves } = useSyncEmulatorSaves();
     const { mutateAsync: syncEmulatorSaveStates } = useSyncEmulatorSaveStates();
     const { data: emulatorData } = useDefaultEmulator(game);
+    const installationState = useInstallationStatus(game.id);
     const { data: gameFiles } = useGameFiles({
       request: { gameIds: [game.id] },
       selectFn: (data) => data.gameFiles.filter((f) => f.gameId === game.id),
@@ -172,15 +185,77 @@ export const PlayGameButton = forwardRef(
 
     const { emulator, defaultProfile } = emulatorData ?? {};
 
+    const { data: localConfig } = useLocalEmulatorConfigs({
+      request: { emulatorIds: emulator ? [emulator.id] : [], clientId },
+      enabled: !!emulator && clientId !== undefined,
+      selectFn: (data) =>
+        data.configs.find((config) => config.emulatorId === emulator?.id),
+    });
+
+    const isWasmEmulator =
+      !!emulator?.libretroName &&
+      emulator.operatingSystems.includes(Emulator_OperatingSystem.WASM);
+
+    const needsInstallBeforePlay =
+      checkIsDesktop() &&
+      !game.thirdParty &&
+      !isWasmEmulator &&
+      installationState !== InstallationStatus.INSTALLED;
+
     const file = useMemo(
-      () => gameFiles?.find((file) => file.id === game.defaultFileId),
+      () =>
+        // Prefer the explicitly-set default file, but fall back to the first available
+        // file when no default is set (or it doesn't match). Most games — especially
+        // single-file ones like PS2 ISOs — never have a defaultFileId, and without this
+        // fallback the launcher fails with "Cannot find appropriate file for game".
+        gameFiles?.find((file) => file.id === game.defaultFileId) ??
+        gameFiles?.[0],
       [game.defaultFileId, gameFiles],
     );
+
+    const { mutateAsync: maybeSyncEmulatorPackage, status: syncPackageStatus } =
+      useMutation({
+        mutationFn: async (targetEmulator: RawMessage<Emulator>) => {
+          if (!isEmulatorPackageSyncEnabled() || !localConfig?.managedPaths) {
+            return;
+          }
+
+          const syncToast = toast({
+            title: `Syncing Emulator: ${targetEmulator.name}`,
+            duration: Infinity,
+            dismissible: false,
+            icon: <Spinner className="text-primary" />,
+          });
+
+          const channel = await subscribeToEmulatorSyncUpdates((update) => {
+            if (update.emulatorId !== targetEmulator.id) {
+              return;
+            }
+
+            syncToast.update({
+              description: `${update.metrics?.percentComplete ?? 0}%`,
+            });
+          });
+
+          try {
+            await ensureEmulatorSynced({ emulatorId: targetEmulator.id });
+            syncToast.update({
+              title: `Emulator synced: ${targetEmulator.name}`,
+              dismissible: true,
+              duration: 5000,
+            });
+          } finally {
+            await unsubscribeFromEmulatorSyncUpdates(channel);
+            toast.dismiss(syncToast.id);
+          }
+        },
+      });
 
     const disabled =
       queryStatus !== "success" ||
       syncSavesStatus === "pending" ||
-      syncStatesStatus === "pending";
+      syncStatesStatus === "pending" ||
+      syncPackageStatus === "pending";
 
     const shouldAddEmulator = !emulator && !fullscreenMatch && !game.thirdParty;
 
@@ -192,11 +267,20 @@ export const PlayGameButton = forwardRef(
           try {
             await maybeSyncEmulatorSaves(emulator);
             await maybeSyncEmulatorSaveStates(emulator);
+            await maybeSyncEmulatorPackage(emulator);
           } catch (error) {
+            console.error(
+              "Unable to launch game during pre-launch sync",
+              error,
+            );
             const errorMsg =
               error instanceof Error
                 ? error.message
-                : "An unknown error occurred.";
+                : typeof error === "string"
+                  ? error
+                  : error
+                    ? JSON.stringify(error)
+                    : "An unknown error occurred.";
 
             toast({
               title: "Unable to Launch Game",
@@ -232,12 +316,23 @@ export const PlayGameButton = forwardRef(
         });
       }
 
-      playGame({
-        game,
-        emulatorProfile: defaultProfile,
-        emulator,
-        file,
-      });
+      const launch = () =>
+        playGame({
+          game,
+          emulatorProfile: defaultProfile,
+          emulator,
+          file,
+        });
+
+      if (needsInstallBeforePlay) {
+        installOnPlayModal.openModal({
+          game,
+          onInstalled: launch,
+        });
+        return;
+      }
+
+      launch();
     }, [
       navigate,
       disabled,
@@ -249,6 +344,8 @@ export const PlayGameButton = forwardRef(
       playStatusUpdate,
       stopAction,
       shouldAddEmulator,
+      needsInstallBeforePlay,
+      installOnPlayModal,
     ]);
 
     return (
@@ -258,10 +355,14 @@ export const PlayGameButton = forwardRef(
         disabled={disabled}
         onClick={onClick}
       >
-        {syncSavesStatus === "pending" || syncStatesStatus === "pending" ? (
+        {syncSavesStatus === "pending" ||
+        syncStatesStatus === "pending" ||
+        syncPackageStatus === "pending" ? (
           <>
             <Spinner className="h-[1.2rem] w-[1.2rem]" />
-            Syncing Cloud
+            {syncPackageStatus === "pending"
+              ? "Syncing Emulator"
+              : "Syncing Cloud"}
           </>
         ) : queryStatus === "pending" ? (
           <>

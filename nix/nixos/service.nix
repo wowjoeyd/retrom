@@ -56,7 +56,35 @@ in {
     settings = lib.mkOption {
       type = lib.types.anything;
       default = { };
-      description = "Settings for retrom service. If configFile is set these will be ignored.";
+      description = ''
+        Settings for retrom service. If configFile is set these will be ignored.
+
+        Emulation cloud example (ROM + emulator package roots on the same host):
+
+        ```nix
+        services.retrom.settings = {
+          content_directories = [
+            { path = "/var/lib/retrom/roms"; storage_type = "MULTI_FILE_GAME"; }
+          ];
+          emulator_package_directories = [
+            { path = "/var/lib/retrom/emulators"; }
+          ];
+          emulator_packages = {
+            rescan_interval_hours = 24;
+          };
+        };
+        ```
+
+        Disable emulator package sync on the server:
+
+        ```nix
+        systemd.services.retrom.serviceConfig.Environment = [
+          "RETROM_EMULATOR_PACKAGES_ENABLED=false"
+        ];
+        ```
+
+        See design/emulation-cloud-setup.md for the full setup guide.
+      '';
     };
     configFile = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
