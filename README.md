@@ -26,7 +26,7 @@
 - [Core Features (Upstream)](#core-features-upstream)
 - [Current Additions (This Fork)](#current-additions-this-fork)
 - [Where This Fork Is Going](#where-this-fork-is-going)
-- [Media Downloading / yt-dlp](#media-downloading--yt-dlp)
+- [User-Managed Theme Media / yt-dlp](#user-managed-theme-media--yt-dlp)
 - [Screenshots](#screenshots)
 - [Upstream Resources](#upstream-resources)
 - [Development Notes](#development-notes)
@@ -89,12 +89,15 @@ These features come from the upstream Retrom project:
 
 The following features have been added in this fork and do not exist in upstream Retrom:
 
-- **Server-side emulator data storage** — emulator saves, states, configuration, and NAND data are synced to and from the server
-- **Cross-PC emulator data sync** — emulator data syncs across multiple machines through the self-hosted server
-- **Server-side media/theme downloading via yt-dlp** — search for and download game theme videos and audio from supported sources directly from the server
+- **Managed emulator package catalog** — browse a built-in catalog of emulators, install/update/delete packages directly from the server, with support for multi-OS install targets and custom catalog overlays
+- **Emulator install-on-play** — automatically prompt to install or link a managed emulator package before launching a game when no suitable profile is available
+- **Emulator user-data sync** — sync emulator saves, states, configuration, NAND, and firmware between client and server, with semantic path inference, preserve-path overrides, per-emulator startup auto-sync, and conflict-resolution UI
+- **User-managed game theme music** — search for, import, assign, and locally store theme music per game; play back in fullscreen/theater mode with batch and missing-music workflows
+- **Steam sign-in and metadata sync** — sign into a Steam account, resolve vanity URLs, and sync Steam metadata (playtime, screenshots, achievements) into the library
 - **Game theme playback in fullscreen/theater mode** — themes play automatically when browsing games in fullscreen
 - **Game theme playback in a dedicated theme tab** — themes are accessible in the standard client UI through a theme tab
 - **User-added custom game metadata** — users can attach custom artwork, videos, music, and related media to games
+- **Improved fullscreen music and input handling** — fullscreen grid and game page music controls, improved controller and touch input robustness
 - **General bug fixes** — various bugs discovered during active daily use have been corrected
 
 ---
@@ -103,10 +106,8 @@ The following features have been added in this fork and do not exist in upstream
 
 The following describes areas currently being explored or likely future work in this fork. **This is not a roadmap or a commitment** — priorities may shift, features may be redesigned, and this list will change as the fork evolves.
 
-- **Steam integration improvements** — better handling of Steam library entries and launch behavior
-- **Theater/fullscreen mode improvements** — emulator launches that behave properly in fullscreen setups without breaking windowing state
+- **Theater/fullscreen mode redesign** — deeper fullscreen/theater behavior: emulator launches that preserve windowing state, richer now-playing overlays, and more fullscreen-native navigation
 - **Achievement tracking / library features** — tracking achievements for non-Steam games
-- **Grid view** — a grid layout option for the non-fullscreen client UI
 - **Native client-side ROM adding** — adding ROMs directly from the client, including automatic server folder creation and moving game data into place
 - **Additional emulator-cloud, metadata, media, launcher, sync, and library-management features** — as they become useful during active use
 
@@ -114,9 +115,9 @@ This may change substantially as the fork evolves.
 
 ---
 
-## Media Downloading / yt-dlp
+## User-Managed Theme Media / yt-dlp
 
-This fork includes server-side integration with [yt-dlp](https://github.com/yt-dlp/yt-dlp) for downloading game themes, videos, and audio.
+This fork supports user-managed game theme media: searching for, importing, assigning, and locally storing theme music and video for individual games. The client provides search workflows backed by [yt-dlp](https://github.com/yt-dlp/yt-dlp) for locating and downloading theme audio and video from supported sources.
 
 **Users are solely responsible for how they use this feature.** This includes:
 
