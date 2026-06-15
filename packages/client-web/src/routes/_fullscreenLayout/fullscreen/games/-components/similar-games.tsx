@@ -13,6 +13,7 @@ import { AlertCircleIcon, LoaderCircleIcon } from "lucide-react";
 import { RefObject, useMemo } from "react";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import { Skeleton } from "@retrom/ui/components/skeleton";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 
 export function SimilarGames() {
   const { extraMetadata } = useGameDetail();
@@ -20,64 +21,70 @@ export function SimilarGames() {
   const similarGames = extraMetadata?.similarGames?.value;
 
   return (
-    <div
-      className={cn(
-        "w-full bg-transparent border-l border-secondary pt-2",
-        "focus-within:bg-muted/80 focus-within:border-accent",
-        "hover:bg-muted/80 hover:border-accent transition-all",
-      )}
+    <HotkeyLayer
+      handlers={{
+        BACK: { handler: () => setFocus("fullscreen-action-button") },
+      }}
     >
-      <h3 className="text-3xl uppercase font-black ml-4">Similar Games</h3>
+      <div
+        className={cn(
+          "w-full bg-transparent border-l border-secondary pt-2",
+          "focus-within:bg-muted/80 focus-within:border-accent",
+          "hover:bg-muted/80 hover:border-accent transition-all",
+        )}
+      >
+        <h3 className="text-3xl uppercase font-black ml-4">Similar Games</h3>
 
-      <ScrollArea className="w-full">
-        <FocusContainer
-          opts={{
-            focusKey: "similar-games",
-          }}
-          className={cn(
-            "flex gap-2 p-4",
-            "[&_p]:text-muted-foreground [&_p]:my-6 [&_p]:flex [&_p]:gap-2 [&_p]:mx-auto",
-          )}
-        >
-          {status === "pending" ? (
-            <p className="text-muted-foreground">
-              <LoaderCircleIcon className="animate-spin" />
-              Loading similar games...
-            </p>
-          ) : status === "error" ? (
-            <p className="text-muted-foreground">
-              <AlertCircleIcon className="text-destructive-text" />
-              Error loading similar games
-            </p>
-          ) : !similarGames?.length ? (
-            <FocusableElement
-              opts={{
-                focusKey: `empty-similar-games`,
-                onFocus: ({ node }) => {
-                  node?.focus({ preventScroll: true });
-                  node?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "center",
-                    inline: "center",
-                  });
-                },
-              }}
-              render={(ref: RefObject<HTMLParagraphElement>) => (
-                <p ref={ref} tabIndex={-1} className="outline-none">
-                  No similar games found for this game.
-                </p>
-              )}
-            />
-          ) : (
-            similarGames
-              .slice(0, 20)
-              .map(({ id }) => <SimilarGame key={id} gameId={id} />)
-          )}
-        </FocusContainer>
+        <ScrollArea className="w-full">
+          <FocusContainer
+            opts={{
+              focusKey: "similar-games",
+            }}
+            className={cn(
+              "flex gap-2 p-4",
+              "[&_p]:text-muted-foreground [&_p]:my-6 [&_p]:flex [&_p]:gap-2 [&_p]:mx-auto",
+            )}
+          >
+            {status === "pending" ? (
+              <p className="text-muted-foreground">
+                <LoaderCircleIcon className="animate-spin" />
+                Loading similar games...
+              </p>
+            ) : status === "error" ? (
+              <p className="text-muted-foreground">
+                <AlertCircleIcon className="text-destructive-text" />
+                Error loading similar games
+              </p>
+            ) : !similarGames?.length ? (
+              <FocusableElement
+                opts={{
+                  focusKey: `empty-similar-games`,
+                  onFocus: ({ node }) => {
+                    node?.focus({ preventScroll: true });
+                    node?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "center",
+                      inline: "center",
+                    });
+                  },
+                }}
+                render={(ref: RefObject<HTMLParagraphElement>) => (
+                  <p ref={ref} tabIndex={-1} className="outline-none">
+                    No similar games found for this game.
+                  </p>
+                )}
+              />
+            ) : (
+              similarGames
+                .slice(0, 20)
+                .map(({ id }) => <SimilarGame key={id} gameId={id} />)
+            )}
+          </FocusContainer>
 
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
-    </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+      </div>
+    </HotkeyLayer>
   );
 }
 
@@ -130,7 +137,7 @@ function SimilarGame(props: { gameId: number }) {
         ref={ref}
         tabIndex={-1}
         className={cn(
-          "focus:ring-2 focus:ring-offset-2 focus:ring-offset-ring focus:ring-ring min-w-[150px] max-w-[200px]",
+          "focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0 focus:ring-ring min-w-[150px] max-w-[200px]",
           "outline-none scale-95 transition-all duration-200 focus-hover:scale-100 cursor-pointer",
         )}
         onClick={() => goToGame()}

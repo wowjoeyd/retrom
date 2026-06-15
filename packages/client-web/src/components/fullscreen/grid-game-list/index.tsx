@@ -2,8 +2,16 @@ import { GameWithMetadata } from "@/components/game-list";
 import { InterfaceConfig_GameListEntryImageJson } from "@retrom/codegen/retrom/client/client-config_pb";
 import { getFileStub } from "@/lib/utils";
 import { useConfig } from "@/providers/config";
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
+import { useRetromClient } from "@/providers/retrom-client";
 import { FocusContainer, useFocusable } from "../focus-container";
 import { DownloadIcon, LoaderCircleIcon, Music2, VolumeX } from "lucide-react";
 import { create } from "zustand";
@@ -27,6 +35,8 @@ import {
   DialogTitle,
 } from "@retrom/ui/components/dialog";
 import { Button } from "@retrom/ui/components/button";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import { useInputDeviceContext } from "@/providers/input-device";
 
 function formatDurationShort(secs: number): string {
   if (secs <= 0) return "";
@@ -816,6 +826,19 @@ export const gameMusicPlayer = {
   stop: (fade?: number, url?: string, gameId?: number) =>
     gameMusic.stop(fade, url, gameId),
   userActivatePlayback: () => gameMusic.userActivatePlayback?.(),
+  clearCacheForGame: (gameId: number) => {
+    for (const [url] of gameMusic.recentResults) {
+      if (
+        url.includes(`/games/${gameId}/`) ||
+        url.includes(`games/${gameId}`)
+      ) {
+        gameMusic.recentResults.delete(url);
+      }
+    }
+    if (gameMusic.currentGameId === gameId) {
+      gameMusic.stop(0);
+    }
+  },
 };
 
 export function isAudioUrl(url: string): boolean {
@@ -850,6 +873,25 @@ export const useGameMusicStatus = create<GameMusicState>()((set) => ({
     }),
   hide: () => set({ visible: false, gameId: undefined }),
 }));
+
+const useLastFocusedGame = create<{
+  lastFocusKeyByGroup: Record<number, string>;
+  setLastFocusKey: (groupId: number, focusKey: string) => void;
+}>()((set) => ({
+  lastFocusKeyByGroup: {},
+  setLastFocusKey: (groupId, focusKey) =>
+    set((s) => ({
+      lastFocusKeyByGroup: { ...s.lastFocusKeyByGroup, [groupId]: focusKey },
+    })),
+}));
+
+export function useLastFocusedGroupKey(
+  groupId: number | undefined,
+): string | undefined {
+  return useLastFocusedGame((s) =>
+    groupId !== undefined ? s.lastFocusKeyByGroup[groupId] : undefined,
+  );
+}
 
 export function useGameMusic(_gameId: number) {
   const { rawEnabled, rawVolume, rawFade } = useConfig((s) => {
@@ -1057,6 +1099,61 @@ export function GameMusicNowPlaying() {
   );
 }
 
+function MusicCandidateItem(props: {
+  candidate: {
+    videoId: string;
+    title: string;
+    thumbnailUrl: string;
+    durationSecs: number;
+  };
+  isSelected: boolean;
+  onSelect: () => void;
+  focusKey: string;
+  initialFocus?: boolean;
+}) {
+  const { candidate: c, isSelected, onSelect, focusKey, initialFocus } = props;
+  const { ref } = useFocusable<HTMLLIElement>({
+    focusKey,
+    initialFocus,
+    onFocus: ({ node }) => {
+      node?.focus({ preventScroll: true });
+      node?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    },
+  });
+
+  return (
+    <HotkeyLayer handlers={{ ACCEPT: { handler: onSelect } }}>
+      <li
+        ref={ref}
+        tabIndex={-1}
+        onClick={onSelect}
+        className={cn(
+          "flex items-center gap-3 rounded-md border p-2 cursor-pointer transition-colors",
+          "focus:outline-none focus-hover:bg-muted/50",
+          isSelected
+            ? "border-primary bg-primary/10"
+            : "border-border hover:bg-muted/50",
+        )}
+      >
+        <img
+          src={c.thumbnailUrl}
+          alt={c.title}
+          className="w-20 h-14 object-cover rounded shrink-0 bg-muted"
+          loading="lazy"
+        />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium line-clamp-2 leading-snug">
+            {c.title || "Untitled"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {c.durationSecs > 0 ? formatDurationShort(c.durationSecs) : ""}
+          </p>
+        </div>
+      </li>
+    </HotkeyLayer>
+  );
+}
+
 function MusicPickerDialog({
   gameId,
   open,
@@ -1071,13 +1168,33 @@ function MusicPickerDialog({
   });
   const { mutate: download, status: downloadStatus } =
     useDownloadGameSoundtrack();
+  const [inputDevice] = useInputDeviceContext();
 
   const candidates = data?.candidates ?? [];
   const isSearching = searchStatus === "pending" && open;
   const [selected, setSelected] = useState<string | null>(null);
 
+  const firstCandidateId = candidates[0]?.videoId;
+
+  // Defer setFocus until after React has committed all registrations for this
+  // render cycle. On first open the candidates arrive async (dialog mounts,
+  // then query resolves), so the bottom-up effect ordering means the child
+  // item's initialFocus effect fires before the parent FocusContainer is
+  // registered in norigin. RAF lets the full tree settle first.
+  useEffect(() => {
+    if (!open || !firstCandidateId) return;
+    if (inputDevice !== "gamepad" && inputDevice !== "hotkeys") return;
+    const raf = requestAnimationFrame(() => {
+      setFocus(`music-picker-item-${firstCandidateId}`);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, firstCandidateId, inputDevice]);
+
   const handleDownload = () => {
     if (!selected) return;
+    // Clear cached "missing" result so the player retries after the download
+    // completes and the metadata query refetches the new themeAudioUrl.
+    gameMusicPlayer.clearCacheForGame(gameId);
     download({ gameId, videoId: selected });
     onClose();
   };
@@ -1085,80 +1202,83 @@ function MusicPickerDialog({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-lg z-[100]">
-        <DialogHeader>
-          <DialogTitle>Choose Theme Music</DialogTitle>
-          <DialogDescription>
-            Select a YouTube track to use as theme audio for this game. The
-            download runs in the background.
-          </DialogDescription>
-        </DialogHeader>
+        <HotkeyLayer
+          allowBubbling="never"
+          handlers={{ BACK: { handler: onClose } }}
+        >
+          <DialogHeader>
+            <DialogTitle>Choose Theme Music</DialogTitle>
+            <DialogDescription>
+              Select a YouTube track to use as theme audio for this game. The
+              download runs in the background.
+            </DialogDescription>
+          </DialogHeader>
 
-        {isSearching ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-            <LoaderCircleIcon className="animate-spin" size={20} />
-            <span className="text-sm">Searching YouTube…</span>
-          </div>
-        ) : candidates.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
-            <Music2 size={32} className="opacity-40" />
-            <p className="text-sm">No candidates found for this game.</p>
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-1">
-            {candidates.map((c) => {
-              const isSelected = selected === c.videoId;
-              return (
-                <li
-                  key={c.videoId}
-                  onClick={() => setSelected(c.videoId)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md border p-2 cursor-pointer transition-colors",
-                    isSelected
-                      ? "border-primary bg-primary/10"
-                      : "border-border hover:bg-muted/50",
-                  )}
-                >
-                  <img
-                    src={c.thumbnailUrl}
-                    alt={c.title}
-                    className="w-20 h-14 object-cover rounded shrink-0 bg-muted"
-                    loading="lazy"
+          {isSearching ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+              <LoaderCircleIcon className="animate-spin" size={20} />
+              <span className="text-sm">Searching YouTube…</span>
+            </div>
+          ) : candidates.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+              <Music2 size={32} className="opacity-40" />
+              <p className="text-sm">No candidates found for this game.</p>
+            </div>
+          ) : (
+            <FocusContainer
+              opts={{
+                focusKey: "music-picker-list",
+                isFocusBoundary: true,
+                forceFocus: true,
+              }}
+            >
+              <ul className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-1">
+                {candidates.map((c) => (
+                  <MusicCandidateItem
+                    key={c.videoId}
+                    candidate={c}
+                    isSelected={selected === c.videoId}
+                    onSelect={() => setSelected(c.videoId)}
+                    focusKey={`music-picker-item-${c.videoId}`}
                   />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium line-clamp-2 leading-snug">
-                      {c.title || "Untitled"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {c.durationSecs > 0
-                        ? formatDurationShort(c.durationSecs)
-                        : ""}
-                    </p>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                ))}
+              </ul>
+            </FocusContainer>
+          )}
 
-        <DialogFooter className="gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!selected || downloadStatus === "pending"}
-            onClick={handleDownload}
-          >
-            {downloadStatus === "pending" ? (
-              <LoaderCircleIcon className="animate-spin" />
-            ) : (
-              <>
-                <DownloadIcon size={14} className="mr-1.5" />
-                Download
-              </>
-            )}
-          </Button>
-        </DialogFooter>
+          {candidates.length > 0 && (
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <HotkeyIcon hotkey="ACCEPT" />
+                Select
+              </span>
+              <span className="flex items-center gap-1.5">
+                <HotkeyIcon hotkey="BACK" />
+                Close
+              </span>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!selected || downloadStatus === "pending"}
+              onClick={handleDownload}
+            >
+              {downloadStatus === "pending" ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <>
+                  <DownloadIcon size={14} className="mr-1.5" />
+                  Download
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </HotkeyLayer>
       </DialogContent>
     </Dialog>
   );
@@ -1176,8 +1296,125 @@ function getFirstGameId(group: Group) {
   return firstPartitionWithGames?.[1][0].id;
 }
 
+function clampScroll(value: number, max: number) {
+  return Math.max(0, Math.min(max, value));
+}
+
+const rapidScrollAnimations = new WeakMap<HTMLElement, { frameId: number }>();
+
+// The app's global smooth-scroll rule makes focus restoration visibly animate
+// from the top; grid focus movement uses a cancellable fast animation instead.
+function runWithoutSmoothScroll(viewport: HTMLElement, scroll: () => void) {
+  const previousScrollBehavior = viewport.style.scrollBehavior;
+
+  viewport.style.scrollBehavior = "auto";
+
+  try {
+    scroll();
+  } finally {
+    viewport.style.scrollBehavior = previousScrollBehavior;
+  }
+}
+
+function setViewportScrollTop(viewport: HTMLElement, top: number) {
+  runWithoutSmoothScroll(viewport, () => {
+    viewport.scrollTop = top;
+  });
+}
+
+function stopRapidScroll(viewport: HTMLElement) {
+  const animation = rapidScrollAnimations.get(viewport);
+
+  if (!animation) return;
+
+  cancelAnimationFrame(animation.frameId);
+  rapidScrollAnimations.delete(viewport);
+}
+
+function getRapidScrollDuration(distance: number) {
+  return clampScroll(70 + Math.abs(distance) / 12, 130);
+}
+
+function easeOutCubic(progress: number) {
+  return 1 - Math.pow(1 - progress, 3);
+}
+
+function animateViewportScrollTop(viewport: HTMLElement, targetTop: number) {
+  stopRapidScroll(viewport);
+
+  const startTop = viewport.scrollTop;
+  const distance = targetTop - startTop;
+
+  if (Math.abs(distance) < 1) {
+    setViewportScrollTop(viewport, targetTop);
+    return;
+  }
+
+  const duration = getRapidScrollDuration(distance);
+  const startedAt = performance.now();
+  const animation = { frameId: 0 };
+
+  const tick = (now: number) => {
+    if (rapidScrollAnimations.get(viewport) !== animation) return;
+
+    const progress = Math.min((now - startedAt) / duration, 1);
+    const nextTop = startTop + distance * easeOutCubic(progress);
+
+    setViewportScrollTop(viewport, nextTop);
+
+    if (progress < 1) {
+      animation.frameId = requestAnimationFrame(tick);
+      return;
+    }
+
+    setViewportScrollTop(viewport, targetTop);
+    rapidScrollAnimations.delete(viewport);
+  };
+
+  rapidScrollAnimations.set(viewport, animation);
+  animation.frameId = requestAnimationFrame(tick);
+}
+
+function centerCardInScrollViewport(
+  node: HTMLElement,
+  opts: { immediate?: boolean } = {},
+) {
+  const viewport = node.closest<HTMLElement>(
+    "[data-radix-scroll-area-viewport]",
+  );
+
+  if (!viewport) {
+    node.scrollIntoView({
+      behavior: "instant",
+      block: "center",
+      inline: "nearest",
+    });
+    return;
+  }
+
+  const viewportRect = viewport.getBoundingClientRect();
+  const nodeRect = node.getBoundingClientRect();
+  const top = clampScroll(
+    viewport.scrollTop +
+      nodeRect.top -
+      viewportRect.top -
+      (viewportRect.height - nodeRect.height) / 2,
+    viewport.scrollHeight - viewport.clientHeight,
+  );
+
+  if (opts.immediate) {
+    stopRapidScroll(viewport);
+    setViewportScrollTop(viewport, top);
+    return;
+  }
+
+  animateViewportScrollTop(viewport, top);
+}
+
 export function GridGameList() {
   const { activeGroup, allGroups } = useGroupContext();
+  const lastFocusKeyByGroup = useLastFocusedGame((s) => s.lastFocusKeyByGroup);
+  const { restoreGridFocus } = useSearch({ from: "/_fullscreenLayout" });
 
   const { columns = 4, gap = 20 } =
     useConfig((s) => s.config?.interface?.fullscreenConfig?.gridList) ?? {};
@@ -1191,8 +1428,55 @@ export function GridGameList() {
     [columns],
   );
 
-  return allGroups.map((group) =>
-    group.id === activeGroup?.id ? (
+  // Determine if we are restoring a previous position (returning from detail).
+  // Must be computed at the top level so hooks can read it.
+  const shouldRestoreFocus = restoreGridFocus === true;
+  const activeSavedFocusKey =
+    shouldRestoreFocus && activeGroup
+      ? lastFocusKeyByGroup[activeGroup.id]
+      : undefined;
+  const isRestoring = activeSavedFocusKey
+    ? activeGroup!.allGames.some(
+        (g) => `game-list-${activeGroup!.id}-${g.id}` === activeSavedFocusKey,
+      )
+    : false;
+
+  // The entrance stagger should play when loading a group fresh (including
+  // switching category tabs) but NOT when returning from the detail page (that
+  // re-fade looks like a reload). Capture, once at mount, which group we're
+  // restoring into; only that group's cards skip the animation. Any tab the
+  // user switches to afterwards mounts fresh and animates normally.
+  const [restoredGroupId] = useState(() =>
+    isRestoring ? activeGroup?.id : undefined,
+  );
+
+  // Scroll to the previously focused card before the first paint so the
+  // grid never flashes at scroll-position 0 when returning from the detail page.
+  // useLayoutEffect fires after DOM commit but before the browser paints.
+  useLayoutEffect(() => {
+    if (!isRestoring || !activeSavedFocusKey) return;
+    const node = document.getElementById(activeSavedFocusKey);
+    if (node) centerCardInScrollViewport(node, { immediate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return allGroups.map((group) => {
+    if (group.id !== activeGroup?.id) return null;
+
+    const savedFocusKey = shouldRestoreFocus
+      ? lastFocusKeyByGroup[group.id]
+      : undefined;
+    const savedGameExists = savedFocusKey
+      ? group.allGames.some(
+          (g) => `game-list-${group.id}-${g.id}` === savedFocusKey,
+        )
+      : false;
+
+    // Skip the entrance stagger only for the group we restored into on a
+    // Back-from-detail mount; every other (tab-switched) group animates.
+    const suppressEntrance = group.id === restoredGroupId;
+
+    return (
       <FocusContainer
         key={group.id}
         opts={{
@@ -1248,56 +1532,120 @@ export function GridGameList() {
                   "grid-cols-[repeat(var(--game-cols),minmax(0,1fr))]",
                 )}
               >
-                {games.map((game) => (
-                  <div
-                    key={game.id}
-                    style={{
-                      animationDelay: `${getDelay(group.allGames.findIndex(({ id }) => id === game.id))}ms`,
-                    }}
-                    className={cn(
-                      "animate-in fade-in fill-mode-both duration-500",
-                    )}
-                  >
-                    <GameListItem
-                      game={game}
-                      id={`game-list-${group.id}-${game.id}`}
-                      initialFocus={game.id === getFirstGameId(group)}
-                    />
-                  </div>
-                ))}
+                {games.map((game) => {
+                  const focusKey = `game-list-${group.id}-${game.id}`;
+                  const initialFocus = savedGameExists
+                    ? focusKey === savedFocusKey
+                    : game.id === getFirstGameId(group);
+                  return (
+                    <div
+                      key={game.id}
+                      style={
+                        suppressEntrance
+                          ? undefined
+                          : {
+                              animationDelay: `${getDelay(group.allGames.findIndex(({ id }) => id === game.id))}ms`,
+                            }
+                      }
+                      className={
+                        suppressEntrance
+                          ? undefined
+                          : cn("animate-in fade-in fill-mode-both duration-500")
+                      }
+                    >
+                      <GameListItem
+                        game={game}
+                        id={focusKey}
+                        groupId={group.id}
+                        initialFocus={initialFocus}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </FocusContainer>
           ))}
       </FocusContainer>
-    ) : null,
-  );
+    );
+  });
 }
 
 function GameListItem(props: {
   game: GameWithMetadata;
   id: string;
+  groupId: number;
   initialFocus?: boolean;
 }) {
-  const { game, id, initialFocus } = props;
+  const { game, id, groupId, initialFocus } = props;
 
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const retromClient = useRetromClient();
+
+  // Warm the exact queries GameDetailProvider gates on (game+files, detail
+  // metadata, platform) so the detail page renders immediately with no loading
+  // skeleton ("refresh"). We already know platformId from the grid game, so all
+  // three are fetched in parallel with no waterfall. Idempotent + cheap thanks
+  // to staleTime; safe to call repeatedly from focus and hover.
+  const prefetchDetail = useCallback(() => {
+    const gameId = game.id;
+    void queryClient
+      .fetchQuery({
+        queryKey: ["games", "game-metadata", "game-files", gameId],
+        queryFn: async () => {
+          const data = await retromClient.gameClient.getGames({
+            withFiles: true,
+            ids: [gameId],
+          });
+          return { game: data.games.at(0), gameFiles: data.gameFiles };
+        },
+        staleTime: 30_000,
+      })
+      .catch(() => {});
+
+    void queryClient.prefetchQuery({
+      queryKey: ["game", "games", "game-metadata", "games-metadata", gameId],
+      queryFn: () =>
+        retromClient.metadataClient.getGameMetadata({ gameIds: [gameId] }),
+      staleTime: 30_000,
+    });
+
+    const platformId = game.platformId;
+    if (platformId !== undefined) {
+      void queryClient.prefetchQuery({
+        queryKey: ["platforms", "platform-metadata", platformId],
+        queryFn: async () => {
+          const data = await retromClient.platformClient.getPlatforms({
+            withMetadata: true,
+            ids: [platformId],
+          });
+          return {
+            platform: data.platforms.at(0),
+            platformMetadata: data.metadata.at(0),
+          };
+        },
+        staleTime: 30_000,
+      });
+    }
+  }, [game.id, game.platformId, queryClient, retromClient]);
+
   const { ref } = useFocusable<HTMLDivElement>({
     focusKey: id,
     forceFocus: true,
     initialFocus,
     onFocus: ({ node }) => {
-      node?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-        inline: "center",
-      });
+      if (node) centerCardInScrollViewport(node, { immediate: initialFocus });
+      useLastFocusedGame.getState().setLastFocusKey(groupId, id);
       startMusicForThisGame();
+      prefetchDetail();
     },
   });
 
-  // Also kick music on hover for the card
+  // Also kick music + warm the detail cache on hover (mouse path, since a click
+  // navigates immediately and wouldn't get the focus-driven prefetch).
   const handleMouseEnter = () => {
     startMusicForThisGame();
+    prefetchDetail();
   };
 
   const { imageType = "COVER" } =
@@ -1412,6 +1760,7 @@ function GameListItem(props: {
             void navigate({
               to: "/fullscreen/games/$gameId",
               params: { gameId: game.id.toString() },
+              search: (prev) => ({ ...prev, restoreGridFocus: true }),
             })
           }
         >
@@ -1514,7 +1863,7 @@ function GameImage(props: {
           "group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0",
           "absolute inset-0",
           "bg-gradient-to-t from-card",
-          "ring-ring ring-inset group-focus-within:ring-4",
+          "ring-ring ring-inset group-focus-within:ring-[length:var(--fs-focus-ring-width)]",
           props.kind === "BACKGROUND" ? "text-lg py-2 px-4" : "text-2xl p-4",
           "flex items-end font-black",
         )}

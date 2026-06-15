@@ -60,9 +60,18 @@ export function GameDetailProvider(
     gameId: number;
     errorRedirectUrl?: string;
     loadingComponent?: ReactNode;
+    /**
+     * When true, the provider renders its children as soon as the core display
+     * data (game, game metadata, platform) is ready, without waiting for the
+     * emulator/profile query waterfall. Consumers that don't read emulator data
+     * from context (e.g. the fullscreen detail page, whose Play button fetches
+     * its own emulator via useDefaultEmulator) can opt in to avoid a visible
+     * loading flash caused by the unused waterfall.
+     */
+    deferEmulatorData?: boolean;
   }>,
 ) {
-  const { gameId, errorRedirectUrl = "/" } = props;
+  const { gameId, errorRedirectUrl = "/", deferEmulatorData = false } = props;
   const fullscreenByDefault = useConfig(
     (s) => s.config?.interface?.fullscreenByDefault,
   );
@@ -190,25 +199,29 @@ export function GameDetailProvider(
     ? emulators?.find((emulator) => emulator.id === defaultProfile.emulatorId)
     : emulators?.at(0);
 
-  if (
+  const coreError =
     gameStatus === "error" ||
     platformStatus === "error" ||
-    gameMetadataStatus === "error" ||
+    gameMetadataStatus === "error";
+  const emulatorError =
     defaultEmulatorProfileStatus === "error" ||
     emulatorsStatus === "error" ||
-    profilesStatus === "error"
-  ) {
+    profilesStatus === "error";
+
+  if (coreError || (!deferEmulatorData && emulatorError)) {
     return <span>Error loading game details</span>;
   }
 
-  if (
+  const corePending =
     gameStatus === "pending" ||
     platformStatus === "pending" ||
-    gameMetadataStatus === "pending" ||
+    gameMetadataStatus === "pending";
+  const emulatorPending =
     defaultEmulatorProfileStatus === "pending" ||
     emulatorsStatus === "pending" ||
-    profilesStatus === "pending"
-  ) {
+    profilesStatus === "pending";
+
+  if (corePending || (!deferEmulatorData && emulatorPending)) {
     return props.loadingComponent ?? null;
   }
 
@@ -235,9 +248,9 @@ export function GameDetailProvider(
     },
     platformMetadata: platformData.platformMetadata,
     emulator,
-    validEmulators: emulators,
+    validEmulators: emulators ?? [],
     defaultProfile,
-    validProfiles: profiles,
+    validProfiles: profiles ?? [],
     name,
   };
 

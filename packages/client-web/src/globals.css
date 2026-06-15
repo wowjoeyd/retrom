@@ -4,6 +4,10 @@
 @custom-variant focus-hover (&:is(:focus,:hover));
 
 @layer base {
+  :root {
+    --fs-focus-ring-width: 3px;
+  }
+
   * {
     box-sizing: border-box;
     scroll-behavior: smooth;

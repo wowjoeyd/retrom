@@ -19,6 +19,7 @@ export type GamepadButtonEventDetail = {
 
   /* The gamepad index of the button that triggered the event */
   button: number;
+  repeat?: boolean;
 };
 
 export type GamepadAxisEventDetail = {
@@ -28,6 +29,7 @@ export type GamepadAxisEventDetail = {
   axis: number;
   /** The current value of the axis that triggered the event */
   value: number;
+  repeat?: boolean;
 };
 
 export class GamepadButtonDownEvent extends CustomEvent<GamepadButtonEventDetail> {

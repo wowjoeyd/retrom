@@ -9,15 +9,18 @@ import {
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { MenuEntryButton } from "../menubar/menu-entry-button";
-import { HotkeyButton } from "../hotkey-button";
+import { HotkeyButton, HotkeyIcon } from "../hotkey-button";
 import { useGameDetail } from "@/providers/game-details";
 import { LoaderCircle, Music2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FocusContainer } from "../focus-container";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
 import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack";
 import { cn } from "@retrom/ui/lib/utils";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import { useInputDeviceContext } from "@/providers/input-device";
+import { gameMusicPlayer } from "../grid-game-list";
 
 function formatDuration(secs: number): string {
   if (secs <= 0) return "";
@@ -38,13 +41,31 @@ export function DownloadMusicAction() {
   });
   const { mutate: download, status: downloadStatus } =
     useDownloadGameSoundtrack();
+  const [inputDevice] = useInputDeviceContext();
 
   const candidates = data?.candidates ?? [];
   const isSearching = searchStatus === "pending" && open;
   const isDownloading = downloadStatus === "pending";
 
+  // RAF deferral: focus first candidate after the full norigin tree is settled.
+  // Needed on first open because candidates arrive async — the FocusContainer
+  // initialFocus fires before candidate MenuEntryButtons are registered.
+  // Also guards against Radix's onOpenAutoFocus stealing native focus to the
+  // Back button (blocked via onOpenAutoFocus={preventDefault} on SheetContent).
+  useEffect(() => {
+    if (!open || candidates.length === 0) return;
+    if (inputDevice !== "gamepad" && inputDevice !== "hotkeys") return;
+    const raf = requestAnimationFrame(() => {
+      setFocus("music-candidate-0");
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, candidates.length, inputDevice]);
+
   const handleSelect = (videoId: string) => {
     if (isDownloading) return;
+    // Clear the "missing" result cache so the player retries the theme URL
+    // after the download completes and metadata refetches.
+    gameMusicPlayer.clearCacheForGame(game.id);
     download({ gameId: game.id, videoId });
     setOpen(false);
   };
@@ -58,6 +79,9 @@ export function DownloadMusicAction() {
       </SheetTrigger>
 
       <SheetContent
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+        }}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -124,7 +148,13 @@ export function DownloadMusicAction() {
                 ))}
             </div>
 
-            <SheetFooter>
+            <SheetFooter className="flex-row items-center justify-between">
+              {candidates.length > 0 && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <HotkeyIcon hotkey="ACCEPT" />
+                  Download
+                </span>
+              )}
               <SheetClose asChild>
                 <HotkeyButton hotkey="BACK">Back</HotkeyButton>
               </SheetClose>

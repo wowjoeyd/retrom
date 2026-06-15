@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -17,6 +18,52 @@ import {
 import { getControllerMapping } from "./controller-ids";
 import { ControllerMapping } from "./maps";
 import { axisValueToAxisState, GamepadAxisState } from "./utils";
+
+const DPAD_BUTTONS = new Set([12, 13, 14, 15]);
+const LEFT_STICK_NAVIGATION_AXES = new Set([0, 1]);
+const LEFT_STICK_NAVIGATION_THRESHOLD = 0.5;
+const REPEAT_START_DELAY_MS = 300;
+const REPEAT_START_INTERVAL_MS = 190;
+const REPEAT_MIN_INTERVAL_MS = 60;
+const REPEAT_ACCELERATION_MS = 18;
+
+type RepeatInputState = {
+  startedAt: number;
+  lastFiredAt: number;
+  repeatCount: number;
+};
+
+function getRepeatInterval(repeatCount: number) {
+  return Math.max(
+    REPEAT_MIN_INTERVAL_MS,
+    REPEAT_START_INTERVAL_MS - repeatCount * REPEAT_ACCELERATION_MS,
+  );
+}
+
+function getAxisState(axis: number, value: number) {
+  return axisValueToAxisState(
+    value,
+    LEFT_STICK_NAVIGATION_AXES.has(axis)
+      ? LEFT_STICK_NAVIGATION_THRESHOLD
+      : undefined,
+  );
+}
+
+function getButtonRepeatKey(gamepadIndex: number, button: number) {
+  return `${gamepadIndex}:button:${button}`;
+}
+
+function getAxisRepeatKey(
+  gamepadIndex: number,
+  axis: number,
+  state: GamepadAxisState,
+) {
+  return `${gamepadIndex}:axis:${axis}:${state}`;
+}
+
+function isActiveAxisState(state: GamepadAxisState) {
+  return state !== GamepadAxisState.Neutral;
+}
 
 export interface RetromGamepad {
   gamepad: Gamepad;
@@ -43,8 +90,40 @@ export function GamepadProvider(props: PropsWithChildren) {
     buttons: new Map(),
     axes: new Map(),
   });
+  const repeatInputs = useRef(new Map<string, RepeatInputState>());
 
   const { toast } = useToast();
+
+  const beginRepeatInput = useCallback((key: string, now: number) => {
+    repeatInputs.current.set(key, {
+      startedAt: now,
+      lastFiredAt: now,
+      repeatCount: 0,
+    });
+  }, []);
+
+  const stopRepeatInput = useCallback((key: string) => {
+    repeatInputs.current.delete(key);
+  }, []);
+
+  const maybeDispatchRepeatInput = useCallback(
+    (key: string, now: number, dispatch: () => void) => {
+      const input = repeatInputs.current.get(key);
+
+      if (!input || now - input.startedAt < REPEAT_START_DELAY_MS) {
+        return;
+      }
+
+      if (now - input.lastFiredAt < getRepeatInterval(input.repeatCount)) {
+        return;
+      }
+
+      dispatch();
+      input.lastFiredAt = now;
+      input.repeatCount += 1;
+    },
+    [],
+  );
 
   const onDisconnect = useCallback(
     (e: GamepadEvent) => {
@@ -66,6 +145,7 @@ export function GamepadProvider(props: PropsWithChildren) {
 
   const pollGamepad = useCallback(() => {
     const node = document.activeElement;
+    const now = performance.now();
 
     for (const connectedPad of gamepads) {
       const pad = navigator.getGamepads().at(connectedPad.gamepad.index);
@@ -78,6 +158,7 @@ export function GamepadProvider(props: PropsWithChildren) {
         for (let i = 0; i < buttons.length; i++) {
           const currentlyPressed = buttons.at(i)?.pressed;
           const previouslyPressed = currentButtonInputs?.at(i);
+          const repeatKey = getButtonRepeatKey(index, i);
 
           if (
             currentlyPressed !== previouslyPressed &&
@@ -92,7 +173,12 @@ export function GamepadProvider(props: PropsWithChildren) {
                   button: i,
                 }),
               );
+
+              if (DPAD_BUTTONS.has(i)) {
+                beginRepeatInput(repeatKey, now);
+              }
             } else {
+              stopRepeatInput(repeatKey);
               node?.dispatchEvent(
                 new GamepadButtonUpEvent({
                   gamepad: pad,
@@ -100,6 +186,16 @@ export function GamepadProvider(props: PropsWithChildren) {
                 }),
               );
             }
+          } else if (currentlyPressed && DPAD_BUTTONS.has(i)) {
+            maybeDispatchRepeatInput(repeatKey, now, () => {
+              node?.dispatchEvent(
+                new GamepadButtonDownEvent({
+                  gamepad: pad,
+                  button: i,
+                  repeat: true,
+                }),
+              );
+            });
           }
         }
 
@@ -107,11 +203,20 @@ export function GamepadProvider(props: PropsWithChildren) {
           const value = pad.axes.at(i) ?? 0;
           const cachedValue = inputCache.axes.get(index)?.at(i) ?? 0;
 
-          const currentState = axisValueToAxisState(value);
-          const previousState = axisValueToAxisState(cachedValue);
+          const currentState = getAxisState(i, value);
+          const previousState = getAxisState(i, cachedValue);
+          const currentRepeatKey = getAxisRepeatKey(index, i, currentState);
+          const previousRepeatKey = getAxisRepeatKey(index, i, previousState);
 
           if (currentState !== previousState) {
             changed = true;
+
+            if (
+              LEFT_STICK_NAVIGATION_AXES.has(i) &&
+              isActiveAxisState(previousState)
+            ) {
+              stopRepeatInput(previousRepeatKey);
+            }
 
             if (currentState !== GamepadAxisState.Neutral) {
               node?.dispatchEvent(
@@ -121,6 +226,10 @@ export function GamepadProvider(props: PropsWithChildren) {
                   value,
                 }),
               );
+
+              if (LEFT_STICK_NAVIGATION_AXES.has(i)) {
+                beginRepeatInput(currentRepeatKey, now);
+              }
             } else {
               node?.dispatchEvent(
                 new GamepadAxisInactiveEvent({
@@ -130,6 +239,20 @@ export function GamepadProvider(props: PropsWithChildren) {
                 }),
               );
             }
+          } else if (
+            LEFT_STICK_NAVIGATION_AXES.has(i) &&
+            isActiveAxisState(currentState)
+          ) {
+            maybeDispatchRepeatInput(currentRepeatKey, now, () => {
+              node?.dispatchEvent(
+                new GamepadAxisActiveEvent({
+                  gamepad: pad,
+                  axis: i,
+                  value,
+                  repeat: true,
+                }),
+              );
+            });
           }
         }
 
@@ -145,7 +268,13 @@ export function GamepadProvider(props: PropsWithChildren) {
         }
       }
     }
-  }, [inputCache, gamepads]);
+  }, [
+    beginRepeatInput,
+    inputCache,
+    gamepads,
+    maybeDispatchRepeatInput,
+    stopRepeatInput,
+  ]);
 
   const onConnect = useCallback(
     (e: GamepadEvent) => {

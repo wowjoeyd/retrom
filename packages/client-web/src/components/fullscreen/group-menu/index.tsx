@@ -26,7 +26,11 @@ export function GroupMenu(
           handler: () =>
             navigate({
               to: ".",
-              search: (prev) => ({ ...prev, activeGroupId: previousGroup?.id }),
+              search: (prev) => ({
+                ...prev,
+                activeGroupId: previousGroup?.id,
+                restoreGridFocus: undefined,
+              }),
             }),
           zone: "groupMenu",
         },
@@ -34,7 +38,11 @@ export function GroupMenu(
           handler: () =>
             navigate({
               to: ".",
-              search: (prev) => ({ ...prev, activeGroupId: nextGroup?.id }),
+              search: (prev) => ({
+                ...prev,
+                activeGroupId: nextGroup?.id,
+                restoreGridFocus: undefined,
+              }),
             }),
           zone: "groupMenu",
         },
@@ -133,7 +141,7 @@ function GroupEntry(props: { group: Group }) {
         active && "opacity-100 hover:opacity-100",
       )}
       to="."
-      search={{ activeGroupId: group.id }}
+      search={{ activeGroupId: group.id, restoreGridFocus: undefined }}
     >
       {group.name}
       <span className="text-sm font-light text-muted-foreground">

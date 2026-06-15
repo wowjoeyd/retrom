@@ -1,4 +1,9 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import {
+  CatchBoundary,
+  createFileRoute,
+  Outlet,
+  useMatch,
+} from "@tanstack/react-router";
 import { useRef, useEffect } from "react";
 import { FullscreenMenubar } from "../components/fullscreen/menubar";
 import { cn } from "@retrom/ui/lib/utils";
@@ -21,6 +26,8 @@ import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 import { GameMusicNowPlaying } from "../components/fullscreen/grid-game-list";
 import { gameMusicPlayer } from "../components/fullscreen/grid-game-list";
+import { Background, Scene } from "../components/fullscreen/scene";
+import { ActionBarProvider } from "@/providers/fullscreen/action-bar-context";
 
 declare global {
   export interface HotkeyZones {
@@ -30,6 +37,7 @@ declare global {
 
 const searchSchema = z.object({
   activeGroupId: z.number().catch(-1),
+  restoreGridFocus: z.boolean().optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/_fullscreenLayout")({
@@ -72,6 +80,10 @@ export const Route = createFileRoute("/_fullscreenLayout")({
 
 function FullscreenLayout() {
   const container = useRef<HTMLDivElement>(null);
+  const isDetailPage = useMatch({
+    from: "/_fullscreenLayout/fullscreen/games/$gameId",
+    shouldThrow: false,
+  });
 
   useHotkeys({
     handlers: {
@@ -108,21 +120,46 @@ function FullscreenLayout() {
       <FocusedHotkeyLayerProvider>
         <GamepadProvider>
           <GroupContextProvider>
-            <div
-              ref={container}
-              className={cn("h-[100dvh] w-screen relative", "flex flex-col")}
-            >
-              <FullscreenMenubar className="w-full border-b z-[50] bg-background" />
+            <ActionBarProvider>
+              <div
+                ref={container}
+                className={cn("h-[100dvh] w-screen relative", "flex flex-col")}
+              >
+                {/* Persistent animated background — lives at layout level so the
+                    WebGL canvas never unmounts across grid/detail route transitions,
+                    eliminating the shader startup delay on Back to grid.
+                    Hidden (but kept alive) on the detail page since it has its own scene. */}
+                <div
+                  className={cn(
+                    "absolute inset-0 -z-[1] pointer-events-none",
+                    isDetailPage && "opacity-0",
+                  )}
+                >
+                  <CatchBoundary
+                    getResetKey={() => "resetSceneLayout"}
+                    onCatch={(error) =>
+                      console.warn("Layout background scene error:", error)
+                    }
+                    errorComponent={() => null}
+                  >
+                    <Scene>
+                      <Background />
+                    </Scene>
+                  </CatchBoundary>
+                </div>
 
-              <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
-                <Outlet />
+                <FullscreenMenubar className="w-full border-b z-[50] bg-background" />
+
+                <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
+                  <Outlet />
+                </div>
+
+                <GameMusicNowPlaying />
               </div>
 
-              <GameMusicNowPlaying />
-            </div>
-
-            <ResolveCloudSaveConflictModal />
-            <InstallOnPlayModal />
+              <ResolveCloudSaveConflictModal />
+              <InstallOnPlayModal />
+            </ActionBarProvider>
           </GroupContextProvider>
         </GamepadProvider>
       </FocusedHotkeyLayerProvider>

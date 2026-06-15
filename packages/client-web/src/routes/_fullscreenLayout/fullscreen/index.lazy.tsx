@@ -1,10 +1,12 @@
 import { useGroupContext } from "@/providers/fullscreen/group-context";
-import { GridGameList } from "@/components/fullscreen/grid-game-list";
-import { CatchBoundary, createLazyFileRoute } from "@tanstack/react-router";
+import {
+  GridGameList,
+  useLastFocusedGroupKey,
+} from "@/components/fullscreen/grid-game-list";
+import { createLazyFileRoute, useSearch } from "@tanstack/react-router";
 import { ScrollArea, ScrollBar } from "@retrom/ui/components/scroll-area";
 import { GroupMenu } from "@/components/fullscreen/group-menu";
 import { ActionBar } from "@/components/fullscreen/action-bar";
-import { Background, Scene } from "@/components/fullscreen/scene";
 import {
   FocusContainer,
   useFocusable,
@@ -13,32 +15,26 @@ import { cn } from "@retrom/ui/lib/utils";
 import { Button } from "@retrom/ui/components/button";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { useMemo } from "react";
+import { useActionBar } from "@/providers/fullscreen/action-bar-context";
 
 export const Route = createLazyFileRoute("/_fullscreenLayout/fullscreen/")({
   component: FullscreenComponent,
 });
 
 function FullscreenComponent() {
+  useActionBar([
+    { hotkey: "BACK", label: "Back" },
+    { hotkey: "ACCEPT", label: "Open" },
+    { hotkey: "PAGE_LEFT", label: "Prev" },
+    { hotkey: "PAGE_RIGHT", label: "Next" },
+    { hotkey: "MENU", label: "Menu" },
+  ]);
+
   return (
     <div className="h-full grid grid-flow-row grid-rows-[1fr_auto]">
       <div className="relative flex gap-4 w-full overflow-hidden">
         <PartitionList />
 
-        <div className="absolute inset-0 z-[-1]">
-          <CatchBoundary
-            getResetKey={() => "resetScene"}
-            onCatch={(error, info) => {
-              console.warn("Caught error at boundary: ", error, info);
-            }}
-            errorComponent={() => (
-              <div className="w-full h-full bg-gradient-to-t to-secondary/30 from-accent/10"></div>
-            )}
-          >
-            <Scene>
-              <Background />
-            </Scene>
-          </CatchBoundary>
-        </div>
         <ScrollArea className="max-h-full grow">
           <GridGameList />
 
@@ -55,6 +51,16 @@ function FullscreenComponent() {
 
 function PartitionList() {
   const { activeGroup, allGroups } = useGroupContext();
+  const { restoreGridFocus } = useSearch({ from: "/_fullscreenLayout" });
+  const savedGroupFocusKey = useLastFocusedGroupKey(activeGroup?.id);
+  const savedFocusKey =
+    restoreGridFocus === true ? savedGroupFocusKey : undefined;
+  const isRestoring =
+    savedFocusKey && activeGroup
+      ? activeGroup.allGames.some(
+          (g) => `game-list-${activeGroup.id}-${g.id}` === savedFocusKey,
+        )
+      : false;
 
   return allGroups.map((group) =>
     group.id === activeGroup?.id ? (
@@ -71,8 +77,14 @@ function PartitionList() {
           {activeGroup?.partitionedGames?.map(([key], idx) => (
             <span
               key={key}
-              style={{ animationDelay: `${idx * 50}ms` }}
-              className="animate-in ease-out fade-in fill-mode-both"
+              style={
+                isRestoring ? undefined : { animationDelay: `${idx * 50}ms` }
+              }
+              className={
+                isRestoring
+                  ? undefined
+                  : "animate-in ease-out fade-in fill-mode-both"
+              }
             >
               <PartitionItem partitionKey={key} />
             </span>

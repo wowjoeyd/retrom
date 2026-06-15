@@ -21,6 +21,7 @@ import { Button } from "@retrom/ui/components/button";
 import { cn } from "@retrom/ui/lib/utils";
 import { EllipsisVerticalIcon } from "lucide-react";
 import { DesktopOnly } from "@/lib/env";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 
 declare global {
   export interface HotkeyZones {
@@ -55,7 +56,7 @@ export function GameActions() {
             ref={ref}
             variant="secondary"
             className={cn(
-              "h-full rounded-none px-2 ring-ring focus-visible:ring-2 focus-visible:ring-offset-0",
+              "h-full rounded-none px-2 ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
               "opacity-80 focus-hover:opacity-100 transition-all",
             )}
           >
@@ -64,7 +65,13 @@ export function GameActions() {
         </SheetTrigger>
       </HotkeyLayer>
 
-      <SheetContent>
+      <SheetContent
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFocus("fullscreen-action-button");
+        }}
+      >
         <HotkeyLayer
           id="game-actions"
           allowBubbling="never"

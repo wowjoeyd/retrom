@@ -24,13 +24,18 @@ import { SimilarGames } from "./-components/similar-games";
 import { useInstallationStatus } from "@/queries/useInstallationStatus";
 import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
 import { useGameMetadata } from "@/queries/useGameMetadata";
-import { useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import { useInputDeviceContext } from "@/providers/input-device";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import {
   gameMusicPlayer,
   isAudioUrl,
   useGameMusic,
 } from "@/components/fullscreen/grid-game-list";
+import { useHotkeys } from "@/providers/hotkeys";
+import { useActionBar } from "@/providers/fullscreen/action-bar-context";
+import { ActionBar } from "@/components/fullscreen/action-bar";
 
 export const Route = createLazyFileRoute(
   "/_fullscreenLayout/fullscreen/games/$gameId",
@@ -124,16 +129,63 @@ function GameComponent() {
   ]);
 
   return (
-    <GameDetailProvider gameId={gameIdNumber} errorRedirectUrl="/fullscreen">
+    <GameDetailProvider
+      gameId={gameIdNumber}
+      errorRedirectUrl="/fullscreen"
+      loadingComponent={<LoadingDetail />}
+      deferEmulatorData
+    >
       <Inner />
     </GameDetailProvider>
+  );
+}
+
+function LoadingDetail() {
+  const navigate = useNavigate();
+
+  const backHandler = () =>
+    navigate({ to: "/fullscreen", search: (prev) => prev, resetScroll: false });
+
+  useHotkeys({ handlers: { BACK: { handler: backHandler } } });
+
+  return (
+    <HotkeyLayer
+      id="game-page-loading"
+      handlers={{ BACK: { handler: backHandler } }}
+    >
+      <div className="h-full flex flex-col">
+        <ScrollArea className="flex-1 min-h-0 w-full">
+          <div className="flex-grow flex justify-center items-center w-full pb-32">
+            <div className="flex flex-col w-full h-full relative">
+              <div
+                className={cn(
+                  "relative min-h-full w-full",
+                  "grid grid-rows-[1fr_auto_auto_auto]",
+                  "*:col-start-1 *:col-end-1",
+                )}
+              >
+                <div className="relative h-[75dvh] row-start-1 row-end-3 -z-[1] overflow-hidden bg-background">
+                  <div className="absolute inset-0 bg-gradient-to-t from-background to-20% to-background/0" />
+                </div>
+
+                <div className="row-start-2 row-end-4 flex justify-center gap-1">
+                  <div className="h-20 w-52 bg-secondary/30 animate-pulse" />
+                  <div className="h-20 w-12 bg-secondary/30 animate-pulse" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+        <ActionBar />
+      </div>
+    </HotkeyLayer>
   );
 }
 
 const buttonStyles = cn(
   buttonVariants({ variant: "secondary", size: "lg" }),
   "font-bold w-auto text-5xl uppercase px-8 py-4 h-full rounded-none",
-  "ring-ring focus-visible:ring-2 focus-visible:ring-offset-0",
+  "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
   "opacity-80 focus-hover:opacity-100 transition-all",
   '[&_div[role="progressbar"]]:w-[6ch] [&_div[role="progressbar"]]:bg-primary-foreground',
   '[&_div[role="progressbar"]_>_*]:bg-accent',
@@ -143,6 +195,31 @@ function Inner() {
   const { gameMetadata, game } = useGameDetail();
   const navigate = useNavigate();
 
+  useActionBar([
+    { hotkey: "BACK", label: "Back" },
+    { hotkey: "ACCEPT", label: "Play" },
+    { hotkey: "PAGE_LEFT", label: "Actions" },
+    { hotkey: "MENU", label: "Menu" },
+  ]);
+
+  // Document-level BACK listener so the handler fires even before any DOM
+  // element inside this page has native focus (e.g. during lazy-load or before
+  // the initialFocus useEffect commits native focus to ActionButton).
+  // The HotkeyLayer below still handles BACK when an inner element is focused
+  // and stops propagation first; this is the safety-net path.
+  useHotkeys({
+    handlers: {
+      BACK: {
+        handler: () =>
+          navigate({
+            to: "/fullscreen",
+            search: (prev) => prev,
+            resetScroll: false,
+          }),
+      },
+    },
+  });
+
   const name = gameMetadata?.name || getFileStub(game.path);
   const url = gameMetadata?.backgroundUrl || gameMetadata?.coverUrl;
 
@@ -151,62 +228,78 @@ function Inner() {
       id="game-page"
       handlers={{
         BACK: {
-          handler: () => navigate({ to: "/fullscreen", resetScroll: false }),
+          handler: () =>
+            navigate({
+              to: "/fullscreen",
+              search: (prev) => prev,
+              resetScroll: false,
+            }),
         },
       }}
     >
-      <ScrollArea className="h-full w-full">
-        <FocusContainer
-          opts={{
-            focusKey: "game-details",
-            forceFocus: true,
-          }}
-          className="flex-grow flex justify-center items-center w-full animate-in fade-in pb-32"
-        >
-          <div className={cn("flex flex-col w-full h-full relative")}>
-            <div
-              className={cn(
-                "relative min-h-full w-full",
-                "grid grid-rows-[1fr_auto_auto_auto]",
-                "*:col-start-1 *:col-end-1",
-              )}
-            >
-              <div className="relative h-[75dvh] row-start-1 row-end-3 -z-[1] overflow-hidden">
-                <CatchBoundary
-                  getResetKey={() => "resetBg"}
-                  onCatch={(error) => console.error(error)}
-                  errorComponent={() => (
-                    <div className="absolute inset-0 grid place-items-center">
-                      <img src={url} className=""></img>
-                    </div>
-                  )}
-                >
-                  <Scene>
-                    <Background />
-                    <Name name={name} />
-                  </Scene>
-                </CatchBoundary>
+      <div className="h-full flex flex-col">
+        <ScrollArea className="flex-1 min-h-0 w-full">
+          <FocusContainer
+            opts={{
+              focusKey: "game-details",
+              forceFocus: true,
+            }}
+            className="flex-grow flex justify-center items-center w-full pb-32"
+          >
+            <div className={cn("flex flex-col w-full h-full relative")}>
+              <div
+                className={cn(
+                  "relative min-h-full w-full",
+                  "grid grid-rows-[1fr_auto_auto_auto]",
+                  "*:col-start-1 *:col-end-1",
+                )}
+              >
+                <div className="relative h-[75dvh] row-start-1 row-end-3 -z-[1] overflow-hidden">
+                  <CatchBoundary
+                    getResetKey={() => "resetBg"}
+                    onCatch={(error) => console.error(error)}
+                    errorComponent={() => (
+                      <div className="absolute inset-0 grid place-items-center">
+                        <img src={url} className=""></img>
+                      </div>
+                    )}
+                  >
+                    <Scene>
+                      <CatchBoundary
+                        getResetKey={() => `background-${game.id}`}
+                        onCatch={(error) => console.error(error)}
+                        errorComponent={() => null}
+                      >
+                        <Suspense fallback={null}>
+                          <Background />
+                        </Suspense>
+                      </CatchBoundary>
+                      <Name name={name} />
+                    </Scene>
+                  </CatchBoundary>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-background to-20% to-background/0" />
-              </div>
-
-              <div className="row-start-2 row-end-4 flex justify-center gap-1">
-                <div className="w-min">
-                  <ActionButton />
+                  <div className="absolute inset-0 bg-gradient-to-t from-background to-20% to-background/0" />
                 </div>
 
-                {!game.thirdParty && <GameActions />}
-              </div>
+                <div className="row-start-2 row-end-4 flex justify-center gap-1">
+                  <div className="w-min">
+                    <ActionButton />
+                  </div>
 
-              <div className="row-start-4 my-8 flex flex-col gap-12 w-max max-w-[85ch] mx-auto items-stretch">
-                <ExtraInfo />
-                <Description description={gameMetadata?.description || ""} />
-                <SimilarGames />
+                  <GameActions />
+                </div>
+
+                <div className="row-start-4 my-8 flex flex-col gap-12 w-max max-w-[85ch] mx-auto items-stretch">
+                  <ExtraInfo />
+                  <Description description={gameMetadata?.description || ""} />
+                  <SimilarGames />
+                </div>
               </div>
             </div>
-          </div>
-        </FocusContainer>
-      </ScrollArea>
+          </FocusContainer>
+        </ScrollArea>
+        <ActionBar />
+      </div>
     </HotkeyLayer>
   );
 }
@@ -214,15 +307,65 @@ function Inner() {
 function ActionButton() {
   const { game } = useGameDetail();
   const installationStatus = useInstallationStatus(game.id);
+  const [inputDevice] = useInputDeviceContext();
+  // hasFocused: prevents re-running the initial-focus setup after it succeeds.
+  const hasFocused = useRef(false);
+  // isFirstFocus: skips scrollIntoView on the very first norigin onFocus so
+  // the query-resolution scroll (which fires ~200 ms after mount) isn't visible
+  // as a "page refresh". Subsequent navigation-triggered focuses still scroll.
+  const isFirstFocus = useRef(true);
 
   const { ref } = useFocusable<HTMLButtonElement>({
-    initialFocus: true,
     focusKey: "fullscreen-action-button",
     onFocus: ({ node }) => {
       node?.focus({ preventScroll: true });
-      node.scrollIntoView({ block: "end" });
+      if (!isFirstFocus.current) {
+        node.scrollIntoView({ block: "end" });
+      }
+      isFirstFocus.current = false;
     },
   });
+
+  // The play button may mount as disabled (play-status query pending). Browsers
+  // silently drop .focus() on disabled elements, so we watch for the disabled
+  // attribute to clear and then set norigin focus once the node is interactive.
+  // We defer via requestAnimationFrame so the call lands after React has fully
+  // committed its current batch and norigin has re-registered any focusables.
+  useEffect(() => {
+    if (hasFocused.current) return;
+    if (!["gamepad", "hotkeys"].includes(inputDevice)) return;
+
+    const node = ref.current;
+    if (!node) return;
+
+    let rafId: number;
+
+    const doFocus = () => {
+      if (hasFocused.current) return;
+      hasFocused.current = true;
+      setFocus("fullscreen-action-button");
+    };
+
+    if (!node.disabled) {
+      rafId = requestAnimationFrame(doFocus);
+      return () => cancelAnimationFrame(rafId);
+    }
+
+    const observer = new MutationObserver(() => {
+      if (!node.disabled) {
+        observer.disconnect();
+        rafId = requestAnimationFrame(doFocus);
+      }
+    });
+    observer.observe(node, { attributes: true, attributeFilter: ["disabled"] });
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(rafId);
+    };
+    // ref is stable (norigin ref object); omitted from deps intentionally
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputDevice]);
 
   return (
     <HotkeyLayer
@@ -235,7 +378,7 @@ function ActionButton() {
         className={cn(
           buttonStyles,
           installationStatus !== InstallationStatus.INSTALLING &&
-            "focus-visible:bg-accent",
+            "focus:bg-accent",
         )}
       />
     </HotkeyLayer>
