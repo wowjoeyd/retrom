@@ -63,7 +63,9 @@ export function useHotkeys(opts: {
         return;
       }
 
-      if (!(event instanceof GamepadButtonDownEvent)) {
+      if (event instanceof GamepadButtonDownEvent) {
+        setInputDevice("gamepad");
+      } else {
         setInputDevice("hotkeys");
       }
 

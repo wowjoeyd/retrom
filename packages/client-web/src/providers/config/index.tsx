@@ -68,8 +68,15 @@ if (checkIsDesktop()) {
     console.warn("Legacy localStorage found, this config is no longer used!");
   }
 
-  configFile = await ConfigFile.getConfig();
-  console.log("Config file loaded");
+  // Transient popup windows (e.g. the Steam OpenID auth callback) don't have
+  // plugin capabilities — skip the Tauri plugin call in those contexts.
+  const isTransientWindow =
+    new URLSearchParams(window.location.search).get("openid.mode") === "id_res";
+
+  if (!isTransientWindow) {
+    configFile = await ConfigFile.getConfig();
+    console.log("Config file loaded");
+  }
 }
 
 const initialConfig = configFile
@@ -80,7 +87,7 @@ export const configStore = create<LocalConfig>()(
   subscribeWithSelector(
     persist(() => initialConfig, {
       name: STORAGE_KEY,
-      version: 6,
+      version: 7,
       migrate,
       skipHydration: checkIsDesktop(),
       onRehydrateStorage: (state) => {

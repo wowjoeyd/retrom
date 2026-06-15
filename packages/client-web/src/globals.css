@@ -33,3 +33,30 @@
     border-color: var(--color-border, currentColor);
   }
 }
+
+@layer utilities {
+  .app-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  .app-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .app-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .app-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .app-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}

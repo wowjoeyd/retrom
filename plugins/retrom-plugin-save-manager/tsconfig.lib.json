@@ -6,18 +6,6 @@
   "references": [
     {
       "path": "../../packages/configs/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-webdav-client/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-service-client/tsconfig.lib.json"
-    },
-    {
-      "path": "../retrom-plugin-config/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/codegen/tsconfig.lib.json"
     }
   ]
 }

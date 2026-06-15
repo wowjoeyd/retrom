@@ -60,7 +60,12 @@ pub async fn init_tracing_subscriber<Logfile: AsRef<Path>>(
         .add_directive("hyper=info".parse().unwrap())
         // .add_directive("tower_http=debug".parse().unwrap())
         .add_directive("axum::rejection=trace".parse().unwrap())
-        .add_directive("hyper_util=info".parse().unwrap());
+        .add_directive("hyper_util=info".parse().unwrap())
+        // Silence noisy OpenTelemetry/axum-otel internals (e.g. "BatchSpanProcessor.ExportError"
+        // when no collector is running, and "SpanDisabled" warnings when telemetry is off).
+        .add_directive("opentelemetry=off".parse().unwrap())
+        .add_directive("opentelemetry_sdk=off".parse().unwrap())
+        .add_directive("axum_tracing_opentelemetry=off".parse().unwrap());
 
     tracing_subscriber::registry()
         .with(layers)
