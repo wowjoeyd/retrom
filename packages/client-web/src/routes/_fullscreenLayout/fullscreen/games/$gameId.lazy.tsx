@@ -23,6 +23,14 @@ import { Name } from "./-components/name";
 import { SimilarGames } from "./-components/similar-games";
 import { useInstallationStatus } from "@/queries/useInstallationStatus";
 import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
+import { useGameMetadata } from "@/queries/useGameMetadata";
+import { useEffect } from "react";
+import { createUrl, usePublicUrl } from "@/utils/urls";
+import {
+  gameMusicPlayer,
+  isAudioUrl,
+  useGameMusic,
+} from "@/components/fullscreen/grid-game-list";
 
 export const Route = createLazyFileRoute(
   "/_fullscreenLayout/fullscreen/games/$gameId",
@@ -33,7 +41,87 @@ export const Route = createLazyFileRoute(
 function GameComponent() {
   const { gameId } = Route.useParams();
 
-  const gameIdNumber = parseInt(gameId, 10);
+  const gameIdNumber = gameId ? parseInt(gameId, 10) : 0;
+
+  const { enabled, volume, fade } = useGameMusic(
+    Number.isFinite(gameIdNumber) ? gameIdNumber : 0,
+  );
+  const { data: meta } = useGameMetadata({
+    request: { gameIds: [gameIdNumber] },
+    selectFn: (d) => ({
+      metadata: d.metadata.at(0),
+      mediaPaths: d.mediaPaths,
+    }),
+  });
+  const metaData = meta?.metadata;
+  const allVideoUrls = metaData?.videoUrls ?? [];
+  const mp = meta?.mediaPaths;
+  // mediaPaths is typed as { [key: number]: GetGameMetadataResponse_MediaPaths } (protobuf-es plain object)
+  const mediaPathEntry = mp?.[gameIdNumber];
+  const themeAudioRel = mediaPathEntry?.themeAudioUrl;
+  const publicUrl = usePublicUrl();
+  let resolvedThemeAudio =
+    themeAudioRel && publicUrl
+      ? createUrl({ path: themeAudioRel, base: publicUrl })?.href
+      : undefined;
+  if (!resolvedThemeAudio && publicUrl) {
+    // Robust fallback using magic base "theme" (no ext). See grid list.
+    const possiblePath = `media/games/${gameIdNumber}/theme`;
+    resolvedThemeAudio = createUrl({
+      path: possiblePath,
+      base: publicUrl,
+    })?.href;
+  }
+  // Strictly prefer native audio (theme from yt-dlp extraction in metadata jobs,
+  // with substantial chunks for good loops, or direct audio files). No YT fallback.
+  const audioFromList = allVideoUrls.find(isAudioUrl);
+  const musicSourceUrl = resolvedThemeAudio ?? audioFromList;
+
+  if (import.meta.env.DEV) {
+    console.log(
+      "[fullscreen music detail] game",
+      gameIdNumber,
+      "enabled (from hook below)",
+      "musicSource=",
+      musicSourceUrl,
+      "has themeAudio=",
+      !!resolvedThemeAudio,
+      "rawThemeRel=",
+      themeAudioRel,
+      "hasPublicUrl=",
+      !!publicUrl,
+      "videoUrls.len=",
+      allVideoUrls.length,
+      "firstVideoUrl=",
+      allVideoUrls[0],
+    );
+  }
+
+  useEffect(() => {
+    if (enabled && metaData) {
+      // Pass only audio candidates -- no YT for previews.
+      const audioCandidates = allVideoUrls.filter(isAudioUrl);
+      void gameMusicPlayer.playForGame(
+        musicSourceUrl,
+        volume,
+        fade,
+        metaData.name,
+        audioCandidates,
+      );
+    }
+    return () => {
+      if (enabled) gameMusicPlayer.stop(fade, musicSourceUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    gameIdNumber,
+    enabled,
+    volume,
+    fade,
+    metaData,
+    musicSourceUrl,
+    allVideoUrls.length,
+  ]);
 
   return (
     <GameDetailProvider gameId={gameIdNumber} errorRedirectUrl="/fullscreen">

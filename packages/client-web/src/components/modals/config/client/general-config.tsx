@@ -7,11 +7,16 @@ import {
   FormField,
   FormItem,
   FormLabel,
+  FormMessage,
 } from "@retrom/ui/components/form";
 import { Input } from "@retrom/ui/components/input";
 import { TabsContent } from "@retrom/ui/components/tabs";
 import { useToast } from "@retrom/ui/hooks/use-toast";
-import { checkIsDesktop } from "@/lib/env";
+import {
+  checkIsDesktop,
+  isEmulatorPackageSyncEnabled,
+  isEnhancedEmulatorUserDataEnabled,
+} from "@/lib/env";
 import { InferSchema } from "@/lib/utils";
 import { cn } from "@retrom/ui/lib/utils";
 import { useConfigStore } from "@/providers/config";
@@ -19,12 +24,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "@tanstack/react-router";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpenIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "@retrom/ui/components/form";
 import { migrateInstallationDir } from "@retrom/plugin-installer";
 import { z } from "zod";
 import { RetromClientConfig } from "@retrom/codegen/retrom/client/client-config_pb";
 import { RawMessage } from "@/utils/protos";
+import {
+  emulatorUserDataAutoSyncEnabled,
+  setEmulatorUserDataAutoSyncEnabled,
+} from "@/components/emulator-user-data-auto-sync";
 
 type ConfigSchema = z.infer<typeof configSchema>;
 const configSchema = z.object({
@@ -33,9 +42,17 @@ const configSchema = z.object({
       fullscreenByDefault: z.boolean(),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
+        gameMusic: z
+          .object({
+            enabled: z.boolean().optional(),
+            volume: z.number().optional(),
+            fadeDurationMs: z.number().optional(),
+          })
+          .optional(),
       }),
     }),
     installationDir: z.string().optional(),
+    emulatorCacheDir: z.string().optional(),
   }),
   telemetry: z.object({
     enabled: z.boolean(),
@@ -49,6 +66,25 @@ export function GeneralConfig() {
   const configStore = useConfigStore();
   const { config, telemetry } = configStore();
   const { toast } = useToast();
+  const [autoSyncUserData, setAutoSyncUserData] = useState(false);
+  const fullscreenConfig = config?.interface?.fullscreenConfig as
+    | {
+        gameMusic?: {
+          enabled?: boolean;
+          volume?: number;
+          fadeDurationMs?: number;
+        };
+      }
+    | undefined;
+  const showEmulatorUserDataAutoSync =
+    checkIsDesktop() &&
+    isEmulatorPackageSyncEnabled() &&
+    isEnhancedEmulatorUserDataEnabled();
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAutoSyncUserData(emulatorUserDataAutoSyncEnabled());
+  }, []);
 
   const form = useForm<ConfigSchema>({
     resolver: zodResolver(configSchema),
@@ -61,9 +97,16 @@ export function GeneralConfig() {
             windowedFullscreenMode:
               config?.interface?.fullscreenConfig?.windowedFullscreenMode ??
               !checkIsDesktop(),
+            gameMusic: {
+              enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
+              volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
+              fadeDurationMs:
+                fullscreenConfig?.gameMusic?.fadeDurationMs ?? 700,
+            },
           },
         },
         installationDir: config?.installationDir ?? "",
+        emulatorCacheDir: config?.emulatorCacheDir ?? "",
       },
       telemetry: {
         enabled: telemetry?.enabled ?? false,
@@ -108,6 +151,9 @@ export function GeneralConfig() {
             ...values.config.interface,
           },
           installationDir: values.config.installationDir,
+          emulatorCacheDir: values.config.emulatorCacheDir?.trim()
+            ? values.config.emulatorCacheDir.trim()
+            : undefined,
         };
 
         s.telemetry = {
@@ -180,6 +226,58 @@ export function GeneralConfig() {
 
           <FormField
             control={form.control}
+            disabled={!checkIsDesktop()}
+            name="config.emulatorCacheDir"
+            render={({ field, fieldState: { isDirty } }) => (
+              <FormItem className={cn(!checkIsDesktop() && "hidden")}>
+                <FormLabel>Emulator Cache Directory</FormLabel>
+
+                <div className={cn("flex items-center gap-2")}>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+
+                      open({
+                        title: "Select Emulator Cache Directory",
+                        multiple: false,
+                        directory: true,
+                        defaultPath: field.value,
+                      })
+                        .then((result) => {
+                          if (result) {
+                            field.onChange(result);
+                          }
+                        })
+                        .catch((e) => {
+                          console.error(e);
+                        });
+                    }}
+                  >
+                    <FolderOpenIcon className="w-[1rem] h-[1rem]" />
+                  </Button>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      {...field}
+                      placeholder="Defaults to app data / emulator-cache"
+                      className={cn(!isDirty && "text-muted-foreground")}
+                    />
+                  </FormControl>
+                </div>
+
+                <p className="text-sm text-muted-foreground max-w-[45ch]">
+                  Local copy of managed emulator packages synced from your
+                  server before launch. Leave empty to use the default location.
+                </p>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name="config.interface.fullscreenByDefault"
             render={({ field }) => (
               <FormItem>
@@ -205,6 +303,34 @@ export function GeneralConfig() {
               </FormItem>
             )}
           />
+
+          {showEmulatorUserDataAutoSync ? (
+            <FormItem>
+              <FormControl>
+                <div className="flex items-top gap-2">
+                  <Checkbox
+                    id="emulator-user-data-auto-sync"
+                    checked={autoSyncUserData}
+                    onCheckedChange={(val) => {
+                      const enabled = val === true;
+                      setAutoSyncUserData(enabled);
+                      setEmulatorUserDataAutoSyncEnabled(enabled);
+                    }}
+                  />
+                  <div className={cn("grid gap-1 leading-none")}>
+                    <label htmlFor="emulator-user-data-auto-sync">
+                      Sync emulator user data on app start
+                    </label>
+
+                    <p className="text-sm text-muted-foreground max-w-[45ch]">
+                      Low-frequency background push for managed emulator
+                      firmware, keys, RAPs, and installed emulator-side content.
+                    </p>
+                  </div>
+                </div>
+              </FormControl>
+            </FormItem>
+          ) : null}
 
           <FormField
             control={form.control}
@@ -264,6 +390,87 @@ export function GeneralConfig() {
               </FormItem>
             )}
           />
+
+          {/* Fullscreen game theme / soundtrack music options (tied to yt-dlp extraction and grid hover/click + detail playback) */}
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.gameMusic.enabled"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="fullscreen-game-music-enabled"
+                      checked={field.value}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="fullscreen-game-music-enabled">
+                        Play game music on focus/hover
+                      </label>
+
+                      <p className="text-sm text-muted-foreground">
+                        Play a game&apos;s main theme when selecting or hovering
+                        it in fullscreen (loops the extracted soundtrack or
+                        uploaded audio).
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="config.interface.fullscreenConfig.gameMusic.volume"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel htmlFor="fullscreen-game-music-volume">
+                    Music volume (0-1)
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      id="fullscreen-game-music-volume"
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(parseFloat(e.target.value))
+                      }
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="config.interface.fullscreenConfig.gameMusic.fadeDurationMs"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel htmlFor="fullscreen-game-music-fade">
+                    Fade in/out duration (ms)
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      id="fullscreen-game-music-fade"
+                      type="number"
+                      step="50"
+                      min="100"
+                      max="5000"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <DialogFooter className="gap-2">
             <Button

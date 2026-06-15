@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { FullscreenMenubar } from "../components/fullscreen/menubar";
 import { cn } from "@retrom/ui/lib/utils";
 import { z } from "zod";
@@ -18,6 +18,9 @@ import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
 import { configStore } from "@/providers/config";
 import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
+import { InstallOnPlayModal } from "@/components/modals/install-on-play";
+import { GameMusicNowPlaying } from "../components/fullscreen/grid-game-list";
+import { gameMusicPlayer } from "../components/fullscreen/grid-game-list";
 
 declare global {
   export interface HotkeyZones {
@@ -91,6 +94,15 @@ function FullscreenLayout() {
     },
   });
 
+  // Stop any background music when leaving the entire fullscreen layout
+  // (e.g. via Exit fullscreen from game details or anywhere). This ensures
+  // theme music from details/hover does not continue into windowed mode.
+  useEffect(() => {
+    return () => {
+      gameMusicPlayer.stop(300);
+    };
+  }, []);
+
   return (
     <ModalActionProvider>
       <FocusedHotkeyLayerProvider>
@@ -105,9 +117,12 @@ function FullscreenLayout() {
               <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
                 <Outlet />
               </div>
+
+              <GameMusicNowPlaying />
             </div>
 
             <ResolveCloudSaveConflictModal />
+            <InstallOnPlayModal />
           </GroupContextProvider>
         </GamepadProvider>
       </FocusedHotkeyLayerProvider>

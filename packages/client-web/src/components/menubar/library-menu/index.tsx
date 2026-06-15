@@ -28,6 +28,15 @@ export const cleanLibraryMenuItem: MenuItem = {
   ),
 };
 
+export const batchDownloadMusicMenuItem: MenuItem = {
+  label: "Batch Download Music",
+  Render: (
+    <Link to="." search={{ batchDownloadMusicModal: { open: true } }}>
+      Batch Download Music
+    </Link>
+  ),
+};
+
 export const deleteLibraryMenuItem: MenuItem = {
   label: "Delete Library",
   Render: (
@@ -49,6 +58,7 @@ export const libraryMenu: MenuItem = {
         updateLibraryMenuItem,
         downloadMetadataMenuItem,
         cleanLibraryMenuItem,
+        batchDownloadMusicMenuItem,
       ],
     },
     { groupItems: [deleteLibraryMenuItem] },

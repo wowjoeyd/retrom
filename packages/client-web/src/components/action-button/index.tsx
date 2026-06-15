@@ -1,10 +1,7 @@
 import { Button } from "@retrom/ui/components/button";
-import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
 import { PlatformDependent } from "@/lib/env";
 import { cn } from "@retrom/ui/lib/utils";
-import { useInstallationStatus } from "@/queries/useInstallationStatus";
 import { PlayGameButton } from "./play-game-button";
-import { InstallGameButton } from "./install-game-button";
 import { ComponentProps, ForwardedRef, forwardRef } from "react";
 import { DownloadGameButton } from "./download-game-button";
 import { Emulator_OperatingSystem } from "@retrom/codegen/retrom/models/emulators_pb";
@@ -19,7 +16,6 @@ export const ActionButton = forwardRef(
   (props: ActionButtonProps, forwardedRef: ForwardedRef<HTMLButtonElement>) => {
     const { game, className, ...rest } = props;
     const { data: emulatorData } = useDefaultEmulator(game);
-    const installationState = useInstallationStatus(game.id);
 
     const buttonClasses = cn(
       "rounded-none font-bold text-lg tracking-wider flex gap-2 items-center",
@@ -34,24 +30,13 @@ export const ActionButton = forwardRef(
     return (
       <PlatformDependent
         desktop={
-          installationState === InstallationStatus.INSTALLED ||
-          isPlayableInWeb ? (
-            <PlayGameButton
-              ref={forwardedRef}
-              game={game}
-              {...rest}
-              className={cn(buttonClasses)}
-              variant="accent"
-            />
-          ) : (
-            <InstallGameButton
-              ref={forwardedRef}
-              game={game}
-              {...rest}
-              className={cn(buttonClasses)}
-              variant="accent"
-            />
-          )
+          <PlayGameButton
+            ref={forwardedRef}
+            game={game}
+            {...rest}
+            className={cn(buttonClasses)}
+            variant="accent"
+          />
         }
         web={
           isPlayableInWeb ? (

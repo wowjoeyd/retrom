@@ -43,8 +43,11 @@ export function UpdateLibraryModal() {
         <DialogHeader>
           <DialogTitle>Update Library</DialogTitle>
           <DialogDescription className="max-w-[65ch]">
-            Starts the update process to populate platforms and games that have
-            been added to the service&apos;s filesystem since the last update.
+            Scans for new platforms and games from your library folders.
+            Automatically downloads names, artwork and metadata for new entries
+            via IGDB (using ROM filenames and platform folders for matching).
+            Requires IGDB config in Server Settings; existing metadata is left
+            alone.
           </DialogDescription>
         </DialogHeader>
 

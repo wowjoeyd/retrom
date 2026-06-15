@@ -30,16 +30,42 @@ impl SteamWebApiProvider {
     pub fn new(config_manager: Arc<ServerConfigManager>) -> Self {
         let base_url = "https://api.steampowered.com".into();
         let store_base_url = "https://store.steampowered.com/api".into();
-        let http_client = reqwest::Client::new();
+
+        // Send browser-like headers so Steam's Store API doesn't treat us as a bot
+        // and return `null` instead of the app details JSON.
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            reqwest::header::USER_AGENT,
+            reqwest::header::HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+                 AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Chrome/124.0.0.0 Safari/537.36",
+            ),
+        );
+        default_headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json, text/javascript, */*"),
+        );
+        default_headers.insert(
+            reqwest::header::ACCEPT_LANGUAGE,
+            reqwest::header::HeaderValue::from_static("en-US,en;q=0.9"),
+        );
+
+        let http_client = reqwest::Client::builder()
+            .default_headers(default_headers)
+            .build()
+            .expect("Failed to build Steam HTTP client");
 
         let (tx, mut rx) = mpsc::channel::<SteamSenderMsg>(100);
 
         let retries = RetryAttempts::new(5);
 
         let svc = tower::ServiceBuilder::new()
-            .buffer(20)
-            .concurrency_limit(10)
-            .rate_limit(300, Duration::from_secs(5 * 60))
+            .buffer(100)
+            .concurrency_limit(2)
+            // 1 request per second — stays well under Steam's undocumented rate limit
+            // without the burst that rate_limit(300, 5min) would allow.
+            .rate_limit(1, Duration::from_secs(1))
             .retry(retries)
             .service_fn(move |req| http_client.execute(req));
 
@@ -181,21 +207,37 @@ impl SteamWebApiProvider {
         let mut url = reqwest::Url::from_str(&path).expect("Invalid Base URL");
 
         url.query_pairs_mut()
-            .append_pair("appids", &app_id.to_string());
+            .append_pair("appids", &app_id.to_string())
+            .append_pair("cc", "us")
+            .append_pair("l", "english");
 
         tracing::debug!("Requesting App Details for App ID: {}", app_id);
 
         let req = reqwest::Request::new(reqwest::Method::GET, url);
 
-        let mut res = self
+        // Steam sometimes returns JSON `null` (instead of a proper object) when it
+        // rate-limits a headless client or when the game isn't in the store DB.
+        // Deserialise to Option<_> so we can handle that gracefully instead of a 500.
+        let response_opt = self
             .make_request(req)
             .await?
-            .json::<models::AppDetailsResponse>()
+            .json::<Option<models::AppDetailsResponse>>()
             .await
             .map_err(|e| {
                 e.status()
                     .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
             })?;
+
+        let mut res = match response_opt {
+            Some(r) => r,
+            None => {
+                tracing::warn!(
+                    "Steam returned null for app {} (rate-limited or not in store DB)",
+                    app_id
+                );
+                return Err(reqwest::StatusCode::NOT_FOUND);
+            }
+        };
 
         let app_details = match res.remove(&app_id.to_string()) {
             Some(details) => match details.data {

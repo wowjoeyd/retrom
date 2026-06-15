@@ -27,6 +27,7 @@ const modalsSchema = z.object({
   updateMetadataModal: z
     .object({
       open: z.boolean().catch(false),
+      tab: z.enum(["igdb", "steam", "music", "manual"]).optional(),
     })
     .optional(),
   uninstallGameModal: z

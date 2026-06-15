@@ -41,6 +41,7 @@ message RetromClientConfig {
     Client client_info = 1;
     InterfaceConfig interface = 2;
     optional string installation_dir = 3;
+    optional string emulator_cache_dir = 4;
   }
 
   message FlowCompletions {

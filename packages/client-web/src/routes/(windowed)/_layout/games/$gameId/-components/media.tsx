@@ -21,16 +21,31 @@ import {
 import { Image } from "@/lib/utils";
 import { cn } from "@retrom/ui/lib/utils";
 import { useGameDetail } from "@/providers/game-details";
-import { createUrl, usePublicUrl } from "@/utils/urls";
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { createUrl, usePublicUrl, useApiUrl } from "@/utils/urls";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useUpdateGameMetadata } from "@/mutations/useUpdateGameMetadata";
+import { useToast } from "@retrom/ui/hooks/use-toast";
+import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function Media() {
   const publicUrl = usePublicUrl();
-  const { gameMetadata, extraMetadata } = useGameDetail();
+  const apiUrl = useApiUrl();
+  const { game, gameMetadata, extraMetadata } = useGameDetail();
 
   const screenshots = useMemo(() => {
     const localPaths = extraMetadata?.mediaPaths?.screenshotUrls;
-    if (localPaths && publicUrl) {
+    // Require a NON-EMPTY local list. When a theme audio file exists, the server attaches a
+    // mediaPaths entry with empty screenshot/artwork arrays (just to carry themeAudioUrl); an
+    // empty array is truthy, so the old check returned [] and dropped the remote IGDB images.
+    if (localPaths?.length && publicUrl) {
       return localPaths
         .map((path) => createUrl({ path, base: publicUrl })?.href)
         .filter((s) => s !== undefined);
@@ -41,7 +56,7 @@ export function Media() {
 
   const artwork = useMemo(() => {
     const localPaths = extraMetadata?.mediaPaths?.artworkUrls;
-    if (localPaths && publicUrl) {
+    if (localPaths?.length && publicUrl) {
       return localPaths
         .map((path) => createUrl({ path, base: publicUrl })?.href)
         .filter((s) => s !== undefined);
@@ -50,6 +65,131 @@ export function Media() {
     return gameMetadata?.artworkUrls ?? [];
   }, [publicUrl, extraMetadata, gameMetadata]);
 
+  const themeAudioUrl = useMemo(() => {
+    const localPath = extraMetadata?.mediaPaths?.themeAudioUrl;
+    if (localPath && publicUrl) {
+      return createUrl({ path: localPath, base: publicUrl })?.href;
+    }
+    // No fallback — the server only sets mediaPaths.themeAudioUrl when a theme file
+    // actually exists on disk. If it's absent, no file exists and we show the download prompt.
+    return undefined;
+  }, [publicUrl, extraMetadata]);
+
+  const playerBackgroundUrl = useMemo(() => {
+    const localBg = extraMetadata?.mediaPaths?.backgroundUrl;
+    if (localBg && publicUrl) {
+      return createUrl({ path: localBg, base: publicUrl })?.href;
+    }
+    if (gameMetadata?.backgroundUrl) return gameMetadata.backgroundUrl;
+    const localCover = extraMetadata?.mediaPaths?.coverUrl;
+    if (localCover && publicUrl) {
+      return createUrl({ path: localCover, base: publicUrl })?.href;
+    }
+    return gameMetadata?.coverUrl;
+  }, [extraMetadata, publicUrl, gameMetadata]);
+
+  // Upload state and handlers (added back without touching embed logic)
+  const updateGameMetadataMutation = useUpdateGameMetadata();
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadCategory, setUploadCategory] = useState<
+    "screenshots" | "artwork" | "videos" | null
+  >(null);
+
+  const triggerUpload = (cat: "screenshots" | "artwork" | "videos") => {
+    setUploadCategory(cat);
+    if (fileInputRef.current) {
+      fileInputRef.current.accept =
+        cat === "videos" ? "video/*,audio/*" : "image/*";
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFilesSelected = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = e.target.files;
+    const cat = uploadCategory;
+    if (!files || !cat || !game) {
+      e.target.value = "";
+      setUploadCategory(null);
+      return;
+    }
+
+    const subdir =
+      cat === "screenshots"
+        ? "screenshots"
+        : cat === "artwork"
+          ? "artwork"
+          : "videos";
+    const field =
+      cat === "screenshots"
+        ? "screenshotUrls"
+        : cat === "artwork"
+          ? "artworkUrls"
+          : "videoUrls";
+
+    const added: string[] = [];
+
+    try {
+      for (const file of Array.from(files)) {
+        const ext = file.name.split(".").pop() || "bin";
+        const base = file.name
+          .replace(/\.[^/.]+$/, "")
+          .replace(/[^a-z0-9_-]/gi, "_");
+        const targetPath = `media/games/${game.id}/${subdir}/user-${Date.now()}-${base}.${ext}`;
+        const content = new Uint8Array(await file.arrayBuffer());
+
+        const uploadUrl = new URL(
+          `./rest/public/${targetPath}`,
+          apiUrl,
+        ).toString();
+        const body = JSON.stringify({
+          stat: { path: targetPath, node_type: 1 },
+          content: Array.from(content),
+        });
+
+        const res = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+
+        if (res.ok) {
+          added.push(targetPath);
+        } else {
+          throw new Error(`Upload failed for ${file.name}`);
+        }
+      }
+
+      if (added.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+        const currentList = ((gameMetadata as any)?.[field] ?? []) as string[];
+        const updated = {
+          gameId: game.id,
+          [field]: [...currentList, ...added],
+        };
+        await updateGameMetadataMutation.mutateAsync({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          metadata: [updated as any],
+        });
+        toast({
+          title: `${added.length} file(s) added`,
+          description: `Added to ${cat}`,
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: String(err),
+        variant: "destructive",
+      });
+    } finally {
+      e.target.value = "";
+      setUploadCategory(null);
+    }
+  };
+
   if (!gameMetadata) {
     return null;
   }
@@ -57,23 +197,23 @@ export function Media() {
   const showImages = !!artwork.length;
   const showScreenshots = !!screenshots.length;
   const showVideos = !!gameMetadata?.videoUrls.length;
+  const showTheme = true; // Always show — renders the audio player or a "download music" prompt
 
   let tabsShown = 0;
   if (showImages) tabsShown++;
   if (showScreenshots) tabsShown++;
   if (showVideos) tabsShown++;
+  if (showTheme) tabsShown++;
 
-  if (tabsShown === 0) {
-    return null;
-  }
-
-  const defaultTab = showImages
-    ? "images"
-    : showScreenshots
-      ? "screenshots"
-      : showVideos
-        ? "videos"
-        : "none";
+  const defaultTab = !!themeAudioUrl
+    ? "theme"
+    : showImages
+      ? "images"
+      : showScreenshots
+        ? "screenshots"
+        : showVideos
+          ? "videos"
+          : "theme";
 
   return (
     <Card className="col-span-full">
@@ -85,6 +225,9 @@ export function Media() {
         <Tabs defaultValue={defaultTab}>
           {tabsShown > 1 ? (
             <TabsList className="flex w-full *:w-full">
+              {showTheme ? (
+                <TabsTrigger value="theme">Theme</TabsTrigger>
+              ) : null}
               {showImages ? (
                 <TabsTrigger value="images">Images</TabsTrigger>
               ) : null}
@@ -96,6 +239,17 @@ export function Media() {
               ) : null}
             </TabsList>
           ) : null}
+
+          <TabsContent value="theme">
+            <ThemePlayer
+              themeUrl={themeAudioUrl}
+              backgroundUrl={playerBackgroundUrl}
+              gameId={game?.id}
+              youtubeUrl={gameMetadata?.videoUrls?.find((u: string) =>
+                /youtube\.com|youtu\.be/.test(u),
+              )}
+            />
+          </TabsContent>
 
           <TabsContent value="images">
             <ImageCarousel images={artwork} />
@@ -117,6 +271,46 @@ export function Media() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Upload section for custom media - does not affect the Videos embeds */}
+        <div className="mt-4 pt-4 border-t">
+          <div className="text-sm font-medium mb-2">Add your own media</div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 text-sm border rounded hover:bg-muted"
+              onClick={() => triggerUpload("screenshots")}
+            >
+              Upload Screenshot
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 text-sm border rounded hover:bg-muted"
+              onClick={() => triggerUpload("artwork")}
+            >
+              Upload Artwork
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 text-sm border rounded hover:bg-muted"
+              onClick={() => triggerUpload("videos")}
+            >
+              Upload Video or Audio
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Files are stored with the game. The Videos tab continues to show
+            embedded YouTube content unchanged.
+          </p>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          multiple
+          onChange={handleFilesSelected}
+        />
       </CardContent>
     </Card>
   );
@@ -184,20 +378,72 @@ function VideoItems(props: { videos: string[] }) {
     };
   }, [api, handleViewEvent]);
 
+  // Normalize any YouTube URL (watch, youtu.be, shorts, or embed) to a proper embed URL.
+  // This makes both IGDB-scraped videos and the soundtrack theme video embed correctly,
+  // restoring the simple embedding behavior from the original app (which only had IGDB embed URLs).
+  // We convert watch?v= (from the new soundtrack feature) to embed form so they can be iframed.
+  const getYoutubeEmbedSrc = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      let id = "";
+      if (host.includes("youtu.be")) {
+        id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+      } else if (
+        host.includes("youtube.com") ||
+        host.includes("music.youtube.com")
+      ) {
+        id = parsed.searchParams.get("v") || "";
+        if (!id) {
+          const parts = parsed.pathname.split("/").filter(Boolean);
+          const embedIdx = parts.indexOf("embed");
+          if (embedIdx !== -1) id = parts[embedIdx + 1] || "";
+          const shortsIdx = parts.indexOf("shorts");
+          if (shortsIdx !== -1) id = parts[shortsIdx + 1] || "";
+        }
+      }
+      if (id) {
+        return `https://www.youtube.com/embed/${id}`;
+      }
+    } catch {
+      // fall through
+    }
+    return url;
+  };
+
+  const isAudio = (url: string) =>
+    /\.(mp3|wav|ogg|opus|m4a|flac|aac)$/i.test(url.split("?")[0] || url);
+
   return (
     <CarouselContent className="h-max">
-      {videos.map((video, idx) => (
-        <CarouselItem key={idx}>
-          {inactive.includes(idx) ? null : (
-            <iframe
-              // @ts-expect-error -- types out of date
-              credentialless="true"
-              className="w-full aspect-video rounded-lg"
-              src={video}
-            />
-          )}
-        </CarouselItem>
-      ))}
+      {videos.map((video, idx) => {
+        const finalSrc = getYoutubeEmbedSrc(video);
+        const isYoutubeEmbed = /youtube(?:-nocookie)?\.com\/embed\//.test(
+          finalSrc,
+        );
+        return (
+          <CarouselItem key={idx}>
+            {inactive.includes(idx) ? null : isYoutubeEmbed ? (
+              <iframe
+                // @ts-expect-error -- types out of date
+                credentialless="true"
+                className="w-full aspect-video rounded-lg"
+                src={finalSrc}
+              />
+            ) : isAudio(finalSrc) ? (
+              <div className="w-full aspect-video rounded-lg bg-muted/30 flex items-center justify-center p-4">
+                <audio src={finalSrc} controls className="w-full" />
+              </div>
+            ) : (
+              <video
+                src={finalSrc}
+                controls
+                className="w-full aspect-video rounded-lg bg-black"
+              />
+            )}
+          </CarouselItem>
+        );
+      })}
     </CarouselContent>
   );
 }
@@ -207,6 +453,165 @@ function Controls() {
     <div className="group-hover:opacity-100 opacity-0 transition-opacity">
       <CarouselPrevious variant="accent" className="ml-8" />
       <CarouselNext variant="accent" className="mr-8" />
+    </div>
+  );
+}
+
+function ThemePlayer(props: {
+  themeUrl?: string;
+  backgroundUrl?: string;
+  youtubeUrl?: string;
+  gameId?: number;
+}) {
+  const { themeUrl, backgroundUrl, youtubeUrl, gameId } = props;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Poll for the theme audio file after a download is started in the background.
+  // The download RPC returns immediately (job spawned), so the file won't exist yet
+  // when the modal closes. We check sessionStorage for a pending-download marker set by
+  // MusicTab and re-fetch game-metadata every 4 s until the URL appears (max 2 min).
+  useEffect(() => {
+    if (themeUrl) {
+      if (gameId != null) sessionStorage.removeItem(`pendingTheme_${gameId}`);
+      return;
+    }
+    if (gameId == null || !sessionStorage.getItem(`pendingTheme_${gameId}`))
+      return;
+
+    const start = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - start > 120_000) {
+        clearInterval(id);
+        sessionStorage.removeItem(`pendingTheme_${gameId}`);
+        return;
+      }
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey.includes("game-metadata"),
+      });
+    }, 4000);
+
+    return () => clearInterval(id);
+  }, [themeUrl, gameId, queryClient]);
+
+  if (!themeUrl) {
+    return (
+      <div
+        className="relative w-full aspect-video rounded-lg overflow-hidden bg-muted/30 flex items-center justify-center"
+        style={
+          backgroundUrl
+            ? {
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : undefined
+        }
+      >
+        {backgroundUrl && (
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+        )}
+        <div className="relative z-10 flex flex-col items-center gap-3 text-center px-6">
+          <p className="text-white/80 text-sm">
+            No theme audio downloaded yet.
+          </p>
+          {gameId != null && (
+            <button
+              type="button"
+              className="px-4 py-2 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/80 transition-colors"
+              onClick={() =>
+                navigate({
+                  to: ".",
+                  search: (prev) => ({
+                    ...prev,
+                    updateMetadataModal: { open: true, tab: "music" },
+                  }),
+                })
+              }
+            >
+              Download theme music →
+            </button>
+          )}
+          {youtubeUrl && (
+            <a
+              href={youtubeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-white/60 underline underline-offset-2 hover:text-white/90"
+            >
+              Preview on YouTube
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const isMagicTheme = !!themeUrl && themeUrl.endsWith("/theme");
+  const themeExts = [
+    { ext: "m4a", type: "audio/mp4" },
+    { ext: "webm", type: "audio/webm" },
+    { ext: "opus", type: "audio/ogg" },
+    { ext: "ogg", type: "audio/ogg" },
+    { ext: "mp3", type: "audio/mpeg" },
+    { ext: "flac", type: "audio/flac" },
+    { ext: "wav", type: "audio/wav" },
+  ];
+
+  return (
+    <div
+      className="relative w-full aspect-video rounded-lg overflow-hidden bg-black flex items-end"
+      style={
+        backgroundUrl
+          ? {
+              backgroundImage: `url(${backgroundUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : undefined
+      }
+    >
+      {backgroundUrl && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      )}
+      <div className="relative z-10 w-full p-4 space-y-2">
+        <div className="flex items-center justify-between text-white/90">
+          <div>
+            <div className="font-semibold">Theme Music</div>
+            <div className="text-xs text-white/70">
+              Downloaded theme • loops on this screen
+            </div>
+          </div>
+          {youtubeUrl && (
+            <a
+              href={youtubeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-3 py-1 rounded bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Watch on YouTube
+            </a>
+          )}
+        </div>
+        {isMagicTheme ? (
+          // key forces the audio element to remount when the game changes so the
+          // browser doesn't keep playing the previous game's cached audio stream.
+          <audio key={themeUrl} controls loop className="w-full">
+            {themeExts.map(({ ext, type }) => (
+              <source key={ext} src={`${themeUrl}.${ext}`} type={type} />
+            ))}
+          </audio>
+        ) : (
+          <audio
+            key={themeUrl}
+            src={themeUrl}
+            controls
+            loop
+            className="w-full"
+          />
+        )}
+      </div>
     </div>
   );
 }

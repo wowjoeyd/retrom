@@ -26,6 +26,7 @@ impl GameMetadataProvider<models::Game> for SteamWebApiProvider {
         };
 
         let mut metadata = self.app_details_to_game_metadata(app, app_details);
+
         metadata.game_id = Some(game.id);
 
         Some(metadata)

@@ -24,6 +24,7 @@ export function useUpdateLibraryMetadata() {
       platformMetadataJobId,
       extraMetadataJobId,
       steamMetadataJobId,
+      themeAudioJobId,
     }) => {
       toast({
         title: "Library Metadata Update Started",
@@ -47,6 +48,12 @@ export function useUpdateLibraryMetadata() {
           })
         : undefined;
 
+      const themeSubscription = themeAudioJobId
+        ? retromClient.jobClient.getJobSubscription({
+            jobId: themeAudioJobId,
+          })
+        : undefined;
+
       async function pollSub(
         subscription: AsyncIterable<GetJobSubscriptionResponse>,
         key: string,
@@ -65,6 +72,7 @@ export function useUpdateLibraryMetadata() {
         { subscription: platformSubscription, key: "platform-metadata" },
         { subscription: extraSubscription, key: "game-metadata" },
         { subscription: steamSubscription, key: "game-metadata" },
+        { subscription: themeSubscription, key: "game-metadata" },
       ].map(
         ({ subscription, key }) =>
           new Promise<void>((resolve, reject) => {

@@ -1,5 +1,7 @@
 use super::provider::{IGDBProvider, IgdbSearchData};
-use crate::metadata_providers::{GameMetadataProvider, MetadataProvider};
+use crate::metadata_providers::{
+    soundtrack::find_soundtrack_url, GameMetadataProvider, MetadataProvider,
+};
 use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
 use deunicode::deunicode;
 use retrom_codegen::{
@@ -102,7 +104,7 @@ impl IGDBProvider {
         let video_urls: Vec<String> = igdb_match
             .videos
             .into_iter()
-            .map(|video| format!("https://www.youtube.com/embed/{}", video.video_id))
+            .map(|video| format!("https://www.youtube.com/watch?v={}", video.video_id))
             .collect();
 
         retrom::NewGameMetadata {
@@ -128,8 +130,11 @@ impl GameMetadataProvider<IgdbGameSearchQuery> for IGDBProvider {
         game: retrom::Game,
         query: Option<IgdbGameSearchQuery>,
     ) -> Option<NewGameMetadata> {
-        let naive_name = game.path.split('/').next_back().unwrap_or(&game.path);
-        let path = PathBuf::from_str(&game.path).unwrap();
+        // Normalize Windows extended paths (\\?\E:\...) and backslashes so the
+        // search term we send to IGDB (and the fallback) is a clean basename.
+        let normalized = game.path.trim_start_matches("\\\\?\\").replace('\\', "/");
+        let naive_name = normalized.split('/').next_back().unwrap_or(&game.path);
+        let path = PathBuf::from_str(&normalized).unwrap_or_else(|_| PathBuf::from(&game.path));
         let mut name = path
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -196,6 +201,18 @@ impl GameMetadataProvider<IgdbGameSearchQuery> for IGDBProvider {
         let igdb_match = exact_match.or(first_match).map(|meta| meta.to_owned());
 
         if let Some(mut igdb_match) = igdb_match {
+            let soundtrack_query_name = igdb_match.name.clone().unwrap_or_else(|| name.to_string());
+
+            if let Some(soundtrack_url) = find_soundtrack_url(&soundtrack_query_name).await {
+                if !igdb_match
+                    .video_urls
+                    .iter()
+                    .any(|url| url == &soundtrack_url)
+                {
+                    igdb_match.video_urls.insert(0, soundtrack_url);
+                }
+            }
+
             igdb_match.game_id = Some(game.id);
             return Some(igdb_match);
         }
