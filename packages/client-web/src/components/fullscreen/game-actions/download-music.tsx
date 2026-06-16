@@ -2,7 +2,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@retrom/ui/components/sheet";
 import { MenuEntryButton } from "../menubar/menu-entry-button";
 import { useGameDetail } from "@/providers/game-details";
 import { LoaderCircle, Music2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { FocusContainer } from "../focus-container";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
@@ -10,9 +10,10 @@ import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack
 import { cn } from "@retrom/ui/lib/utils";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { useInputDeviceContext } from "@/providers/input-device";
-import { gameMusicPlayer } from "../grid-game-list";
+import { gameMusicPlayer, pollForDownloadedTheme } from "../grid-game-list";
 import { PanelHeader, PanelHints } from "../menubar/panel-chrome";
 import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
+import { useQueryClient } from "@tanstack/react-query";
 
 function formatDuration(secs: number): string {
   if (secs <= 0) return "";
@@ -24,9 +25,33 @@ function formatDuration(secs: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function DownloadMusicAction() {
+// The same Download/Replace Theme Music flow is surfaced from two places: the
+// game-actions sheet (default ids) and the detail page's theme music panel.
+// `idPrefix` keeps the spatial-nav focus keys unique between the two mounted
+// instances; `restoreFocusKey` returns controller focus to the originating
+// button when the sheet closes (the panel needs this since it has no parent
+// force-focus container to re-grab focus).
+export function DownloadMusicAction(props?: {
+  idPrefix?: string;
+  icon?: ReactNode;
+  label?: string;
+  children?: ReactNode;
+  restoreFocusKey?: string;
+}) {
+  const {
+    idPrefix = "download-music-action",
+    icon = <Music2 size={18} />,
+    label = "Pick a track to use as theme audio",
+    children = "Download Theme Music",
+    restoreFocusKey,
+  } = props ?? {};
+
+  const openId = `${idPrefix}-open`;
+  const candidateKey = (idx: number) => `${idPrefix}-candidate-${idx}`;
+
   const [open, setOpen] = useState(false);
   const { game } = useGameDetail();
+  const queryClient = useQueryClient();
 
   const { data, status: searchStatus } = useSearchGameSoundtrack(game.id, {
     enabled: open,
@@ -48,9 +73,10 @@ export function DownloadMusicAction() {
     if (!open || candidates.length === 0) return;
     if (inputDevice !== "gamepad" && inputDevice !== "hotkeys") return;
     const raf = requestAnimationFrame(() => {
-      setFocus("music-candidate-0");
+      setFocus(candidateKey(0));
     });
     return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, candidates.length, inputDevice]);
 
   const handleSelect = (videoId: string) => {
@@ -59,18 +85,18 @@ export function DownloadMusicAction() {
     // after the download completes and metadata refetches.
     gameMusicPlayer.clearCacheForGame(game.id);
     download({ gameId: game.id, videoId });
+    // The download RPC returns when the job is spawned, not when the file lands.
+    // Poll this game's metadata until the new themeAudioUrl appears so both the
+    // detail music panel and the grid card pick it up without an app refresh.
+    pollForDownloadedTheme(queryClient, game.id);
     setOpen(false);
   };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton
-          id="download-music-action-open"
-          icon={<Music2 size={18} />}
-          label="Pick a track to use as theme audio"
-        >
-          Download Theme Music
+        <MenuEntryButton id={openId} icon={icon} label={label}>
+          {children}
         </MenuEntryButton>
       </SheetTrigger>
 
@@ -82,6 +108,9 @@ export function DownloadMusicAction() {
         onCloseAutoFocus={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (restoreFocusKey) {
+            requestAnimationFrame(() => setFocus(restoreFocusKey));
+          }
         }}
       >
         <HotkeyLayer
@@ -92,7 +121,7 @@ export function DownloadMusicAction() {
         >
           <FocusContainer
             opts={{
-              focusKey: "download-music-action",
+              focusKey: idPrefix,
               isFocusBoundary: true,
               initialFocus: true,
             }}
@@ -123,7 +152,7 @@ export function DownloadMusicAction() {
                 candidates.map((c, idx) => (
                   <MenuEntryButton
                     key={c.videoId}
-                    id={`music-candidate-${idx}`}
+                    id={candidateKey(idx)}
                     icon={<Music2 size={18} />}
                     label={formatDuration(c.durationSecs) || undefined}
                     disabled={isDownloading}

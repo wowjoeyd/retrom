@@ -4,7 +4,6 @@ import { InstallGameAction } from "./install-game";
 import { DeleteGameAction } from "./delete-game";
 import { DownloadMusicAction } from "./download-music";
 import { useState } from "react";
-import { useHotkeys } from "@/providers/hotkeys";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer, useFocusable } from "../focus-container";
 import { Button } from "@retrom/ui/components/button";
@@ -30,15 +29,6 @@ export function GameActions() {
     focusKey: "game-actions-open",
   });
 
-  useHotkeys({
-    handlers: {
-      PAGE_LEFT: {
-        handler: () => setOpen(true),
-        zone: "gameActionsOpen",
-      },
-    },
-  });
-
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <HotkeyLayer
@@ -50,11 +40,13 @@ export function GameActions() {
             ref={ref}
             variant="secondary"
             className={cn(
-              "h-full rounded-none px-2 ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
-              "opacity-80 focus-hover:opacity-100 transition-all",
+              "flex h-16 items-center gap-2 rounded-md px-6 text-xl font-bold uppercase tracking-wide",
+              "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
+              "opacity-90 focus-hover:bg-accent focus-hover:opacity-100 transition-all",
             )}
           >
-            <EllipsisVerticalIcon size={28} />
+            <EllipsisVerticalIcon size={24} />
+            Actions
           </Button>
         </SheetTrigger>
       </HotkeyLayer>

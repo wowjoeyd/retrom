@@ -23,18 +23,15 @@ export function SimilarGames() {
   return (
     <HotkeyLayer
       handlers={{
-        BACK: { handler: () => setFocus("fullscreen-action-button") },
+        BACK: { handler: () => setFocus("detail-tab-similar") },
       }}
     >
       <div
         className={cn(
-          "w-full bg-transparent border-l border-secondary pt-2",
-          "focus-within:bg-muted/80 focus-within:border-accent",
-          "hover:bg-muted/80 hover:border-accent transition-all",
+          "w-full rounded-lg border border-border/50 bg-muted/10 pt-2",
+          "transition-all focus-within:border-accent/60 hover:border-accent/60",
         )}
       >
-        <h3 className="text-3xl uppercase font-black ml-4">Similar Games</h3>
-
         <ScrollArea className="w-full">
           <FocusContainer
             opts={{
