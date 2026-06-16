@@ -5,7 +5,7 @@ import { Group, useGroupContext } from "@/providers/fullscreen/group-context";
 import { useEffect, useMemo, useRef } from "react";
 import { HotkeyButton } from "../hotkey-button";
 import { HotkeyHandlers, useHotkeys } from "@/providers/hotkeys";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 declare global {
   export interface HotkeyZones {
@@ -18,6 +18,7 @@ export function GroupMenu(
 ) {
   const { previousGroup, nextGroup, allGroups } = useGroupContext();
   const navigate = useNavigate();
+  const { className, ...rest } = props;
 
   const handlers = useMemo(
     () =>
@@ -53,62 +54,46 @@ export function GroupMenu(
   useHotkeys({ handlers });
 
   return (
-    <div {...props}>
-      <div className={cn("animate-in fade-in w-full")}>
-        <div
+    <div className={cn("animate-in fade-in", className)} {...rest}>
+      <div className="flex items-center gap-1 px-2 py-1.5 pointer-events-auto touch-auto">
+        <HotkeyButton
+          hotkey="PAGE_LEFT"
+          className="shrink-0 px-2"
+          disabled={previousGroup?.id === undefined}
+          onClick={handlers.PAGE_LEFT.handler}
+        >
+          <ChevronLeft size={18} />
+        </HotkeyButton>
+
+        <ScrollArea
           className={cn(
-            "w-full relative",
-            "flex items-center",
-            "pointer-events-auto touch-auto",
+            "relative w-full grow",
+            "before:absolute before:inset-y-0 before:left-0 before:w-12 before:z-10",
+            "after:absolute after:inset-y-0 after:right-0 after:w-12 after:z-10",
+            "before:bg-gradient-to-l before:from-transparent before:to-background",
+            "after:bg-gradient-to-r after:from-transparent after:to-background",
+            "after:pointer-events-none before:pointer-events-none",
+            "after:touch-none before:touch-none",
           )}
         >
-          <div className="pr-2 w-full border-r justify-self-start flex basis-1">
-            <HotkeyButton
-              hotkey="PAGE_LEFT"
-              disabled={previousGroup?.id === undefined}
-              onClick={handlers.PAGE_LEFT.handler}
-            >
-              <ArrowLeft size={20} className="ml-2" />
-            </HotkeyButton>
+          <div className="flex items-center gap-2 w-max m-auto px-4 py-0.5">
+            {allGroups?.map((group) => (
+              <GroupEntry key={group.id} group={group} />
+            ))}
           </div>
 
-          <ScrollArea
-            className={cn(
-              "relative w-full",
-              "before:absolute before:inset-y-0 before:left-0 before:w-1/5 before:z-10",
-              "after:absolute after:inset-y-0 after:right-0 after:w-1/5",
-              "before:bg-gradient-to-l before:from-transparent before:to-background",
-              "after:bg-gradient-to-r after:from-transparent after:to-background",
-              "after:pointer-events-none before:pointer-events-none",
-              "after:touch-none before:touch-none",
-            )}
-          >
-            <div
-              className={cn(
-                "whitespace-nowrap w-max px-[30dvw]",
-                "grid grid-flow-col place-items-center gap-4",
-              )}
-            >
-              {allGroups?.map((group) => (
-                <GroupEntry key={group.id} group={group} />
-              ))}
-            </div>
+          <ScrollBar orientation="horizontal" className="hidden" />
+        </ScrollArea>
 
-            <ScrollBar orientation="horizontal" className="hidden" />
-          </ScrollArea>
-
-          <div className="pl-2 w-full border-l flex justify-end basis-1">
-            <HotkeyButton
-              variant="ghost"
-              hotkey="PAGE_RIGHT"
-              className="flex-row-reverse"
-              disabled={nextGroup?.id === undefined}
-              onClick={handlers.PAGE_RIGHT.handler}
-            >
-              <ArrowRight size={20} className="mr-2" />
-            </HotkeyButton>
-          </div>
-        </div>
+        <HotkeyButton
+          variant="ghost"
+          hotkey="PAGE_RIGHT"
+          className="shrink-0 flex-row-reverse px-2"
+          disabled={nextGroup?.id === undefined}
+          onClick={handlers.PAGE_RIGHT.handler}
+        >
+          <ChevronRight size={18} />
+        </HotkeyButton>
       </div>
     </div>
   );
@@ -135,17 +120,24 @@ function GroupEntry(props: { group: Group }) {
     <Link
       ref={ref}
       className={cn(
-        "text-2xl font-medium px-4 transition-opacity uppercase",
-        "flex items-center gap-2",
-        "opacity-30 hover:opacity-75",
-        active && "opacity-100 hover:opacity-100",
+        "shrink-0 rounded-full px-5 py-2 uppercase tracking-wide",
+        "text-lg font-semibold flex items-center gap-2 transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        active
+          ? "bg-accent/90 text-accent-foreground"
+          : "text-muted-foreground/70 hover:text-foreground hover:bg-foreground/10",
       )}
       to="."
       search={{ activeGroupId: group.id, restoreGridFocus: undefined }}
     >
       {group.name}
-      <span className="text-sm font-light text-muted-foreground">
-        ({group.allGames.length})
+      <span
+        className={cn(
+          "text-sm font-medium tabular-nums",
+          active ? "text-accent-foreground/70" : "text-muted-foreground/50",
+        )}
+      >
+        {group.allGames.length}
       </span>
     </Link>
   );

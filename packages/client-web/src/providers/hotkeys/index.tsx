@@ -18,6 +18,8 @@ export const Hotkey = [
   "BACK",
   "MENU",
   "OPTION",
+  "SORT",
+  "FILTER",
   "LEFT",
   "RIGHT",
   "UP",

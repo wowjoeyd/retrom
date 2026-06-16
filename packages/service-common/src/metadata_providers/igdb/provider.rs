@@ -117,6 +117,7 @@ impl IGDBProvider {
             "websites.trusted".to_string(),
             "videos.name".to_string(),
             "videos.video_id".to_string(),
+            "first_release_date".to_string(),
         ];
 
         let platform_fields = vec![

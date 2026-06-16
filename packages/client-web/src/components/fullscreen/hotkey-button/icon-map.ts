@@ -4,7 +4,9 @@ import { ControllerMapping } from "@/providers/gamepad/maps";
 // Xbox Series
 import xboxA from "@/assets/controller-icons/xbox/xbox_button_a.svg";
 import xboxB from "@/assets/controller-icons/xbox/xbox_button_b.svg";
-import xboxBack from "@/assets/controller-icons/xbox/xbox_button_back.svg";
+import xboxX from "@/assets/controller-icons/xbox/xbox_button_x.svg";
+import xboxY from "@/assets/controller-icons/xbox/xbox_button_y.svg";
+import xboxMenu from "@/assets/controller-icons/xbox/xbox_button_menu.svg";
 import xboxGuide from "@/assets/controller-icons/xbox/xbox_guide.svg";
 import xboxLb from "@/assets/controller-icons/xbox/xbox_lb.svg";
 import xboxRb from "@/assets/controller-icons/xbox/xbox_rb.svg";
@@ -16,6 +18,8 @@ import xboxDpadRight from "@/assets/controller-icons/xbox/xbox_dpad_right.svg";
 // PlayStation shared
 import psCross from "@/assets/controller-icons/playstation/playstation_button_cross.svg";
 import psCircle from "@/assets/controller-icons/playstation/playstation_button_circle.svg";
+import psTriangle from "@/assets/controller-icons/playstation/playstation_button_triangle.svg";
+import psSquare from "@/assets/controller-icons/playstation/playstation_button_square.svg";
 import psAnalog from "@/assets/controller-icons/playstation/playstation_button_analog.svg";
 import psL1 from "@/assets/controller-icons/playstation/playstation_trigger_l1.svg";
 import psR1 from "@/assets/controller-icons/playstation/playstation_trigger_r1.svg";
@@ -23,20 +27,18 @@ import psDpadUp from "@/assets/controller-icons/playstation/playstation_dpad_up.
 import psDpadDown from "@/assets/controller-icons/playstation/playstation_dpad_down.svg";
 import psDpadLeft from "@/assets/controller-icons/playstation/playstation_dpad_left.svg";
 import psDpadRight from "@/assets/controller-icons/playstation/playstation_dpad_right.svg";
-// PlayStation per-generation OPTION buttons
-import ps3Select from "@/assets/controller-icons/playstation/playstation3_button_select.svg";
-import ps4Share from "@/assets/controller-icons/playstation/playstation4_button_share.svg";
-import ps5Create from "@/assets/controller-icons/playstation/playstation5_button_create.svg";
+import psOptions from "@/assets/controller-icons/playstation/playstation_button_options.svg";
 
 // Nintendo Switch
 import switchA from "@/assets/controller-icons/switch/switch_button_a.svg";
 import switchB from "@/assets/controller-icons/switch/switch_button_b.svg";
 import switchX from "@/assets/controller-icons/switch/switch_button_x.svg";
+import switchY from "@/assets/controller-icons/switch/switch_button_y.svg";
 import switchL from "@/assets/controller-icons/switch/switch_button_l.svg";
 import switchR from "@/assets/controller-icons/switch/switch_button_r.svg";
 import switchSl from "@/assets/controller-icons/switch/switch_button_sl.svg";
 import switchSr from "@/assets/controller-icons/switch/switch_button_sr.svg";
-import switchMinus from "@/assets/controller-icons/switch/switch_button_minus.svg";
+import switchPlus from "@/assets/controller-icons/switch/switch_button_plus.svg";
 import switchHome from "@/assets/controller-icons/switch/switch_button_home.svg";
 import switchDpadUp from "@/assets/controller-icons/switch/switch_dpad_up.svg";
 import switchDpadDown from "@/assets/controller-icons/switch/switch_dpad_down.svg";
@@ -52,8 +54,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   xbox: {
     ACCEPT: xboxA,
     BACK: xboxB,
-    OPTION: xboxBack,
+    OPTION: xboxMenu,
     MENU: xboxGuide,
+    SORT: xboxY,
+    FILTER: xboxX,
     PAGE_LEFT: xboxLb,
     PAGE_RIGHT: xboxRb,
     UP: xboxDpadUp,
@@ -64,8 +68,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   "dualshock 3": {
     ACCEPT: psCross,
     BACK: psCircle,
-    OPTION: ps3Select,
+    OPTION: psOptions,
     MENU: psAnalog,
+    SORT: psTriangle,
+    FILTER: psSquare,
     PAGE_LEFT: psL1,
     PAGE_RIGHT: psR1,
     UP: psDpadUp,
@@ -76,8 +82,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   "dualshock 4": {
     ACCEPT: psCross,
     BACK: psCircle,
-    OPTION: ps4Share,
+    OPTION: psOptions,
     MENU: psAnalog,
+    SORT: psTriangle,
+    FILTER: psSquare,
     PAGE_LEFT: psL1,
     PAGE_RIGHT: psR1,
     UP: psDpadUp,
@@ -88,8 +96,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   "dualshock 5": {
     ACCEPT: psCross,
     BACK: psCircle,
-    OPTION: ps5Create,
+    OPTION: psOptions,
     MENU: psAnalog,
+    SORT: psTriangle,
+    FILTER: psSquare,
     PAGE_LEFT: psL1,
     PAGE_RIGHT: psR1,
     UP: psDpadUp,
@@ -100,8 +110,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   switch_pro: {
     ACCEPT: switchA,
     BACK: switchB,
-    OPTION: switchMinus,
+    OPTION: switchPlus,
     MENU: switchHome,
+    SORT: switchX,
+    FILTER: switchY,
     PAGE_LEFT: switchL,
     PAGE_RIGHT: switchR,
     UP: switchDpadUp,
@@ -112,8 +124,10 @@ const ICONS: Record<ControllerMapping, IconMap> = {
   switch_joycon_dual: {
     ACCEPT: switchA,
     BACK: switchB,
-    OPTION: switchMinus,
+    OPTION: switchPlus,
     MENU: switchHome,
+    SORT: switchX,
+    FILTER: switchY,
     PAGE_LEFT: switchL,
     PAGE_RIGHT: switchR,
     UP: switchDpadUp,

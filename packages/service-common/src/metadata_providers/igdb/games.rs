@@ -118,6 +118,7 @@ impl IGDBProvider {
             artwork_urls,
             screenshot_urls,
             video_urls,
+            release_date: igdb_match.first_release_date,
             ..Default::default()
         }
     }

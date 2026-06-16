@@ -25,7 +25,11 @@ import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 import { GameMusicNowPlaying } from "../components/fullscreen/grid-game-list";
-import { gameMusicPlayer } from "../components/fullscreen/grid-game-list";
+import {
+  gameMusicPlayer,
+  cancelPendingFocusMusic,
+} from "../components/fullscreen/grid-game-list";
+import { consumeQuickScrollNav } from "../components/fullscreen/alphabet-scroll-overlay";
 import { Background, Scene } from "../components/fullscreen/scene";
 import { ActionBarProvider } from "@/providers/fullscreen/action-bar-context";
 
@@ -38,6 +42,20 @@ declare global {
 const searchSchema = z.object({
   activeGroupId: z.number().catch(-1),
   restoreGridFocus: z.boolean().optional().catch(undefined),
+  sortBy: z
+    .enum([
+      "name",
+      "lastPlayed",
+      "dateAdded",
+      "playTime",
+      "releaseDate",
+      "platform",
+    ])
+    .catch("name"),
+  filters: z
+    .array(z.enum(["installed", "notInstalled", "steam", "nonSteam"]))
+    .optional()
+    .catch(undefined),
 });
 
 export const Route = createFileRoute("/_fullscreenLayout")({
@@ -88,11 +106,17 @@ function FullscreenLayout() {
   useHotkeys({
     handlers: {
       UP: {
-        handler: () => navigateByDirection("up", {}),
+        handler: (e) => {
+          if (consumeQuickScrollNav("UP", e)) return;
+          navigateByDirection("up", {});
+        },
         zone: "root-navigation",
       },
       DOWN: {
-        handler: () => navigateByDirection("down", {}),
+        handler: (e) => {
+          if (consumeQuickScrollNav("DOWN", e)) return;
+          navigateByDirection("down", {});
+        },
         zone: "root-navigation",
       },
       LEFT: {
@@ -111,6 +135,7 @@ function FullscreenLayout() {
   // theme music from details/hover does not continue into windowed mode.
   useEffect(() => {
     return () => {
+      cancelPendingFocusMusic();
       gameMusicPlayer.stop(300);
     };
   }, []);

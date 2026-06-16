@@ -13,40 +13,16 @@ import {
 } from "react";
 import { useRetromClient } from "@/providers/retrom-client";
 import { FocusContainer, useFocusable } from "../focus-container";
-import { DownloadIcon, LoaderCircleIcon, Music2, VolumeX } from "lucide-react";
+import { Music2, VolumeX } from "lucide-react";
 import { create } from "zustand";
-import { useHotkeys } from "@/providers/hotkeys";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
-import { HotkeyIcon } from "../hotkey-button";
 import { Group, useGroupContext } from "@/providers/fullscreen/group-context";
 import { Separator } from "@retrom/ui/components/separator";
 import { cn } from "@retrom/ui/lib/utils";
 import { useGameMetadata } from "@/queries/useGameMetadata";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import { Skeleton } from "@retrom/ui/components/skeleton";
-import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
-import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@retrom/ui/components/dialog";
-import { Button } from "@retrom/ui/components/button";
-import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
-import { useInputDeviceContext } from "@/providers/input-device";
-
-function formatDurationShort(secs: number): string {
-  if (secs <= 0) return "";
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  if (h > 0)
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
+import { notifyCardFocus } from "../alphabet-scroll-overlay";
 
 // =====================================================
 // Global background music player for fullscreen game themes / soundtracks.
@@ -920,29 +896,17 @@ export function useGameMusic(_gameId: number) {
 }
 
 export function GameMusicNowPlaying() {
-  const {
-    visible,
-    status,
-    title,
-    sourceType,
-    message,
-    updatedAt,
-    hide,
-    url,
-    gameId,
-  } = useGameMusicStatus((state) => ({
-    visible: state.visible,
-    status: state.status,
-    title: state.title,
-    sourceType: state.sourceType,
-    message: state.message,
-    updatedAt: state.updatedAt,
-    hide: state.hide,
-    url: state.url,
-    gameId: state.gameId,
-  }));
-
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const { visible, status, title, sourceType, message, updatedAt, hide, url } =
+    useGameMusicStatus((state) => ({
+      visible: state.visible,
+      status: state.status,
+      title: state.title,
+      sourceType: state.sourceType,
+      message: state.message,
+      updatedAt: state.updatedAt,
+      hide: state.hide,
+      url: state.url,
+    }));
 
   useEffect(() => {
     if (!visible || status === "loading") return;
@@ -974,21 +938,6 @@ export function GameMusicNowPlaying() {
 
   // When blocked or missing we want actions to be clickable.
   const interactive = isBlocked || isMissing;
-
-  // Allow controller users to trigger the download picker when the "No Theme Audio"
-  // banner is visible. OPTION (Select/View, button 8) is used as the action button
-  // so it does not conflict with ACCEPT (navigation) or BACK (dismissal).
-  useHotkeys({
-    enabled: isMissing && visible && gameId != null,
-    handlers: {
-      OPTION: {
-        handler: () => {
-          hide();
-          setPickerOpen(true);
-        },
-      },
-    },
-  });
 
   return (
     <>
@@ -1032,25 +981,6 @@ export function GameMusicNowPlaying() {
                 </p>
               ) : null}
 
-              {isMissing && gameId != null && (
-                <button
-                  type="button"
-                  className="mt-1 flex items-center gap-1.5 w-fit text-xs font-medium text-accent hover:text-accent-foreground pointer-events-auto"
-                  onClick={() => {
-                    hide();
-                    setPickerOpen(true);
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <HotkeyIcon
-                    hotkey="OPTION"
-                    className="text-[9px] py-[6px] px-[5px]"
-                  />
-                  <DownloadIcon size={11} />
-                  Download music
-                </button>
-              )}
-
               {isBlocked && (
                 <>
                   <button
@@ -1087,206 +1017,9 @@ export function GameMusicNowPlaying() {
           </div>
         </div>
       )}
-
-      {gameId != null && (
-        <MusicPickerDialog
-          gameId={gameId}
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
     </>
   );
 }
-
-function MusicCandidateItem(props: {
-  candidate: {
-    videoId: string;
-    title: string;
-    thumbnailUrl: string;
-    durationSecs: number;
-  };
-  isSelected: boolean;
-  onSelect: () => void;
-  focusKey: string;
-  initialFocus?: boolean;
-}) {
-  const { candidate: c, isSelected, onSelect, focusKey, initialFocus } = props;
-  const { ref } = useFocusable<HTMLLIElement>({
-    focusKey,
-    initialFocus,
-    onFocus: ({ node }) => {
-      node?.focus({ preventScroll: true });
-      node?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    },
-  });
-
-  return (
-    <HotkeyLayer handlers={{ ACCEPT: { handler: onSelect } }}>
-      <li
-        ref={ref}
-        tabIndex={-1}
-        onClick={onSelect}
-        className={cn(
-          "flex items-center gap-3 rounded-md border p-2 cursor-pointer transition-colors",
-          "focus:outline-none focus-hover:bg-muted/50",
-          isSelected
-            ? "border-primary bg-primary/10"
-            : "border-border hover:bg-muted/50",
-        )}
-      >
-        <img
-          src={c.thumbnailUrl}
-          alt={c.title}
-          className="w-20 h-14 object-cover rounded shrink-0 bg-muted"
-          loading="lazy"
-        />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium line-clamp-2 leading-snug">
-            {c.title || "Untitled"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {c.durationSecs > 0 ? formatDurationShort(c.durationSecs) : ""}
-          </p>
-        </div>
-      </li>
-    </HotkeyLayer>
-  );
-}
-
-function MusicPickerDialog({
-  gameId,
-  open,
-  onClose,
-}: {
-  gameId: number;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { data, status: searchStatus } = useSearchGameSoundtrack(gameId, {
-    enabled: open,
-  });
-  const { mutate: download, status: downloadStatus } =
-    useDownloadGameSoundtrack();
-  const [inputDevice] = useInputDeviceContext();
-
-  const candidates = data?.candidates ?? [];
-  const isSearching = searchStatus === "pending" && open;
-  const [selected, setSelected] = useState<string | null>(null);
-
-  const firstCandidateId = candidates[0]?.videoId;
-
-  // Defer setFocus until after React has committed all registrations for this
-  // render cycle. On first open the candidates arrive async (dialog mounts,
-  // then query resolves), so the bottom-up effect ordering means the child
-  // item's initialFocus effect fires before the parent FocusContainer is
-  // registered in norigin. RAF lets the full tree settle first.
-  useEffect(() => {
-    if (!open || !firstCandidateId) return;
-    if (inputDevice !== "gamepad" && inputDevice !== "hotkeys") return;
-    const raf = requestAnimationFrame(() => {
-      setFocus(`music-picker-item-${firstCandidateId}`);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [open, firstCandidateId, inputDevice]);
-
-  const handleDownload = () => {
-    if (!selected) return;
-    // Clear cached "missing" result so the player retries after the download
-    // completes and the metadata query refetches the new themeAudioUrl.
-    gameMusicPlayer.clearCacheForGame(gameId);
-    download({ gameId, videoId: selected });
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg z-[100]">
-        <HotkeyLayer
-          allowBubbling="never"
-          handlers={{ BACK: { handler: onClose } }}
-        >
-          <DialogHeader>
-            <DialogTitle>Choose Theme Music</DialogTitle>
-            <DialogDescription>
-              Select a YouTube track to use as theme audio for this game. The
-              download runs in the background.
-            </DialogDescription>
-          </DialogHeader>
-
-          {isSearching ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
-              <LoaderCircleIcon className="animate-spin" size={20} />
-              <span className="text-sm">Searching YouTube…</span>
-            </div>
-          ) : candidates.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
-              <Music2 size={32} className="opacity-40" />
-              <p className="text-sm">No candidates found for this game.</p>
-            </div>
-          ) : (
-            <FocusContainer
-              opts={{
-                focusKey: "music-picker-list",
-                isFocusBoundary: true,
-                forceFocus: true,
-              }}
-            >
-              <ul className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-1">
-                {candidates.map((c) => (
-                  <MusicCandidateItem
-                    key={c.videoId}
-                    candidate={c}
-                    isSelected={selected === c.videoId}
-                    onSelect={() => setSelected(c.videoId)}
-                    focusKey={`music-picker-item-${c.videoId}`}
-                  />
-                ))}
-              </ul>
-            </FocusContainer>
-          )}
-
-          {candidates.length > 0 && (
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <HotkeyIcon hotkey="ACCEPT" />
-                Select
-              </span>
-              <span className="flex items-center gap-1.5">
-                <HotkeyIcon hotkey="BACK" />
-                Close
-              </span>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={!selected || downloadStatus === "pending"}
-              onClick={handleDownload}
-            >
-              {downloadStatus === "pending" ? (
-                <LoaderCircleIcon className="animate-spin" />
-              ) : (
-                <>
-                  <DownloadIcon size={14} className="mr-1.5" />
-                  Download
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </HotkeyLayer>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// =====================================================
-// End of music player
-// =====================================================
 
 function getFirstGameId(group: Group) {
   const firstPartitionWithGames = group.partitionedGames.find(
@@ -1411,6 +1144,31 @@ function centerCardInScrollViewport(
   animateViewportScrollTop(viewport, top);
 }
 
+// Soundtrack playback + detail prefetch are deferred briefly after a card gains
+// focus, so that holding a direction (alphabet quick-scroll) or rapidly moving
+// across cards never starts/stops theme music or pops the now-playing banner
+// mid-scrub. Each new focus cancels the previous pending action, so it only runs
+// once focus settles on a card. A single shared timer is enough because only one
+// card holds focus at a time.
+const FOCUS_SETTLE_MS = 300;
+let focusSettleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFocusSettle(action: () => void) {
+  if (focusSettleTimer) clearTimeout(focusSettleTimer);
+  focusSettleTimer = setTimeout(() => {
+    focusSettleTimer = null;
+    action();
+  }, FOCUS_SETTLE_MS);
+}
+
+/** Cancel any pending post-focus music/prefetch (e.g. on leaving fullscreen). */
+export function cancelPendingFocusMusic() {
+  if (focusSettleTimer) {
+    clearTimeout(focusSettleTimer);
+    focusSettleTimer = null;
+  }
+}
+
 export function GridGameList() {
   const { activeGroup, allGroups } = useGroupContext();
   const lastFocusKeyByGroup = useLastFocusedGame((s) => s.lastFocusKeyByGroup);
@@ -1484,7 +1242,9 @@ export function GridGameList() {
           saveLastFocusedChild: false,
         }}
         style={{ "--game-cols": columns, "--game-gap": `${gap}px` }}
-        className={cn("flex flex-col gap-4 w-full mx-auto py-[20dvh] px-4")}
+        className={cn(
+          "flex flex-col gap-4 w-full mx-auto pt-8 pb-[20dvh] px-4",
+        )}
       >
         {group.allGames.length === 0 && (
           <div className="flex flex-col gap-4 items-center justify-center">
@@ -1557,6 +1317,7 @@ export function GridGameList() {
                         game={game}
                         id={focusKey}
                         groupId={group.id}
+                        partitionKey={key}
                         initialFocus={initialFocus}
                       />
                     </div>
@@ -1570,13 +1331,25 @@ export function GridGameList() {
   });
 }
 
+// While a fullscreen sheet (Sort By / Filters) owns focus, grid cards must not
+// claim focus via forceFocus/initialFocus. A re-render behind the open sheet
+// (e.g. toggling a filter) would otherwise let the new first card grab focus,
+// yanking it out of the sheet and leaving the user unable to close it. Set by
+// the sheets while open; read at card render time (the same render the steal
+// would happen on), so a plain module flag is sufficient — no reactivity needed.
+let gridAutoFocusSuppressed = false;
+export function setGridAutoFocusSuppressed(suppressed: boolean) {
+  gridAutoFocusSuppressed = suppressed;
+}
+
 function GameListItem(props: {
   game: GameWithMetadata;
   id: string;
   groupId: number;
+  partitionKey: string;
   initialFocus?: boolean;
 }) {
-  const { game, id, groupId, initialFocus } = props;
+  const { game, id, groupId, partitionKey, initialFocus } = props;
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1629,15 +1402,22 @@ function GameListItem(props: {
     }
   }, [game.id, game.platformId, queryClient, retromClient]);
 
+  // Don't let cards grab focus while a sheet is open (see flag comment above).
+  const allowAutoFocus = !gridAutoFocusSuppressed;
   const { ref } = useFocusable<HTMLDivElement>({
     focusKey: id,
-    forceFocus: true,
-    initialFocus,
+    forceFocus: allowAutoFocus,
+    initialFocus: initialFocus && allowAutoFocus,
     onFocus: ({ node }) => {
       if (node) centerCardInScrollViewport(node, { immediate: initialFocus });
       useLastFocusedGame.getState().setLastFocusKey(groupId, id);
-      startMusicForThisGame();
-      prefetchDetail();
+      notifyCardFocus(partitionKey);
+      // Defer music + prefetch until focus settles so quick-scroll / rapid
+      // navigation doesn't thrash the soundtrack or flash the banner.
+      scheduleFocusSettle(() => {
+        startMusicForThisGame();
+        prefetchDetail();
+      });
     },
   });
 
@@ -1742,7 +1522,9 @@ function GameListItem(props: {
   return (
     <div
       className={cn(
-        "group scale-95 focus-within:scale-100 hover:scale-100 transition-all",
+        "group scale-[0.94] focus-within:scale-100 hover:scale-100",
+        "transition-transform duration-200 ease-out will-change-transform",
+        "focus-within:z-10 hover:z-10",
         "shadow-lg shadow-background relative cursor-pointer",
         "rounded h-full w-full",
       )}
@@ -1860,15 +1642,16 @@ function GameImage(props: {
 
       <div
         className={cn(
-          "group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0",
-          "absolute inset-0",
-          "bg-gradient-to-t from-card",
-          "ring-ring ring-inset group-focus-within:ring-[length:var(--fs-focus-ring-width)]",
+          "absolute inset-0 rounded",
+          "bg-gradient-to-t from-background/95 via-background/30 to-transparent",
+          "ring-accent ring-inset group-focus-within:ring-[length:var(--fs-focus-ring-width)]",
           props.kind === "BACKGROUND" ? "text-lg py-2 px-4" : "text-2xl p-4",
           "flex items-end font-black",
         )}
       >
-        <p className="text-pretty">{gameName}</p>
+        <p className="text-pretty drop-shadow-md line-clamp-3 opacity-80 group-focus-within:opacity-100 group-hover:opacity-100 transition-opacity">
+          {gameName}
+        </p>
       </div>
     </div>
   );

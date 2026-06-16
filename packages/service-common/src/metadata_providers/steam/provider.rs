@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDate};
 use retrom_codegen::{
     retrom::{self},
     timestamp::Timestamp,
@@ -178,6 +178,13 @@ impl SteamWebApiProvider {
             None
         };
 
+        let release_date = app_details.release_date.and_then(|rd| {
+            if rd.coming_soon {
+                return None;
+            }
+            parse_steam_release_date(&rd.date?)
+        });
+
         retrom::NewGameMetadata {
             description: app_details.short_description,
             name: app_details.name,
@@ -193,6 +200,7 @@ impl SteamWebApiProvider {
             video_urls,
             last_played,
             minutes_played,
+            release_date,
             ..Default::default()
         }
     }
@@ -301,5 +309,71 @@ impl SteamWebApiProvider {
                 Err(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
             }
         }
+    }
+}
+
+/// Parse the free-form `release_date.date` string from Steam's Store API
+/// (requested with `l=english`) into a `Timestamp` at midnight UTC.
+///
+/// Steam does not return a structured date, and the rendered string varies by
+/// title. We try the known English shapes in order and fall back to `None` for
+/// anything we can't pin to a real calendar day ("Q1 2024", "To be announced",
+/// a bare "2024" with no month, etc.). A missing day is treated as the 1st of
+/// the month, and a year-only date is intentionally rejected rather than guessed.
+fn parse_steam_release_date(raw: &str) -> Option<Timestamp> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Full day-precision formats, most common first.
+    //   "21 Aug, 2012"  (day month, year — Steam's usual English form)
+    //   "Aug 21, 2012"  (month day, year — occasionally returned)
+    let naive = NaiveDate::parse_from_str(s, "%e %b, %Y")
+        .or_else(|_| NaiveDate::parse_from_str(s, "%b %e, %Y"))
+        // Month + year only ("Aug 2012" / "August 2012") — assume the 1st.
+        .or_else(|_| NaiveDate::parse_from_str(&format!("1 {s}"), "%e %b %Y"))
+        .or_else(|_| NaiveDate::parse_from_str(&format!("1 {s}"), "%e %B %Y"))
+        .ok()?;
+
+    let seconds = naive.and_hms_opt(0, 0, 0)?.and_utc().timestamp();
+    Some(Timestamp { seconds, nanos: 0 })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_steam_release_date;
+
+    fn date_parts(raw: &str) -> Option<(i32, u32, u32)> {
+        use chrono::{DateTime, Datelike};
+        let ts = parse_steam_release_date(raw)?;
+        let dt = DateTime::from_timestamp(ts.seconds, 0)?;
+        Some((dt.year(), dt.month(), dt.day()))
+    }
+
+    #[test]
+    fn parses_day_month_year() {
+        assert_eq!(date_parts("21 Aug, 2012"), Some((2012, 8, 21)));
+        assert_eq!(date_parts("1 Nov, 2000"), Some((2000, 11, 1)));
+    }
+
+    #[test]
+    fn parses_month_day_year() {
+        assert_eq!(date_parts("Aug 21, 2012"), Some((2012, 8, 21)));
+    }
+
+    #[test]
+    fn parses_month_year_only_as_first_of_month() {
+        assert_eq!(date_parts("Aug 2012"), Some((2012, 8, 1)));
+        assert_eq!(date_parts("August 2012"), Some((2012, 8, 1)));
+    }
+
+    #[test]
+    fn rejects_unparseable_strings() {
+        assert_eq!(date_parts("Q1 2024"), None);
+        assert_eq!(date_parts("To be announced"), None);
+        assert_eq!(date_parts("Coming soon"), None);
+        assert_eq!(date_parts("2024"), None);
+        assert_eq!(date_parts(""), None);
     }
 }

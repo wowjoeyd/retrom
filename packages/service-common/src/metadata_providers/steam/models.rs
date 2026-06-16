@@ -31,6 +31,12 @@ pub struct AppDetailsData {
 pub type AppDetailsResponse = HashMap<String, AppDetailsData>;
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ReleaseDate {
+    pub coming_soon: bool,
+    pub date: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AppDetails {
     pub name: Option<String>,
     pub steam_appid: Option<u32>,
@@ -48,6 +54,7 @@ pub struct AppDetails {
     pub genres: Option<Vec<Genre>>,
     pub movies: Option<Vec<Movie>>,
     pub screenshots: Option<Vec<Screenshot>>,
+    pub release_date: Option<ReleaseDate>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
