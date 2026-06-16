@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { cn } from "@retrom/ui/lib/utils";
 import { useHotkeys } from "@/providers/hotkeys";
+import { useHotkeyMapping } from "@/providers/hotkeys/mapping";
+import { GamepadButtonDownEvent } from "@/providers/gamepad/event";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer, useFocusable } from "../focus-container";
 import { HotkeyIcon } from "../hotkey-button";
@@ -36,7 +38,11 @@ import { useUninstallGame } from "@/mutations/useUninstallGame";
 import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
 import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack";
 import { setQuickScrollPaused } from "../alphabet-scroll-overlay";
-import { gameMusicPlayer, setGridAutoFocusSuppressed } from "../grid-game-list";
+import {
+  pollForDownloadedTheme,
+  setGridAutoFocusSuppressed,
+} from "../grid-game-list";
+import { useQueryClient } from "@tanstack/react-query";
 
 declare global {
   export interface HotkeyZones {
@@ -49,14 +55,45 @@ declare global {
 // pressed anywhere that isn't a game card).
 const CARD_FOCUS_KEY = /^game-list-(-?\d+)-(\d+)$/;
 
-type View = "menu" | "music" | "confirm";
+// On open, spatial-nav focus can lose a race with Radix's FocusScope and land on
+// the dialog container (a <div>) instead of the first action button. setFocus
+// only updates spatial-nav's *internal* key, so checking getCurrentFocusKey()
+// isn't enough — Radix can steal *DOM* focus back to the container afterwards
+// while the key still reads as the button (leaving the white container focus
+// ring, and BACK broken because events then bubble away from the in-tree
+// HotkeyLayer). Retry across frames until a real <button> actually holds DOM
+// focus — the container is a div, every action/Play row is a <button> — and keep
+// re-asserting setFocus until then. Stops immediately once any button is focused
+// (so D-pad navigation away is never yanked back). Returns a cleanup that cancels
+// the pending frame (for use directly as a useEffect callback).
+function focusFirstAction(focusKey: string, maxMs = 600) {
+  const start = performance.now();
+  let raf = 0;
+  const tick = () => {
+    const landed = document.activeElement instanceof HTMLButtonElement;
+    if (!landed) setFocus(focusKey);
+    if (!landed && performance.now() - start < maxMs) {
+      raf = requestAnimationFrame(tick);
+    }
+  };
+  raf = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(raf);
+}
+
+type View = "menu" | "music" | "confirm" | "song-details";
 
 export function GridGameContextMenu() {
   const [open, setOpen] = useState(false);
   const [gameId, setGameId] = useState<number | null>(null);
   const [view, setView] = useState<View>("menu");
+  // Whether the music (track search) view was reached via "Download Theme Music"
+  // from the main menu, or via "Replace Theme Music" from Song Details. BACK
+  // returns to wherever it was opened from.
+  const musicFrom = useRef<"menu" | "song-details">("menu");
   const savedFocusKey = useRef<string | undefined>(undefined);
+  const contentRef = useRef<HTMLDivElement>(null);
   const { activeGroup } = useGroupContext();
+  const { keyboardToHotkey, gamepadToHotkey } = useHotkeyMapping();
 
   useHotkeys({
     enabled: !open,
@@ -93,9 +130,24 @@ export function GridGameContextMenu() {
     if (key) requestAnimationFrame(() => setFocus(key));
   }, []);
 
+  const openMusic = (from: "menu" | "song-details") => {
+    musicFrom.current = from;
+    setView("music");
+  };
+
   // BACK steps sub-views back to the action list before closing the menu.
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     if (view === "music") {
+      if (musicFrom.current === "song-details") {
+        setView("song-details");
+        requestAnimationFrame(() => setFocus("game-context-song-replace"));
+      } else {
+        setView("menu");
+        requestAnimationFrame(() => setFocus("game-context-music"));
+      }
+      return;
+    }
+    if (view === "song-details") {
       setView("menu");
       requestAnimationFrame(() => setFocus("game-context-music"));
       return;
@@ -106,7 +158,47 @@ export function GridGameContextMenu() {
       return;
     }
     close();
-  };
+  }, [view, close]);
+
+  // Defensive BACK: while the first action is still settling into focus, Radix's
+  // FocusScope can briefly park DOM focus on the dialog container (a <div>). The
+  // in-tree HotkeyLayer is a *descendant* of that container, so a keydown/gamepad
+  // event dispatched on the focused container bubbles *up* and never reaches the
+  // layer — leaving BACK dead until the user nudged focus onto a button. Listen
+  // on the container itself and act only while it actually holds focus, so a BACK
+  // the HotkeyLayer already handled (focus on a button) is never double-fired.
+  useEffect(() => {
+    if (!open) return;
+    const node = contentRef.current;
+    if (!node) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement !== node) return;
+      if (keyboardToHotkey[e.key] === "BACK") {
+        e.preventDefault();
+        e.stopPropagation();
+        handleBack();
+      }
+    };
+
+    const onGamepadButton = (e: GamepadButtonDownEvent) => {
+      if (document.activeElement !== node) return;
+      if (gamepadToHotkey[e.detail.button] === "BACK") {
+        e.stopPropagation();
+        handleBack();
+      }
+    };
+
+    node.addEventListener("keydown", onKeyDown);
+    node.addEventListener(GamepadButtonDownEvent.EVENT_NAME, onGamepadButton);
+    return () => {
+      node.removeEventListener("keydown", onKeyDown);
+      node.removeEventListener(
+        GamepadButtonDownEvent.EVENT_NAME,
+        onGamepadButton,
+      );
+    };
+  }, [open, handleBack, keyboardToHotkey, gamepadToHotkey]);
 
   // Title/cover come straight from the already-loaded grid data so the header
   // renders instantly (and the Dialog stays accessible) while the detail
@@ -121,7 +213,9 @@ export function GridGameContextMenu() {
       ? { accept: "Download", back: "Back" }
       : view === "confirm"
         ? { accept: "Confirm", back: "Cancel" }
-        : { accept: "Select", back: "Close" };
+        : view === "song-details"
+          ? { accept: "Select", back: "Back" }
+          : { accept: "Select", back: "Close" };
 
   return (
     <Dialog
@@ -132,10 +226,11 @@ export function GridGameContextMenu() {
       }}
     >
       <DialogContent
+        ref={contentRef}
         centered
         userCanClose={false}
         overlayClassName="bg-background/70 backdrop-blur-sm"
-        className="w-[23rem] max-w-[92vw] gap-0 overflow-hidden border-border/80"
+        className="w-[23rem] max-w-[92vw] gap-0 overflow-hidden border-border/80 outline-none focus:outline-none focus-visible:outline-none"
         onOpenAutoFocus={(e) => e.preventDefault()}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
@@ -174,7 +269,9 @@ export function GridGameContextMenu() {
                   ? "Pick a track to use as theme audio."
                   : view === "confirm"
                     ? "This removes the locally installed files."
-                    : "Choose an action for this game."}
+                    : view === "song-details"
+                      ? "Theme music for this game."
+                      : "Choose an action for this game."}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -188,11 +285,15 @@ export function GridGameContextMenu() {
               {view === "menu" && (
                 <MenuView
                   onClose={close}
-                  onOpenMusic={() => setView("music")}
+                  onOpenMusic={() => openMusic("menu")}
+                  onOpenSongDetails={() => setView("song-details")}
                   onConfirmUninstall={() => setView("confirm")}
                 />
               )}
               {view === "music" && <MusicView onPicked={close} />}
+              {view === "song-details" && (
+                <SongDetailsView onReplace={() => openMusic("song-details")} />
+              )}
               {view === "confirm" && (
                 <ConfirmUninstallView onClose={close} onCancel={handleBack} />
               )}
@@ -227,11 +328,17 @@ function MenuLoading() {
 function MenuView(props: {
   onClose: () => void;
   onOpenMusic: () => void;
+  onOpenSongDetails: () => void;
   onConfirmUninstall: () => void;
 }) {
-  const { onClose, onOpenMusic, onConfirmUninstall } = props;
-  const { game } = useGameDetail();
+  const { onClose, onOpenMusic, onOpenSongDetails, onConfirmUninstall } = props;
+  const { game, extraMetadata } = useGameDetail();
   const navigate = useNavigate();
+
+  // A downloaded theme persists only its file path (theme_audio_url); its title
+  // / source / duration are never saved. Presence of that path is what lets us
+  // offer "Song Details" instead of the first-time "Download Theme Music".
+  const hasTheme = !!extraMetadata?.mediaPaths?.themeAudioUrl;
 
   const installationStatus = useInstallationStatus(game.id);
   const isInstalled = installationStatus === InstallationStatus.INSTALLED;
@@ -243,11 +350,9 @@ function MenuView(props: {
 
   const { mutate: install } = useInstallGame(game.id);
 
-  // Land focus on the primary (Play) action once the rows have mounted.
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setFocus("game-context-play"));
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // Land focus on the primary (Play) action once the rows have mounted. Retries
+  // across frames so it never gets stuck on the dialog container (see bug).
+  useEffect(() => focusFirstAction("game-context-play"), []);
 
   const viewDetails = () => {
     // Navigating unmounts the grid route (and this menu); restoreGridFocus lets
@@ -302,13 +407,23 @@ function MenuView(props: {
         View Details
       </ContextRow>
 
-      <ContextRow
-        id="game-context-music"
-        icon={<Music2 size={18} />}
-        onSelect={onOpenMusic}
-      >
-        Download Theme Music
-      </ContextRow>
+      {hasTheme ? (
+        <ContextRow
+          id="game-context-music"
+          icon={<Music2 size={18} />}
+          onSelect={onOpenSongDetails}
+        >
+          Song Details
+        </ContextRow>
+      ) : (
+        <ContextRow
+          id="game-context-music"
+          icon={<Music2 size={18} />}
+          onSelect={onOpenMusic}
+        >
+          Download Theme Music
+        </ContextRow>
+      )}
 
       <ContextRow
         id="game-context-cancel"
@@ -379,6 +494,7 @@ function ConfirmUninstallView(props: {
 function MusicView(props: { onPicked: () => void }) {
   const { onPicked } = props;
   const { game } = useGameDetail();
+  const queryClient = useQueryClient();
 
   const { data, status } = useSearchGameSoundtrack(game.id, { enabled: true });
   const { mutate: download, status: downloadStatus } =
@@ -398,10 +514,12 @@ function MusicView(props: { onPicked: () => void }) {
 
   const select = (videoId: string) => {
     if (isDownloading) return;
-    // Drop the "missing" cache so the player retries the theme once the
-    // download finishes and metadata refetches.
-    gameMusicPlayer.clearCacheForGame(game.id);
     download({ gameId: game.id, videoId });
+    // The download RPC returns when the job is spawned, not when the file lands.
+    // Poll this game's metadata until the new themeAudioUrl appears so the
+    // focused grid card picks it up and starts playing without an app refresh.
+    // (Also clears the player's stale "missing" cache for this game.)
+    pollForDownloadedTheme(queryClient, game.id);
     onPicked();
   };
 
@@ -440,6 +558,75 @@ function MusicView(props: { onPicked: () => void }) {
             onSelect={() => select(c.videoId)}
           />
         ))}
+    </FocusContainer>
+  );
+}
+
+// Inline detail view for a game that already has a downloaded theme. Only the
+// local theme file path is persisted server-side (title / source / duration /
+// thumbnail from the original search are never saved), so this honestly shows
+// what is known — status + filename — and never fabricates the rest. Replace
+// routes into the same inline track-search flow; Remove is intentionally absent
+// (no safe per-game removal RPC exists — see report).
+function SongDetailsView(props: { onReplace: () => void }) {
+  const { onReplace } = props;
+  const { name, extraMetadata } = useGameDetail();
+
+  const themeAudioUrl = extraMetadata?.mediaPaths?.themeAudioUrl;
+  const fileName = themeAudioUrl
+    ? themeAudioUrl
+        .split(/[\\/?#]/)
+        .filter(Boolean)
+        .pop()
+    : undefined;
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() =>
+      setFocus("game-context-song-replace"),
+    );
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <FocusContainer
+      opts={{
+        focusKey: "game-context-song-details",
+        isFocusBoundary: true,
+        forceFocus: true,
+      }}
+      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+    >
+      <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/10 p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Music2 size={16} className="text-accent" />
+          <span className="truncate">{name}</span>
+        </div>
+
+        <dl className="flex flex-col gap-1.5 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Status</dt>
+            <dd className="font-medium text-accent-text">Downloaded</dd>
+          </div>
+          {fileName && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="shrink-0 text-muted-foreground">File</dt>
+              <dd className="truncate font-mono text-[0.7rem] text-foreground/80">
+                {fileName}
+              </dd>
+            </div>
+          )}
+        </dl>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <ContextRow
+          id="game-context-song-replace"
+          icon={<DownloadIcon size={18} />}
+          onSelect={onReplace}
+        >
+          Replace Theme Music
+        </ContextRow>
+      </div>
     </FocusContainer>
   );
 }

@@ -24,7 +24,6 @@ import { configStore } from "@/providers/config";
 import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
-import { GameMusicNowPlaying } from "../components/fullscreen/grid-game-list";
 import {
   gameMusicPlayer,
   cancelPendingFocusMusic,
@@ -178,8 +177,6 @@ function FullscreenLayout() {
                 <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
                   <Outlet />
                 </div>
-
-                <GameMusicNowPlaying />
               </div>
 
               <ResolveCloudSaveConflictModal />

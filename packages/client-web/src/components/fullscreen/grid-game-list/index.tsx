@@ -3,17 +3,21 @@ import { InterfaceConfig_GameListEntryImageJson } from "@retrom/codegen/retrom/c
 import { getFileStub } from "@/lib/utils";
 import { useConfig } from "@/providers/config";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
+import {
+  setFocus,
+  getCurrentFocusKey,
+} from "@noriginmedia/norigin-spatial-navigation";
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRetromClient } from "@/providers/retrom-client";
 import { FocusContainer, useFocusable } from "../focus-container";
-import { Music2, VolumeX } from "lucide-react";
 import { create } from "zustand";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { Group, useGroupContext } from "@/providers/fullscreen/group-context";
@@ -23,6 +27,7 @@ import { useGameMetadata } from "@/queries/useGameMetadata";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import { Skeleton } from "@retrom/ui/components/skeleton";
 import { notifyCardFocus } from "../alphabet-scroll-overlay";
+import { HotkeyIcon } from "../hotkey-button";
 
 // =====================================================
 // Global background music player for fullscreen game themes / soundtracks.
@@ -180,7 +185,10 @@ const gameMusic = {
         this._recordOutcome(state.url, state.status);
     }
 
-    this._setStatus(state);
+    // Stamp the owning game id onto every terminal status so the focused card's
+    // audio tray can tell whether the currently playing/loaded theme is *its*
+    // theme (vs. the previously focused card's, during the brief settle window).
+    this._setStatus({ gameId: this.currentGameId ?? undefined, ...state });
   },
 
   _recordOutcome(url: string, status: GameMusicState["status"]) {
@@ -341,19 +349,64 @@ const gameMusic = {
         this.sourceType = "audio";
       }
       const a = this.audio;
-      if (a && this.sourceType === "audio") {
-        if (a.paused && videoUrl) {
-          // resume if it was paused but we still have the src from previous (no stop happened)
-          void a.play().catch((e: unknown) => {
-            if (e instanceof Error && e.name !== "AbortError")
-              console.warn("resume play error", e);
-          });
-        }
+      if (a && this.sourceType === "audio" && videoUrl) {
+        // Was this game's theme *genuinely* already playing (the real seamless-
+        // continuation case: grid hover → detail, or re-focusing the same card)?
+        // Capture it *before* touching play(), because audio.play() flips
+        // `paused` to false synchronously even when the source 404s. Reading
+        // `!paused` *after* play() is exactly what made a no-theme game (whose
+        // magic theme URL 404s) falsely report "playing" when its card was
+        // re-focused — e.g. after the context menu closed and restored focus to
+        // that same card (currentGameId still === this game → continuation path).
+        const wasPlaying = !a.paused && !a.error && a.readyState >= 2;
         this._fadeTo(targetVolume, Math.max(50, Math.min(fadeMs || 150, 150)));
-      }
-      if (videoUrl) {
+
+        if (wasPlaying) {
+          this._finishStatus({
+            status: "playing",
+            url: videoUrl,
+            title,
+            sourceType: "audio",
+          });
+        } else {
+          // Paused / never-started / previously-errored: actually attempt the
+          // resume and let the *real* outcome decide the status. A no-theme game
+          // resolves to "missing" (404), never a phantom "playing". The status is
+          // only written if this game still owns playback when the promise settles.
+          void a
+            .play()
+            .then(() => {
+              if (this.currentGameId !== gameId) return;
+              this._fadeTo(
+                targetVolume,
+                Math.max(50, Math.min(fadeMs || 150, 150)),
+              );
+              this._finishStatus({
+                status: "playing",
+                url: videoUrl,
+                title,
+                sourceType: "audio",
+              });
+            })
+            .catch((e: unknown) => {
+              if (e instanceof Error && e.name === "AbortError") return;
+              if (this.currentGameId !== gameId) return;
+              const isMissing =
+                (e instanceof Error && e.name === "NotSupportedError") ||
+                a.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED;
+              this._finishStatus({
+                status: isMissing ? "missing" : "blocked",
+                url: videoUrl,
+                title,
+                sourceType: "audio",
+                message: String(e),
+              });
+            });
+        }
+      } else if (videoUrl) {
+        // Non-audio (e.g. youtube) continuation keeps the prior optimistic report.
         this._finishStatus({
-          status: a && !a.paused ? "playing" : "blocked",
+          status: this.sourceType ? "playing" : "blocked",
           url: videoUrl,
           title,
           sourceType: this.sourceType || "audio",
@@ -895,129 +948,116 @@ export function useGameMusic(_gameId: number) {
   return { enabled, volume, fade };
 }
 
-export function GameMusicNowPlaying() {
-  const { visible, status, title, sourceType, message, updatedAt, hide, url } =
-    useGameMusicStatus((state) => ({
-      visible: state.visible,
-      status: state.status,
-      title: state.title,
-      sourceType: state.sourceType,
-      message: state.message,
-      updatedAt: state.updatedAt,
-      hide: state.hide,
-      url: state.url,
-    }));
+// CSS-only equalizer. Bars animate (scaleY transform — no reflow) only while a
+// theme is actually playing; otherwise they sit static and dimmed. Respects
+// prefers-reduced-motion via the .fs-eq-bar rule in globals.css.
+const EQ_BAR_DELAYS = [0, 160, 320, 110, 240];
 
-  useEffect(() => {
-    if (!visible || status === "loading") return;
-
-    // Keep "unavailable / missing" visible longer,
-    // especially useful when focused in the grid.
-    const hideMs =
-      status === "playing"
-        ? 5000
-        : status === "missing" || status === "error"
-          ? 14000
-          : 9000;
-    const timeout = window.setTimeout(() => hide(), hideMs);
-
-    return () => window.clearTimeout(timeout);
-  }, [visible, status, updatedAt, hide]);
-
-  const isPlaying = status === "playing" || status === "loading";
-  const isBlocked = status === "blocked" || status === "error";
-  const isMissing = status === "missing";
-  const label =
-    status === "playing"
-      ? "Now Playing"
-      : status === "loading"
-        ? "Loading Soundtrack"
-        : isMissing
-          ? "No Theme Audio"
-          : "Soundtrack Unavailable";
-
-  // When blocked or missing we want actions to be clickable.
-  const interactive = isBlocked || isMissing;
+function MusicVisualizer(props: { active: boolean }) {
+  const { active } = props;
 
   return (
-    <>
-      {visible && (
-        <div
+    <div className="flex h-3 items-end gap-[2px]" aria-hidden="true">
+      {EQ_BAR_DELAYS.map((delay, i) => (
+        <span
+          key={i}
           className={cn(
-            "fixed bottom-8 left-1/2 z-[90] w-[min(92vw,34rem)] -translate-x-1/2",
-            "transition-all duration-500 ease-out",
-            interactive ? "pointer-events-auto" : "pointer-events-none",
+            "block w-[2px] rounded-full bg-gradient-to-t from-accent/50 to-accent",
+            active
+              ? "fs-eq-bar shadow-[0_0_4px_var(--color-accent)]"
+              : "opacity-40",
           )}
-        >
-          <div
+          style={
+            active
+              ? { height: "100%", animationDelay: `${delay}ms` }
+              : { height: "45%" }
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+// Focused-card audio tray — an integrated footer that lives *inside* the focused
+// game card's title/gradient area (see GameImage). It is NOT a dock, toast, or
+// full-width strip: it never leaves the card's bounds, never covers neighbors,
+// registers no hotkeys (so it can't steal focus or intercept controller input),
+// and is absolutely positioned over the cover so it causes no grid layout shift.
+//
+// Only the focused card mounts this component, so it is the sole subscriber to
+// the music store — music-state changes re-render just the one focused card,
+// keeping rapid D-pad navigation cheap.
+function CardAudioTray(props: {
+  gameId: number;
+  gameName: string;
+  // True when this game is known to already have a downloaded theme (its
+  // themeAudioUrl is present in metadata). Lets the tray show an honest,
+  // non-flickering state during the ~300ms before playback settles.
+  hasThemeHint: boolean;
+}) {
+  const { gameId, gameName, hasThemeHint } = props;
+
+  const { status, title, ownerId } = useGameMusicStatus((state) => ({
+    status: state.status,
+    title: state.title,
+    ownerId: state.gameId,
+  }));
+
+  // Theme presence is decided ONLY by authoritative signals: this game's theme
+  // is actively playing, or metadata records a persisted themeAudioUrl. Transient
+  // player states (blocked / error / loading / missing) are deliberately ignored
+  // so a card with no theme can never flash a stale "Theme Music" + visualizer.
+  const isPlaying = ownerId === gameId && status === "playing";
+  const hasTheme = isPlaying || hasThemeHint;
+
+  const label = isPlaying
+    ? "Now Playing"
+    : hasTheme
+      ? "Theme Music"
+      : "No Theme Music";
+
+  const hint = hasTheme ? "Song Details" : "Download Theme Music";
+
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none mt-2 flex flex-col gap-1.5",
+        "border-t border-accent/25 pt-2",
+        "animate-in fade-in slide-in-from-bottom-2 duration-200",
+        isPlaying && "drop-shadow-[0_0_8px_var(--color-accent)]",
+      )}
+    >
+      <div className="flex items-center gap-2.5">
+        {/* Visualizer animates only while truly playing; sits static & dimmed
+            when a theme exists but isn't playing yet, and is absent entirely
+            when there's no theme. Transform-only + reduced-motion safe. */}
+        {hasTheme && <MusicVisualizer active={isPlaying} />}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span
             className={cn(
-              "border bg-background/95 shadow-lg backdrop-blur px-4 py-3",
-              "flex items-center gap-3",
-              isPlaying ? "border-accent" : "border-destructive/60",
+              "text-[0.6rem] font-bold uppercase leading-none tracking-[0.15em]",
+              isPlaying ? "text-accent-text" : "text-muted-foreground",
             )}
           >
-            <div
-              className={cn(
-                "size-10 grid place-items-center border",
-                isPlaying
-                  ? "border-accent text-accent-foreground bg-accent/15"
-                  : "border-destructive/60 text-destructive bg-destructive/10",
-              )}
-            >
-              {isPlaying ? <Music2 size={22} /> : <VolumeX size={22} />}
-            </div>
-
-            <div className="min-w-0 flex flex-col">
-              <p className="text-xs uppercase font-bold text-muted-foreground">
-                {label}
-                {sourceType ? ` via ${sourceType}` : ""}
-              </p>
-              <p className="text-base font-semibold truncate">
-                {title || "Game soundtrack"}
-              </p>
-              {message && status !== "playing" ? (
-                <p className="text-sm text-muted-foreground truncate">
-                  {message}
-                </p>
-              ) : null}
-
-              {isBlocked && (
-                <>
-                  <button
-                    type="button"
-                    className="mt-1 w-fit text-xs font-medium underline underline-offset-2 text-accent hover:text-accent-foreground pointer-events-auto"
-                    onClick={() => {
-                      try {
-                        gameMusicPlayer.userActivatePlayback();
-                      } catch {}
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    Play preview
-                  </button>
-
-                  {sourceType === "youtube" && url && (
-                    <button
-                      type="button"
-                      className="mt-1 ml-2 w-fit text-xs font-medium underline underline-offset-2 text-muted-foreground hover:text-foreground pointer-events-auto"
-                      onClick={() => {
-                        try {
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        } catch {}
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      title="Open the full theme video on YouTube in your browser"
-                    >
-                      Watch on YouTube
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+            {label}
+          </span>
+          {hasTheme && (
+            <span className="truncate text-sm font-semibold leading-tight text-foreground/90">
+              {(isPlaying && title) || gameName}
+            </span>
+          )}
         </div>
-      )}
-    </>
+      </div>
+
+      {/* Quiet pointer to where theme music is managed. Purely visual — registers
+          no hotkey, so Start/OPTION still only opens the game context menu. */}
+      <span className="flex items-center gap-1.5 text-[0.65rem] font-medium text-muted-foreground">
+        <HotkeyIcon hotkey="OPTION" className="size-4" />
+        Options › {hint}
+      </span>
+    </div>
   );
 }
 
@@ -1167,6 +1207,85 @@ export function cancelPendingFocusMusic() {
     clearTimeout(focusSettleTimer);
     focusSettleTimer = null;
   }
+}
+
+// A soundtrack download RPC returns as soon as the background job is *spawned*,
+// not when the file lands. Until the grid card's metadata refetches, it still
+// shows no theme. Poll-invalidate just this game's metadata until the new
+// themeAudioUrl appears (or we time out), so the focused card's source flips and
+// its replay effect starts the track — no full app refresh needed.
+const themeAvailabilityPolls = new Map<
+  number,
+  ReturnType<typeof setInterval>
+>();
+
+// mediaPaths is a protobuf map (a JS Map under @bufbuild or a plain keyed object
+// depending on shape), so read defensively. Isolated here so the unavoidable
+// `any` access doesn't leak eslint-disables across the poller logic.
+function readThemeAudioUrl(data: unknown, gameId: number): string | undefined {
+  /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment */
+  const mp: any = (data as any)?.mediaPaths;
+  if (!mp) return undefined;
+  const entry: any =
+    typeof mp.get === "function"
+      ? (mp.get(gameId) ?? mp.get(String(gameId)))
+      : (mp[gameId] ?? mp[String(gameId)]);
+  return entry?.themeAudioUrl;
+  /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-assignment */
+}
+
+function gameMetadataQueryMatches(key: readonly unknown[], gameId: number) {
+  if (!key.includes("game-metadata")) return false;
+  // useGameMetadata keys are ["game-metadata", "metadata", queryClient, request]
+  // where request carries the gameIds we asked for.
+  const req = key.find(
+    (k): k is { gameIds?: number[] } =>
+      typeof k === "object" && k !== null && "gameIds" in k,
+  );
+  return !!req?.gameIds?.includes(gameId);
+}
+
+export function pollForDownloadedTheme(
+  queryClient: QueryClient,
+  gameId: number,
+) {
+  const existing = themeAvailabilityPolls.get(gameId);
+  if (existing) clearInterval(existing);
+
+  // Drop any cached "missing"/"blocked" outcome so the player retries the theme
+  // once metadata refetches and the focused card re-triggers playback.
+  gameMusicPlayer.clearCacheForGame(gameId);
+
+  const themeReady = () =>
+    queryClient
+      .getQueriesData({
+        predicate: (q) => gameMetadataQueryMatches(q.queryKey, gameId),
+      })
+      .some(([, data]) => !!readThemeAudioUrl(data, gameId));
+
+  const refetch = () =>
+    void queryClient.invalidateQueries({
+      predicate: (q) => gameMetadataQueryMatches(q.queryKey, gameId),
+    });
+
+  const stop = () => {
+    const id = themeAvailabilityPolls.get(gameId);
+    if (id) clearInterval(id);
+    themeAvailabilityPolls.delete(gameId);
+  };
+
+  const start = Date.now();
+  const interval = setInterval(() => {
+    if (themeReady() || Date.now() - start > 120_000) {
+      stop();
+      return;
+    }
+    refetch();
+  }, 4000);
+  themeAvailabilityPolls.set(gameId, interval);
+
+  // Kick an immediate refetch so we don't sit idle for the first interval.
+  refetch();
 }
 
 export function GridGameList() {
@@ -1342,6 +1461,11 @@ export function setGridAutoFocusSuppressed(suppressed: boolean) {
   gridAutoFocusSuppressed = suppressed;
 }
 
+// Set for one focus transition when a card's focus was initiated by the mouse
+// (hover) rather than the controller, so onFocus can skip its scroll-centering.
+// Read + cleared synchronously inside the very next onFocus it triggers.
+let focusFromPointer = false;
+
 function GameListItem(props: {
   game: GameWithMetadata;
   id: string;
@@ -1404,12 +1528,18 @@ function GameListItem(props: {
 
   // Don't let cards grab focus while a sheet is open (see flag comment above).
   const allowAutoFocus = !gridAutoFocusSuppressed;
-  const { ref } = useFocusable<HTMLDivElement>({
+  const { ref, focused } = useFocusable<HTMLDivElement>({
     focusKey: id,
     forceFocus: allowAutoFocus,
     initialFocus: initialFocus && allowAutoFocus,
     onFocus: ({ node }) => {
-      if (node) centerCardInScrollViewport(node, { immediate: initialFocus });
+      // Pointer-driven focus (mouse hover) must not scroll the grid — the card
+      // is already under the cursor, and centering it would yank the layout and
+      // change which card is hovered. Controller/keyboard focus still centers.
+      if (node && !focusFromPointer) {
+        centerCardInScrollViewport(node, { immediate: initialFocus });
+      }
+      focusFromPointer = false;
       useLastFocusedGame.getState().setLastFocusKey(groupId, id);
       notifyCardFocus(partitionKey);
       // Defer music + prefetch until focus settles so quick-scroll / rapid
@@ -1421,10 +1551,18 @@ function GameListItem(props: {
     },
   });
 
-  // Also kick music + warm the detail cache on hover (mouse path, since a click
-  // navigates immediately and wouldn't get the focus-driven prefetch).
+  // Mouse hover moves spatial-navigation focus to this card so the mouse path
+  // gets the exact same treatment as the controller: full accent ring, scale,
+  // the focused-card audio tray, and theme music — none of which key off plain
+  // CSS :hover. (focusFromPointer suppresses the scroll-centering in onFocus.)
   const handleMouseEnter = () => {
-    startMusicForThisGame();
+    // Don't let a stray hover steal focus out of an open sheet / context menu
+    // (same guard as initialFocus/forceFocus above).
+    if (gridAutoFocusSuppressed) return;
+    if (getCurrentFocusKey() !== id) {
+      focusFromPointer = true;
+      setFocus(id);
+    }
     prefetchDetail();
   };
 
@@ -1493,6 +1631,26 @@ function GameListItem(props: {
     return firstAudio;
   }, [metaForMusic, game.id, publicUrlForMusic]);
 
+  // Whether this game already has a *downloaded* theme (persisted themeAudioUrl).
+  // Drives the focused-card tray's honest resting state and its hint
+  // (Song Details vs. Download Theme Music) before playback settles.
+  const hasThemeHint = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
+    const mp: any = metaForMusic?.mediaPaths as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let entry: any;
+    if (mp) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (typeof mp.get === "function")
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+        entry = mp.get(game.id) ?? mp.get(String(game.id));
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+      else entry = mp[game.id] ?? mp[String(game.id)];
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+    return !!entry?.themeAudioUrl;
+  }, [metaForMusic, game.id]);
+
   // When the toggle is turned off (from either config menu), stop any current music.
   // New hover/focus will simply not start it while disabled.
   useEffect(() => {
@@ -1518,6 +1676,30 @@ function GameListItem(props: {
       );
     }
   };
+
+  // When a freshly downloaded theme's metadata lands while this card is still
+  // focused, musicSourceForHover flips (bare magic fallback → exact themeAudioUrl)
+  // — replay so the new theme starts without leaving/refreshing fullscreen. We
+  // only react to a source change that happens *while already focused*; focus
+  // GAIN is handled by the debounced onFocus settle, so rapid navigation is
+  // never affected.
+  const wasFocusedRef = useRef(false);
+  const prevSourceRef = useRef(musicSourceForHover);
+  useEffect(() => {
+    const sourceChanged = prevSourceRef.current !== musicSourceForHover;
+    prevSourceRef.current = musicSourceForHover;
+    if (
+      focused &&
+      wasFocusedRef.current &&
+      sourceChanged &&
+      enabled &&
+      musicSourceForHover
+    ) {
+      startMusicForThisGame();
+    }
+    wasFocusedRef.current = focused;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, musicSourceForHover, enabled]);
 
   return (
     <div
@@ -1546,7 +1728,13 @@ function GameListItem(props: {
             })
           }
         >
-          <GameImage game={game} kind={imageType} />
+          <GameImage
+            game={game}
+            kind={imageType}
+            focused={focused}
+            musicEnabled={enabled}
+            hasThemeHint={hasThemeHint}
+          />
         </div>
       </HotkeyLayer>
     </div>
@@ -1556,8 +1744,11 @@ function GameListItem(props: {
 function GameImage(props: {
   game: GameWithMetadata;
   kind: InterfaceConfig_GameListEntryImageJson;
+  focused?: boolean;
+  musicEnabled?: boolean;
+  hasThemeHint?: boolean;
 }) {
-  const { game } = props;
+  const { game, focused, musicEnabled, hasThemeHint } = props;
   const publicUrl = usePublicUrl();
 
   const { data, status } = useGameMetadata({
@@ -1646,12 +1837,22 @@ function GameImage(props: {
           "bg-gradient-to-t from-background/95 via-background/30 to-transparent",
           "ring-accent ring-inset group-focus-within:ring-[length:var(--fs-focus-ring-width)]",
           props.kind === "BACKGROUND" ? "text-lg py-2 px-4" : "text-2xl p-4",
-          "flex items-end font-black",
+          "flex flex-col justify-end font-black",
         )}
       >
         <p className="text-pretty drop-shadow-md line-clamp-3 opacity-80 group-focus-within:opacity-100 group-hover:opacity-100 transition-opacity">
           {gameName}
         </p>
+
+        {/* Integrated audio tray — only the focused card mounts it, attached to
+            the bottom of this card's own title/gradient area. */}
+        {focused && musicEnabled && (
+          <CardAudioTray
+            gameId={game.id}
+            gameName={gameName}
+            hasThemeHint={!!hasThemeHint}
+          />
+        )}
       </div>
     </div>
   );

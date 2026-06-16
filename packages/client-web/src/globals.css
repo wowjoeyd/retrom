@@ -63,4 +63,29 @@
   .app-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  /* Mini-player equalizer bars. Transform-only (scaleY) so the animation never
+     triggers layout/reflow; pauses entirely under reduced-motion. */
+  @keyframes fs-eq {
+    0%,
+    100% {
+      transform: scaleY(0.3);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
+  .fs-eq-bar {
+    transform-origin: bottom;
+    animation: fs-eq 900ms ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fs-eq-bar {
+      animation: none;
+      transform: scaleY(0.55);
+    }
+  }
 }

@@ -66,8 +66,11 @@ function FullscreenComponent() {
       <FilterSheet />
       <GridGameContextMenu />
 
-      {/* Bottom bar is controller/keyboard hints only. */}
-      <ActionBar className="w-full overflow-hidden max-w-screen" />
+      {/* Bottom chrome: just the controller / keyboard action hints in normal
+          layout flow (the grid's 1fr row ends above it, so cards never render
+          underneath). Theme-music status now lives inside the focused game card
+          itself (see CardAudioTray), not in any full-width dock down here. */}
+      <ActionBar />
     </div>
   );
 }
