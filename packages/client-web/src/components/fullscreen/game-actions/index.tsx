@@ -1,27 +1,20 @@
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@retrom/ui/components/sheet";
+import { Sheet, SheetContent, SheetTrigger } from "@retrom/ui/components/sheet";
 import { UninstallGameAction } from "./uninstall-game";
 import { InstallGameAction } from "./install-game";
 import { DeleteGameAction } from "./delete-game";
 import { DownloadMusicAction } from "./download-music";
-import { HotkeyButton } from "../hotkey-button";
 import { useState } from "react";
 import { useHotkeys } from "@/providers/hotkeys";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer, useFocusable } from "../focus-container";
 import { Button } from "@retrom/ui/components/button";
 import { cn } from "@retrom/ui/lib/utils";
-import { EllipsisVerticalIcon } from "lucide-react";
+import { EllipsisVerticalIcon, Gamepad2 } from "lucide-react";
 import { DesktopOnly } from "@/lib/env";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import { useGameDetail } from "@/providers/game-details";
+import { PanelHeader, PanelHints } from "../menubar/panel-chrome";
+import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
 
 declare global {
   export interface HotkeyZones {
@@ -32,6 +25,7 @@ declare global {
 
 export function GameActions() {
   const [open, setOpen] = useState(false);
+  const { name } = useGameDetail();
   const { ref } = useFocusable<HTMLButtonElement>({
     focusKey: "game-actions-open",
   });
@@ -66,6 +60,7 @@ export function GameActions() {
       </HotkeyLayer>
 
       <SheetContent
+        className={PANEL_CONTENT_CLASS}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -83,7 +78,7 @@ export function GameActions() {
           }}
         >
           <FocusContainer
-            className="flex flex-col h-full"
+            className="flex h-full flex-col"
             opts={{
               initialFocus: true,
               focusKey: "game-actions",
@@ -91,14 +86,13 @@ export function GameActions() {
               forceFocus: true,
             }}
           >
-            <SheetHeader>
-              <SheetTitle>Game Actions</SheetTitle>
-              <SheetDescription>
-                Perform actions on this game entry
-              </SheetDescription>
-            </SheetHeader>
+            <PanelHeader
+              icon={<Gamepad2 size={20} />}
+              title="Game Actions"
+              subtitle={name}
+            />
 
-            <div className="flex flex-col gap-2 h-full">
+            <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
               <DesktopOnly>
                 <InstallGameAction />
                 <UninstallGameAction />
@@ -108,11 +102,12 @@ export function GameActions() {
               <DeleteGameAction />
             </div>
 
-            <SheetFooter>
-              <SheetClose asChild>
-                <HotkeyButton hotkey="BACK">close</HotkeyButton>
-              </SheetClose>
-            </SheetFooter>
+            <PanelHints
+              hints={[
+                { hotkey: "ACCEPT", label: "Select" },
+                { hotkey: "BACK", label: "Close" },
+              ]}
+            />
           </FocusContainer>
         </HotkeyLayer>
       </SheetContent>

@@ -2,10 +2,7 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { ComponentProps, useCallback, useMemo, useState } from "react";
@@ -16,6 +13,9 @@ import { HotkeyButton } from "../hotkey-button";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer } from "../focus-container";
 import { gameMusicPlayer } from "../grid-game-list";
+import { Minimize2 } from "lucide-react";
+import { PanelHeader } from "./panel-chrome";
+import { PANEL_CONTENT_CLASS } from "./menu-sheet";
 
 declare global {
   export interface HotkeyZones {
@@ -53,17 +53,23 @@ export function ExitFullscreen(props: ComponentProps<typeof SheetTrigger>) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton id="exit-fullscreen-menu-open" {...props}>
-          Exit fullscreen
+        <MenuEntryButton
+          id="exit-fullscreen-menu-open"
+          icon={<Minimize2 size={18} />}
+          label="Return to the desktop layout"
+          {...props}
+        >
+          Exit Fullscreen
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetContent>
+      <SheetContent className={PANEL_CONTENT_CLASS}>
         <HotkeyLayer id="exit-fullscreen-menu" handlers={handlers}>
-          <SheetHeader>
-            <SheetTitle>Exit Fullscreen</SheetTitle>
-            <SheetDescription>Return to the desktop interface</SheetDescription>
-          </SheetHeader>
+          <PanelHeader
+            icon={<Minimize2 size={20} />}
+            title="Exit Fullscreen"
+            subtitle="Return to the desktop interface"
+          />
 
           <FocusContainer
             opts={{
@@ -71,22 +77,30 @@ export function ExitFullscreen(props: ComponentProps<typeof SheetTrigger>) {
               isFocusBoundary: true,
               initialFocus: true,
             }}
-            className="w-full"
+            className="flex w-full flex-1 flex-col"
           >
-            <SheetFooter className="px-2 justify-between">
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              Retrom will switch back to the windowed desktop interface. Any
+              playing theme music will stop.
+            </p>
+
+            <SheetFooter className="mt-auto justify-between gap-3 px-5 py-3">
               <SheetClose asChild>
                 <HotkeyButton
-                  className="w-1/2"
+                  className="flex-1 justify-center"
                   focusOpts={{ focusKey: "exit-fullscreen-menu-close" }}
                   hotkey="BACK"
                 >
-                  back
+                  Back
                 </HotkeyButton>
               </SheetClose>
 
               <HotkeyButton
-                focusOpts={{ focusKey: "exit-fullscreen-menu-confirm" }}
-                className="w-1/2"
+                focusOpts={{
+                  focusKey: "exit-fullscreen-menu-confirm",
+                  initialFocus: true,
+                }}
+                className="flex-1 justify-center"
                 type="submit"
                 hotkey="MENU"
                 onClick={exit}

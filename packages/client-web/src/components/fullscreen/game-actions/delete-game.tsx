@@ -2,10 +2,7 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { MenuEntryButton } from "../menubar/menu-entry-button";
@@ -17,9 +14,11 @@ import { useGameDetail } from "@/providers/game-details";
 import { useNavigate } from "@tanstack/react-router";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer } from "../focus-container";
-import { Info } from "lucide-react";
+import { Info, Trash2 } from "lucide-react";
 import { ScrollArea } from "@retrom/ui/components/scroll-area";
 import { CheckedState } from "@retrom/ui/components/checkbox";
+import { PanelHeader } from "../menubar/panel-chrome";
+import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
 
 declare global {
   export interface HotkeyZones {
@@ -51,12 +50,17 @@ export function DeleteGameAction() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton id="delete-game-action-open">
+        <MenuEntryButton
+          id="delete-game-action-open"
+          icon={<Trash2 size={18} />}
+          label="Remove this game from your library"
+          destructive
+        >
           Delete Game
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetContent>
+      <SheetContent className={PANEL_CONTENT_CLASS}>
         <HotkeyLayer
           zones={{ gameActions: false }}
           handlers={{
@@ -65,24 +69,24 @@ export function DeleteGameAction() {
           }}
         >
           <FocusContainer
+            className="flex h-full flex-col"
             opts={{ focusKey: "delete-game-action", initialFocus: true }}
           >
-            <SheetHeader>
-              <SheetTitle>Delete Game</SheetTitle>
-              <SheetDescription>
-                Are you sure you want to delete this game?
-              </SheetDescription>
-            </SheetHeader>
+            <PanelHeader
+              icon={<Trash2 size={20} />}
+              title="Delete Game"
+              subtitle="Remove this game from your library"
+            />
 
             <ScrollArea className="h-full w-full">
-              <div className="flex flex-col h-full gap-6">
-                <div className="flex gap-2 text-sm bg-muted px-2 py-3 rounded">
+              <div className="flex h-full flex-col gap-5 p-3">
+                <div className="flex gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-3 text-sm">
                   <Info
-                    className="text-accent-text min-w-[1rem] h-[1rem] w-[1rem]"
+                    className="mt-0.5 h-4 w-4 min-w-[1rem] text-accent-text"
                     size={36}
                   />
 
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 text-muted-foreground">
                     <p>
                       You can either delete the entry from the database or
                       delete the game from the disk.
@@ -96,35 +100,43 @@ export function DeleteGameAction() {
                   </div>
                 </div>
 
-                <ConfigCheckbox
-                  label="Delete from disk"
-                  checked={fromDisk}
-                  onCheckedChange={setFromDisk}
-                >
-                  <p className="text-sm text-muted-foreground">
-                    This will alter the filesystem
-                  </p>
-                </ConfigCheckbox>
+                <div className="flex flex-col gap-1 overflow-hidden rounded-lg border border-border/50 bg-muted/10 p-1">
+                  <ConfigCheckbox
+                    label="Delete from disk"
+                    checked={fromDisk}
+                    onCheckedChange={setFromDisk}
+                  >
+                    <p className="text-sm text-muted-foreground">
+                      This will alter the filesystem
+                    </p>
+                  </ConfigCheckbox>
 
-                <ConfigCheckbox
-                  label="Blacklist Entries"
-                  checked={blacklistEntries}
-                  onCheckedChange={setBlacklistEntries}
-                >
-                  <p className="text-sm text-muted-foreground">
-                    Enabling this will prevent the game and its files from being
-                    re-imported in any future library scans
-                  </p>
-                </ConfigCheckbox>
+                  <ConfigCheckbox
+                    label="Blacklist Entries"
+                    checked={blacklistEntries}
+                    onCheckedChange={setBlacklistEntries}
+                  >
+                    <p className="text-sm text-muted-foreground">
+                      Enabling this will prevent the game and its files from
+                      being re-imported in any future library scans
+                    </p>
+                  </ConfigCheckbox>
+                </div>
               </div>
             </ScrollArea>
 
-            <SheetFooter>
+            <SheetFooter className="mt-auto justify-between gap-3 px-5 py-3">
               <SheetClose asChild>
-                <HotkeyButton hotkey="BACK">Cancel</HotkeyButton>
+                <HotkeyButton className="flex-1 justify-center" hotkey="BACK">
+                  Cancel
+                </HotkeyButton>
               </SheetClose>
 
-              <HotkeyButton hotkey="MENU" onClick={handleDelete}>
+              <HotkeyButton
+                className="flex-1 justify-center"
+                hotkey="MENU"
+                onClick={handleDelete}
+              >
                 Delete
               </HotkeyButton>
             </SheetFooter>

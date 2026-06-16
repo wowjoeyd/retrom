@@ -1,23 +1,19 @@
 import {
   Sheet,
-  SheetClose,
   SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
   SheetOverlay,
-  SheetTitle,
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { MenuEntryButton } from "../menu-entry-button";
 import { useState } from "react";
-import { HotkeyButton } from "../../hotkey-button";
 import { UpdateLibrary } from "./update-library";
 import { DownloadMetadata } from "./download-metadata";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer } from "../../focus-container";
 import { ScrollArea } from "@retrom/ui/components/scroll-area";
-import { Separator } from "@retrom/ui/components/separator";
+import { Library as LibraryIcon } from "lucide-react";
+import { PanelHeader, PanelHints } from "../panel-chrome";
+import { PANEL_CONTENT_CLASS } from "../menu-sheet";
 
 export function Library(props: JSX.IntrinsicElements["button"]) {
   const [open, setOpen] = useState(false);
@@ -25,13 +21,18 @@ export function Library(props: JSX.IntrinsicElements["button"]) {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton id="library-menu-open" {...props}>
+        <MenuEntryButton
+          id="library-menu-open"
+          icon={<LibraryIcon size={18} />}
+          label="Update library and metadata"
+          {...props}
+        >
           Library
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetOverlay />
-      <SheetContent>
+      <SheetOverlay className="bg-background/60 backdrop-blur-sm" />
+      <SheetContent className={PANEL_CONTENT_CLASS}>
         <HotkeyLayer
           id="library-menu"
           zones={{ menuRoot: false }}
@@ -41,12 +42,11 @@ export function Library(props: JSX.IntrinsicElements["button"]) {
             },
           }}
         >
-          <SheetHeader>
-            <SheetTitle>Library</SheetTitle>
-            <SheetDescription>Retrom library operations</SheetDescription>
-          </SheetHeader>
-
-          <Separator className="w-[90%] mx-auto" />
+          <PanelHeader
+            icon={<LibraryIcon size={20} />}
+            title="Library"
+            subtitle="Scan and refresh your game library"
+          />
 
           <ScrollArea className="h-full w-full">
             <FocusContainer
@@ -55,18 +55,19 @@ export function Library(props: JSX.IntrinsicElements["button"]) {
                 isFocusBoundary: true,
                 initialFocus: true,
               }}
-              className="flex flex-col h-full"
+              className="flex flex-col gap-1 p-3"
             >
               <UpdateLibrary />
               <DownloadMetadata />
             </FocusContainer>
           </ScrollArea>
 
-          <SheetFooter>
-            <SheetClose asChild>
-              <HotkeyButton hotkey="BACK">back</HotkeyButton>
-            </SheetClose>
-          </SheetFooter>
+          <PanelHints
+            hints={[
+              { hotkey: "ACCEPT", label: "Select" },
+              { hotkey: "BACK", label: "Back" },
+            ]}
+          />
         </HotkeyLayer>
       </SheetContent>
     </Sheet>

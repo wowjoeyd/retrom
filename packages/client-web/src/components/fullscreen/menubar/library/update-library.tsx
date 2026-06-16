@@ -2,10 +2,7 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from "@retrom/ui/components/sheet";
 import { useCallback, useState } from "react";
@@ -14,6 +11,9 @@ import { useUpdateLibrary } from "@/mutations/useUpdateLibrary";
 import { HotkeyButton } from "../../hotkey-button";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer } from "../../focus-container";
+import { RefreshCw } from "lucide-react";
+import { PanelHeader } from "../panel-chrome";
+import { PANEL_CONTENT_CLASS } from "../menu-sheet";
 
 export function UpdateLibrary() {
   const { mutateAsync: updateLibrary } = useUpdateLibrary();
@@ -27,12 +27,16 @@ export function UpdateLibrary() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton id="update-library-open">
+        <MenuEntryButton
+          id="update-library-open"
+          icon={<RefreshCw size={18} />}
+          label="Scan configured libraries for new or changed games"
+        >
           Update Library
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetContent>
+      <SheetContent className={PANEL_CONTENT_CLASS}>
         <HotkeyLayer
           id="update-library"
           handlers={{
@@ -44,10 +48,11 @@ export function UpdateLibrary() {
             },
           }}
         >
-          <SheetHeader>
-            <SheetTitle>Update Library</SheetTitle>
-            <SheetDescription>Update Retrom library</SheetDescription>
-          </SheetHeader>
+          <PanelHeader
+            icon={<RefreshCw size={20} />}
+            title="Update Library"
+            subtitle="Scan configured libraries for new or changed games"
+          />
 
           <FocusContainer
             opts={{
@@ -55,20 +60,30 @@ export function UpdateLibrary() {
               initialFocus: true,
               isFocusBoundary: true,
             }}
-            className="block"
+            className="flex flex-1 flex-col"
           >
-            <SheetFooter className="px-2">
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              Retrom will re-scan every configured library directory and import
+              any new or changed games. This won&apos;t remove existing entries.
+            </p>
+
+            <SheetFooter className="mt-auto justify-between gap-3 px-5 py-3">
               <SheetClose asChild>
                 <HotkeyButton
+                  className="flex-1 justify-center"
                   focusOpts={{ focusKey: "update-library-menu-close" }}
                   hotkey="BACK"
                 >
-                  back
+                  Back
                 </HotkeyButton>
               </SheetClose>
 
               <HotkeyButton
-                focusOpts={{ focusKey: "update-library-menu-confirm" }}
+                className="flex-1 justify-center"
+                focusOpts={{
+                  focusKey: "update-library-menu-confirm",
+                  initialFocus: true,
+                }}
                 hotkey="MENU"
                 onClick={handleUpdate}
               >

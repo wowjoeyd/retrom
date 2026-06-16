@@ -1,15 +1,5 @@
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@retrom/ui/components/sheet";
+import { Sheet, SheetContent, SheetTrigger } from "@retrom/ui/components/sheet";
 import { MenuEntryButton } from "../menubar/menu-entry-button";
-import { HotkeyButton, HotkeyIcon } from "../hotkey-button";
 import { useGameDetail } from "@/providers/game-details";
 import { LoaderCircle, Music2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -21,6 +11,8 @@ import { cn } from "@retrom/ui/lib/utils";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { useInputDeviceContext } from "@/providers/input-device";
 import { gameMusicPlayer } from "../grid-game-list";
+import { PanelHeader, PanelHints } from "../menubar/panel-chrome";
+import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
 
 function formatDuration(secs: number): string {
   if (secs <= 0) return "";
@@ -73,12 +65,17 @@ export function DownloadMusicAction() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <MenuEntryButton id="download-music-action-open">
+        <MenuEntryButton
+          id="download-music-action-open"
+          icon={<Music2 size={18} />}
+          label="Pick a track to use as theme audio"
+        >
           Download Theme Music
         </MenuEntryButton>
       </SheetTrigger>
 
       <SheetContent
+        className={PANEL_CONTENT_CLASS}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
         }}
@@ -99,17 +96,15 @@ export function DownloadMusicAction() {
               isFocusBoundary: true,
               initialFocus: true,
             }}
-            className="flex flex-col h-full"
+            className="flex h-full flex-col"
           >
-            <SheetHeader>
-              <SheetTitle>Download Theme Music</SheetTitle>
-              <SheetDescription>
-                Select a track to use as theme audio. Press{" "}
-                <strong>Accept</strong> on a result to start the download.
-              </SheetDescription>
-            </SheetHeader>
+            <PanelHeader
+              icon={<Music2 size={20} />}
+              title="Download Theme Music"
+              subtitle="Pick a track to use as theme audio"
+            />
 
-            <div className="flex flex-col gap-1 flex-1 overflow-y-auto mt-4">
+            <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
               {isSearching && (
                 <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
                   <LoaderCircle className="animate-spin" size={20} />
@@ -129,6 +124,7 @@ export function DownloadMusicAction() {
                   <MenuEntryButton
                     key={c.videoId}
                     id={`music-candidate-${idx}`}
+                    icon={<Music2 size={18} />}
                     label={formatDuration(c.durationSecs) || undefined}
                     disabled={isDownloading}
                     className={cn(isDownloading && "opacity-50")}
@@ -148,17 +144,14 @@ export function DownloadMusicAction() {
                 ))}
             </div>
 
-            <SheetFooter className="flex-row items-center justify-between">
-              {candidates.length > 0 && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <HotkeyIcon hotkey="ACCEPT" />
-                  Download
-                </span>
-              )}
-              <SheetClose asChild>
-                <HotkeyButton hotkey="BACK">Back</HotkeyButton>
-              </SheetClose>
-            </SheetFooter>
+            <PanelHints
+              hints={[
+                ...(candidates.length > 0
+                  ? [{ hotkey: "ACCEPT" as const, label: "Download" }]
+                  : []),
+                { hotkey: "BACK" as const, label: "Back" },
+              ]}
+            />
           </FocusContainer>
         </HotkeyLayer>
       </SheetContent>
