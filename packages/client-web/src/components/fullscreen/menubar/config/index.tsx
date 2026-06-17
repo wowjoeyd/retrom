@@ -40,6 +40,7 @@ const formSchema = z.object({
   interface: z.object({
     fullscreenByDefault: z.boolean(),
     fullscreenConfig: z.object({
+      startupMovieEnabled: z.boolean().optional(),
       gridList: z.object({
         columns: z.coerce.number().min(1).max(10),
         gap: z.coerce.number().min(10).max(250),
@@ -79,6 +80,8 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
       interface: {
         fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
         fullscreenConfig: {
+          startupMovieEnabled:
+            config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
           gridList: {
             columns:
               config?.interface?.fullscreenConfig?.gridList?.columns ?? 4,
@@ -139,6 +142,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
               fullscreenByDefault:
                 config?.interface?.fullscreenByDefault ?? false,
               fullscreenConfig: {
+                startupMovieEnabled:
+                  config?.interface?.fullscreenConfig?.startupMovieEnabled ??
+                  true,
                 gridList: {
                   columns:
                     config?.interface?.fullscreenConfig?.gridList?.columns ?? 4,
@@ -253,6 +259,24 @@ function ConfigForm() {
               </FormItem>
             );
           }}
+        />
+
+        <FormField
+          control={form.control}
+          name="interface.fullscreenConfig.startupMovieEnabled"
+          render={({ field }) => (
+            <FormItem>
+              <ConfigCheckbox
+                id="config-menu-startup-movie"
+                label="Play startup video"
+                checked={field.value ?? true}
+                onCheckedChange={field.onChange}
+              >
+                Play the cinematic intro when entering fullscreen (skipped
+                automatically if your system can&apos;t decode it)
+              </ConfigCheckbox>
+            </FormItem>
+          )}
         />
       </PanelSection>
 

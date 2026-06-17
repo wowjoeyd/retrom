@@ -19,6 +19,10 @@ message InterfaceConfig {
   message FullscreenConfig {
     GridListConfig grid_list = 1;
     optional bool windowed_fullscreen_mode = 2;
+    // Whether to play the cinematic startup video when entering fullscreen
+    // mode. Absent is treated as enabled; the movie is also skipped at runtime
+    // when the system can't decode its (HEVC/h265) codec.
+    optional bool startup_movie_enabled = 3;
   }
 
   bool fullscreen_by_default = 1;

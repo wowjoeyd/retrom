@@ -42,6 +42,7 @@ const configSchema = z.object({
       fullscreenByDefault: z.boolean(),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
+        startupMovieEnabled: z.boolean().optional(),
         gameMusic: z
           .object({
             enabled: z.boolean().optional(),
@@ -97,6 +98,8 @@ export function GeneralConfig() {
             windowedFullscreenMode:
               config?.interface?.fullscreenConfig?.windowedFullscreenMode ??
               !checkIsDesktop(),
+            startupMovieEnabled:
+              config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
             gameMusic: {
               enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
               volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
@@ -352,6 +355,35 @@ export function GeneralConfig() {
                       <p className="text-sm text-muted-foreground max-w-[45ch]">
                         Enabling this will keep the application in a
                         non-fullscreen window even when using Fullscreen Mode
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.startupMovieEnabled"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="startup-movie-enabled"
+                      checked={field.value ?? true}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="startup-movie-enabled">
+                        Play startup video
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        Play the cinematic intro when entering fullscreen mode.
+                        Skipped automatically on systems that can&apos;t decode
+                        it.
                       </p>
                     </div>
                   </div>
