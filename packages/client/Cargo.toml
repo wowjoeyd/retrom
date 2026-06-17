@@ -63,6 +63,15 @@ flatpak = [
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-window-state = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+# Used to legitimately take the OS foreground when entering fullscreen, since
+# Windows blocks SetForegroundWindow from a background process (see main.rs).
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
 [package.metadata.cargo-machete]
 ignored = [
   "openssl-sys",
@@ -71,4 +80,5 @@ ignored = [
   "serde_json",
   "tauri-cli",
   "retrom-codegen",
+  "windows-sys",
 ]

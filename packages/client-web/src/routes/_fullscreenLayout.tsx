@@ -18,6 +18,7 @@ import {
 import { useHotkeys } from "@/providers/hotkeys";
 import { checkIsDesktop } from "@/lib/env";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
 import { configStore } from "@/providers/config";
@@ -69,9 +70,31 @@ export const Route = createFileRoute("/_fullscreenLayout")({
      * On desktop, default to fullscreen window mode unless configured otherwise.
      * On web, default to windowed mode unless explicitly set to fullscreen.
      */
-    if (checkIsDesktop() && windowedFullscreenMode !== true) {
-      await getCurrentWindow().setFullscreen(true);
-    } else if (!checkIsDesktop() && windowedFullscreenMode === false) {
+    if (checkIsDesktop()) {
+      const win = getCurrentWindow();
+
+      // Make sure the window is visible and un-minimized BEFORE sizing it.
+      // unminimize() issues ShowWindow(SW_RESTORE), which would otherwise undo
+      // the fullscreen geometry if called afterwards (the window ends up a
+      // restored size offset on screen).
+      try {
+        await win.unminimize();
+        await win.show();
+      } catch (e) {
+        console.error(e);
+      }
+
+      if (windowedFullscreenMode !== true) {
+        await win.setFullscreen(true);
+      }
+
+      // Bring Retrom to the foreground like a launched game — WITHOUT pinning it
+      // always-on-top, so other windows can still be brought in front normally.
+      // Windows blocks a background process from stealing focus via
+      // SetForegroundWindow, so this goes through a native command that uses the
+      // AttachThreadInput trick to legitimately take the foreground.
+      await invoke("request_foreground").catch(console.error);
+    } else if (windowedFullscreenMode === false) {
       await window.document.documentElement
         .requestFullscreen()
         .catch(console.error);

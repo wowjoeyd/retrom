@@ -284,7 +284,13 @@ export function GamepadProvider(props: PropsWithChildren) {
         controllerType: mapping,
       };
 
-      setGamepads((prev) => [...prev, pad]);
+      // Dedup by index: a pad may already be tracked from the mount-time seed
+      // (see below) or a duplicate connect event.
+      setGamepads((prev) =>
+        prev.some((p) => p.gamepad.index === e.gamepad.index)
+          ? prev
+          : [...prev, pad],
+      );
       pollGamepad();
 
       console.log(`Gamepad connected: ${e.gamepad.id}`);
@@ -296,6 +302,29 @@ export function GamepadProvider(props: PropsWithChildren) {
     },
     [toast, pollGamepad],
   );
+
+  // Seed from already-connected pads on mount. `gamepadconnected` only fires
+  // once per pad for the document, so if a controller was connected before this
+  // provider mounted (e.g. it was used in the windowed UI, or was already on at
+  // launch) the event has come and gone and onConnect would never run — leaving
+  // the controller dead until it's power-cycled. Polling navigator.getGamepads()
+  // here picks those pads up regardless of when they connected.
+  useEffect(() => {
+    const present = navigator.getGamepads?.() ?? [];
+    const seeded = present.filter((p): p is Gamepad => !!p);
+    if (seeded.length === 0) return;
+
+    setGamepads((prev) => {
+      const next = [...prev];
+      for (const gp of seeded) {
+        if (!next.some((p) => p.gamepad.index === gp.index)) {
+          next.push({ gamepad: gp, controllerType: getControllerMapping(gp) });
+        }
+      }
+      return next;
+    });
+    // Run once on mount.
+  }, []);
 
   useEffect(() => {
     let frame: number;

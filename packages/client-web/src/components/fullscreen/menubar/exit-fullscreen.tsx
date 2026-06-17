@@ -42,7 +42,7 @@ export function ExitFullscreen(props: ComponentProps<typeof SheetTrigger>) {
           handler: () => setOpen(false),
           zone: "exitFullscreen",
         },
-        MENU: {
+        FILTER: {
           handler: exit,
           zone: "exitFullscreen",
         },
@@ -102,7 +102,7 @@ export function ExitFullscreen(props: ComponentProps<typeof SheetTrigger>) {
                 }}
                 className="flex-1 justify-center"
                 type="submit"
-                hotkey="MENU"
+                hotkey="FILTER"
                 onClick={exit}
               >
                 Exit

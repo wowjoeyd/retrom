@@ -23,6 +23,10 @@ message InterfaceConfig {
     // mode. Absent is treated as enabled; the movie is also skipped at runtime
     // when the system can't decode its (HEVC/h265) codec.
     optional bool startup_movie_enabled = 3;
+    // Steam Big Picture style: when enabled, double-tapping the controller's
+    // guide/home button (Xbox ☒ guide, etc.) opens fullscreen mode from
+    // anywhere. Absent is treated as disabled.
+    optional bool double_tap_guide_opens_fullscreen = 4;
   }
 
   bool fullscreen_by_default = 1;

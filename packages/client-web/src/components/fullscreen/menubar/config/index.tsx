@@ -41,6 +41,7 @@ const formSchema = z.object({
     fullscreenByDefault: z.boolean(),
     fullscreenConfig: z.object({
       startupMovieEnabled: z.boolean().optional(),
+      doubleTapGuideOpensFullscreen: z.boolean().optional(),
       gridList: z.object({
         columns: z.coerce.number().min(1).max(10),
         gap: z.coerce.number().min(10).max(250),
@@ -82,6 +83,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
         fullscreenConfig: {
           startupMovieEnabled:
             config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
+          doubleTapGuideOpensFullscreen:
+            config?.interface?.fullscreenConfig
+              ?.doubleTapGuideOpensFullscreen ?? false,
           gridList: {
             columns:
               config?.interface?.fullscreenConfig?.gridList?.columns ?? 4,
@@ -145,6 +149,9 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
                 startupMovieEnabled:
                   config?.interface?.fullscreenConfig?.startupMovieEnabled ??
                   true,
+                doubleTapGuideOpensFullscreen:
+                  config?.interface?.fullscreenConfig
+                    ?.doubleTapGuideOpensFullscreen ?? false,
                 gridList: {
                   columns:
                     config?.interface?.fullscreenConfig?.gridList?.columns ?? 4,
@@ -185,7 +192,7 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
           id="config-menu"
           handlers={{
             BACK: { handler: () => setOpen(false) },
-            MENU: { handler: () => form.handleSubmit(handleSubmit)() },
+            FILTER: { handler: () => form.handleSubmit(handleSubmit)() },
           }}
         >
           <PanelHeader
@@ -225,7 +232,7 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
               className="flex-1 justify-center"
               disabled={disabled}
               onClick={form.handleSubmit(handleSubmit)}
-              hotkey="MENU"
+              hotkey="FILTER"
             >
               Save
             </HotkeyButton>
@@ -274,6 +281,24 @@ function ConfigForm() {
               >
                 Play the cinematic intro when entering fullscreen (skipped
                 automatically if your system can&apos;t decode it)
+              </ConfigCheckbox>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="interface.fullscreenConfig.doubleTapGuideOpensFullscreen"
+          render={({ field }) => (
+            <FormItem>
+              <ConfigCheckbox
+                id="config-menu-guide-shortcut"
+                label="Double-tap guide opens fullscreen"
+                checked={field.value ?? false}
+                onCheckedChange={field.onChange}
+              >
+                Steam Big Picture style: double-tap your controller&apos;s
+                guide/home button anywhere to jump into fullscreen
               </ConfigCheckbox>
             </FormItem>
           )}

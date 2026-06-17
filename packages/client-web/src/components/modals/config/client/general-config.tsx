@@ -43,6 +43,7 @@ const configSchema = z.object({
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
         startupMovieEnabled: z.boolean().optional(),
+        doubleTapGuideOpensFullscreen: z.boolean().optional(),
         gameMusic: z
           .object({
             enabled: z.boolean().optional(),
@@ -100,6 +101,9 @@ export function GeneralConfig() {
               !checkIsDesktop(),
             startupMovieEnabled:
               config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
+            doubleTapGuideOpensFullscreen:
+              config?.interface?.fullscreenConfig
+                ?.doubleTapGuideOpensFullscreen ?? false,
             gameMusic: {
               enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
               volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
@@ -384,6 +388,35 @@ export function GeneralConfig() {
                         Play the cinematic intro when entering fullscreen mode.
                         Skipped automatically on systems that can&apos;t decode
                         it.
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.doubleTapGuideOpensFullscreen"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="double-tap-guide-fullscreen"
+                      checked={field.value ?? false}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="double-tap-guide-fullscreen">
+                        Double-tap guide opens fullscreen
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        Steam Big Picture style: double-tap your
+                        controller&apos;s guide/home button anywhere to jump
+                        into fullscreen mode.
                       </p>
                     </div>
                   </div>

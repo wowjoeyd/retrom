@@ -4,6 +4,7 @@ import { ConfigProvider } from "../providers/config";
 import { RetromClientProvider } from "../providers/retrom-client";
 import { QueryClientProvider } from "../providers/query-client";
 import { Prompts } from "../components/prompts";
+import { GuideButtonShortcut } from "../components/guide-button-shortcut";
 import { z } from "zod";
 import { InputDeviceProvider } from "@/providers/input-device";
 import { serverConfigTabSchema } from "@/components/modals/config/server";
@@ -115,6 +116,7 @@ function RootComponent() {
               <InstallationProgressProvider>
                 <Outlet />
 
+                <GuideButtonShortcut />
                 <Prompts />
                 {/* <TanStackRouterDevtools /> */}
               </InstallationProgressProvider>

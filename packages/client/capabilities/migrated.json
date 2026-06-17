@@ -66,6 +66,8 @@
     "process:default",
     "system-info:allow-all-sys-info",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
     "window-state:default",
     "standalone:allow-enable-standalone-mode",
     "standalone:allow-disable-standalone-mode",

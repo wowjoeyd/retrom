@@ -74,6 +74,9 @@ export function MenuSheet(props: JSX.IntrinsicElements["button"]) {
             allowBubbling="never"
             handlers={{
               BACK: { handler: () => setOpen(false), zone: "menuRoot" },
+              // Pressing the guide/MENU button again while the menu is open
+              // closes it (toggle), matching Steam Big Picture.
+              MENU: { handler: () => setOpen(false), zone: "menuRoot" },
             }}
           >
             <PanelHeader
