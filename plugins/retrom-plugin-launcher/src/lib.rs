@@ -8,6 +8,12 @@ use tauri::{
 mod commands;
 mod desktop;
 mod error;
+mod foreground;
+mod launch;
+#[cfg(windows)]
+mod window;
+
+pub use foreground::bring_to_foreground;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the launcher APIs.
 pub trait LauncherExt<R: Runtime> {

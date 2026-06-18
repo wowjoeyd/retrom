@@ -8,65 +8,12 @@ use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 /// Bring Retrom's window to the OS foreground, like a game launching into
-/// fullscreen. On Windows a background process can't simply call
-/// SetForegroundWindow (the OS foreground lock ignores it and at most flashes
-/// the taskbar). Temporarily attaching our input thread to the current
-/// foreground window's thread lifts that restriction long enough to legitimately
-/// take focus — the same approach used by launchers and window managers. This
-/// does NOT pin the window always-on-top, so other windows can still be brought
-/// forward normally afterwards.
-#[cfg(windows)]
+/// fullscreen. Delegates to the launcher plugin's shared helper so the same
+/// implementation is used here (entering fullscreen) and when a game exits
+/// (returning to the library). See `retrom_plugin_launcher::bring_to_foreground`.
 #[tauri::command]
 fn request_foreground(window: tauri::WebviewWindow) {
-    use std::ptr;
-    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
-        SetForegroundWindow, ShowWindow, SW_RESTORE,
-    };
-
-    let hwnd = match window.hwnd() {
-        Ok(handle) => handle.0,
-        Err(why) => {
-            tracing::warn!("request_foreground: failed to get window handle: {why}");
-            return;
-        }
-    };
-
-    unsafe {
-        let foreground = GetForegroundWindow();
-        if foreground == hwnd {
-            return;
-        }
-
-        if IsIconic(hwnd) != 0 {
-            ShowWindow(hwnd, SW_RESTORE);
-        }
-
-        let current_thread = GetCurrentThreadId();
-        let foreground_thread = GetWindowThreadProcessId(foreground, ptr::null_mut());
-
-        let attached = foreground_thread != 0
-            && foreground_thread != current_thread
-            && AttachThreadInput(current_thread, foreground_thread, 1) != 0;
-
-        BringWindowToTop(hwnd);
-        SetForegroundWindow(hwnd);
-
-        if attached {
-            AttachThreadInput(current_thread, foreground_thread, 0);
-        }
-    }
-}
-
-/// macOS/Linux don't impose Windows' foreground-stealing restriction, so a plain
-/// focus request is enough to raise the window.
-#[cfg(not(windows))]
-#[tauri::command]
-fn request_foreground(window: tauri::WebviewWindow) {
-    if let Err(why) = window.set_focus() {
-        tracing::warn!("request_foreground: failed to focus window: {why}");
-    }
+    retrom_plugin_launcher::bring_to_foreground(&window);
 }
 
 #[tokio::main]

@@ -6,7 +6,7 @@ use retrom_codegen::retrom::{
 };
 use retrom_plugin_service_client::RetromPluginServiceClientExt;
 use serde::de::DeserializeOwned;
-use tauri::{plugin::PluginApi, AppHandle, Emitter, Runtime};
+use tauri::{plugin::PluginApi, AppHandle, Emitter, Manager, Runtime};
 use tokio::{
     process::Command,
     sync::{Mutex, RwLock},
@@ -43,6 +43,22 @@ impl<R: Runtime> Launcher<R> {
     #[instrument(skip_all)]
     pub async fn is_game_running(&self, game_id: GameId) -> bool {
         self.child_processes.read().await.contains_key(&game_id)
+    }
+
+    /// Bring the main Big Picture window back to the OS foreground. Called when a
+    /// game exits so the player lands straight back in the library, mirroring
+    /// Steam Big Picture's return-to-library behavior.
+    pub fn foreground_main_window(&self) {
+        let Some(window) = self.app_handle.get_webview_window("main") else {
+            return;
+        };
+
+        if let Err(why) = self
+            .app_handle
+            .run_on_main_thread(move || crate::bring_to_foreground(&window))
+        {
+            warn!("Failed to foreground main window on game exit: {why}");
+        }
     }
 
     #[instrument(skip_all)]
