@@ -24,9 +24,14 @@ export function usePlayStatusQuery(game: Game) {
           "game-running",
           (event: { payload: GamePlayStatusUpdate }) => {
             if (event.payload.gameId === game.id) {
+              // Refresh only the play-status query (drives the button). Avoid
+              // invalidating the heavy game-metadata queries here: refetching
+              // them right as a game starts/stops transiently emptied the
+              // detail page's theme/media (the "No theme" regression). Playtime
+              // is persisted server-side and shows on the next natural refetch.
               void queryClient.invalidateQueries({
                 predicate: (query) =>
-                  [queryKey, game.path, "game-metadata"].some((key) =>
+                  [queryKey, game.path].some((key) =>
                     query.queryKey.includes(key),
                   ),
               });
@@ -40,9 +45,14 @@ export function usePlayStatusQuery(game: Game) {
           "game-stopped",
           (event: { payload: GamePlayStatusUpdate }) => {
             if (event.payload.gameId === game.id) {
+              // Refresh only the play-status query (drives the button). Avoid
+              // invalidating the heavy game-metadata queries here: refetching
+              // them right as a game starts/stops transiently emptied the
+              // detail page's theme/media (the "No theme" regression). Playtime
+              // is persisted server-side and shows on the next natural refetch.
               void queryClient.invalidateQueries({
                 predicate: (query) =>
-                  [queryKey, game.path, "game-metadata"].some((key) =>
+                  [queryKey, game.path].some((key) =>
                     query.queryKey.includes(key),
                   ),
               });

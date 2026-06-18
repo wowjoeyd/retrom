@@ -147,9 +147,12 @@ export function GamepadProvider(props: PropsWithChildren) {
     const node = document.activeElement;
     const now = performance.now();
 
-    for (const connectedPad of gamepads) {
-      const pad = navigator.getGamepads().at(connectedPad.gamepad.index);
-
+    // Poll every live pad from the Gamepad API directly rather than only the
+    // pads captured via `gamepadconnected`. A launched game can grab the
+    // controller and trigger a `gamepaddisconnected`; the connect event may not
+    // re-fire on return, which left the captured list empty and navigation dead
+    // (only the always-on guide-button poll kept working).
+    for (const pad of navigator.getGamepads()) {
       if (pad) {
         const { buttons, index } = pad;
         const currentButtonInputs = inputCache.buttons.get(index);
@@ -271,7 +274,6 @@ export function GamepadProvider(props: PropsWithChildren) {
   }, [
     beginRepeatInput,
     inputCache,
-    gamepads,
     maybeDispatchRepeatInput,
     stopRepeatInput,
   ]);

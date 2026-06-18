@@ -14,10 +14,14 @@ import {
   init,
   navigateByDirection,
   setKeyMap,
+  setFocus,
+  getCurrentFocusKey,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { useHotkeys } from "@/providers/hotkeys";
 import { checkIsDesktop } from "@/lib/env";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
@@ -162,6 +166,70 @@ function FullscreenLayout() {
       cancelPendingFocusMusic();
       gameMusicPlayer.stop(300);
     };
+  }, []);
+
+  // React to games starting/stopping (any launch type) so the fullscreen
+  // experience behaves like Steam Big Picture. We do NOT minimize/hide Retrom —
+  // doing so suspends the webview (audio context, rAF-driven gamepad polling)
+  // and drops DOM focus, which broke input and music on return. Instead we let
+  // the launched game take the foreground over our (still-live) window, then:
+  //   - flip the shared "running" flag, which gates theme music off while a game
+  //     is running and lets the detail page replay it on return; and
+  //   - on return, re-assert fullscreen, raise Retrom, and crucially restore
+  //     DOM/spatial focus so the controller is captured again (the game stole
+  //     the OS foreground, leaving our webview unfocused).
+  useEffect(() => {
+    if (!checkIsDesktop()) return;
+
+    const win = getCurrentWindow();
+    const webview = getCurrentWebviewWindow();
+    const unlisten: UnlistenFn[] = [];
+
+    void (async () => {
+      unlisten.push(
+        await webview.listen("game-running", () => {
+          // Pause (don't stop) so the theme resumes from where it left off when
+          // the game exits, instead of restarting.
+          gameMusicPlayer.pauseTheme();
+        }),
+      );
+
+      unlisten.push(
+        await webview.listen("game-stopped", () => {
+          void (async () => {
+            try {
+              const { windowedFullscreenMode } =
+                configStore.getState()?.config?.interface?.fullscreenConfig ??
+                {};
+
+              if (
+                windowedFullscreenMode !== true &&
+                !(await win.isFullscreen())
+              ) {
+                await win.setFullscreen(true);
+              }
+
+              await invoke("request_foreground").catch(console.error);
+              await webview.setFocus().catch(console.error);
+
+              // The game stole OS focus, so our webview lost it — the gamepad
+              // API only delivers input to a focused document. Re-assert spatial
+              // focus so controller navigation works again, and resume the theme
+              // from where it was paused (resumeTheme also resumes audio ctx).
+              requestAnimationFrame(() => {
+                const key = getCurrentFocusKey();
+                if (key) setFocus(key);
+              });
+              gameMusicPlayer.resumeTheme();
+            } catch (e) {
+              console.error(e);
+            }
+          })();
+        }),
+      );
+    })();
+
+    return () => unlisten.forEach((fn) => fn());
   }, []);
 
   return (

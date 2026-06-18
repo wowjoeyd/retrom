@@ -15,6 +15,13 @@ export function QueryClientProvider(props: PropsWithChildren) {
         defaultOptions: {
           queries: {
             staleTime: 1000 * 60,
+            // Desktop app: don't refetch everything every time the window regains
+            // focus. Besides being wasteful, it caused churn when returning from a
+            // launched game (the window focus toggles, especially with our
+            // minimize-on-launch), which transiently emptied game metadata like the
+            // theme audio. Data still refreshes via explicit invalidation
+            // (mutations, scans, downloads) and on remount past staleTime.
+            refetchOnWindowFocus: false,
             throwOnError: false,
             queryKeyHashFn: (key) =>
               JSON.stringify(key, (_: unknown, v: unknown) =>
