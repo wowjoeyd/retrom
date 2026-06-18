@@ -39,19 +39,23 @@ impl<R: Runtime> LaunchAdapter<R> for SteamAdapter {
             steam_app_id(&ctx).expect("SteamAdapter launched without a valid Steam app id");
         let game_id = ctx.game.id;
 
-        {
+        // The install dir lets us identify the game's own process for precise exit
+        // detection (Steam launches the game itself, so we never get its PID).
+        #[cfg_attr(not(windows), allow(unused_variables))]
+        let install_dir = {
             let steam = ctx
                 .app
                 .steam()
                 .ok_or_else(|| crate::Error::InternalError("Steam is not initialized".into()))?;
 
             steam.launch_game(app_id).await?;
-        }
+            steam.get_install_dir(app_id)
+        };
 
         #[cfg(windows)]
         {
             let app = ctx.app.clone();
-            tokio::spawn(async move { windows::watch(app, app_id, game_id).await });
+            tokio::spawn(async move { windows::watch(app, app_id, game_id, install_dir).await });
         }
 
         #[cfg(not(windows))]
@@ -77,8 +81,12 @@ mod windows {
 
     use crate::{desktop::GameProcess, LauncherExt};
 
-    /// How often to poll Steam's running state.
+    /// How often to poll while waiting for the game to start.
     const POLL_INTERVAL: Duration = Duration::from_secs(2);
+    /// How often to poll while the game is running, watching for it to stop. Kept
+    /// short so we react quickly and can grab the foreground back before Steam
+    /// (which also grabs it on game close) fully settles in front.
+    const STOP_POLL_INTERVAL: Duration = Duration::from_millis(500);
     /// How long to wait for the game to actually start before giving up — Steam
     /// can take a while (updates, "ready to play" prompts, first-run setup).
     const APPEAR_TIMEOUT: Duration = Duration::from_secs(120);
@@ -111,7 +119,12 @@ mod windows {
 
     /// Drive a Steam game's lifecycle: wait for it to appear, register the
     /// session, wait for it to stop, then return the player to the library.
-    pub(super) async fn watch<R: Runtime>(app: AppHandle<R>, app_id: u32, game_id: i32) {
+    pub(super) async fn watch<R: Runtime>(
+        app: AppHandle<R>,
+        app_id: u32,
+        game_id: i32,
+        install_dir: Option<std::path::PathBuf>,
+    ) {
         // Wait for the game to actually start running. If it never does within the
         // timeout (e.g. the user cancelled at a Steam prompt), give up quietly —
         // no session was registered, so there's nothing to clean up and no bogus
@@ -151,23 +164,73 @@ mod windows {
             return;
         }
 
-        // Wait for the game to stop, or for a UI stop request. We can't kill a
-        // Steam game from here, so a stop request just ends tracking.
-        loop {
-            if app_running(app_id) == Some(false) {
-                break;
-            }
-
-            tokio::select! {
-                _ = recv.recv() => break,
-                _ = sleep(POLL_INTERVAL) => {}
-            }
-        }
+        wait_for_stop(app_id, install_dir, &mut recv).await;
 
         info!("Steam game {app_id} stopped; returning to library");
         app.launcher().foreground_main_window();
         if let Err(why) = app.launcher().mark_game_as_stopped(game_id).await {
             warn!("Failed to mark Steam game {game_id} as stopped: {why}");
+        }
+    }
+
+    /// Block until the game stops (or a UI stop is requested).
+    ///
+    /// Prefer watching the game's actual process (found via its install dir):
+    /// `WaitForSingleObject` lets us react the *instant* it exits, which is what
+    /// makes reclaiming the foreground work — emulators succeed for the same
+    /// reason, whereas the slower registry poll fires only after Steam has already
+    /// grabbed the foreground for itself. Falls back to the registry when the
+    /// process can't be located.
+    async fn wait_for_stop(
+        app_id: u32,
+        install_dir: Option<std::path::PathBuf>,
+        recv: &mut tokio::sync::mpsc::Receiver<()>,
+    ) {
+        // Try to lock onto the game's process. Give it a few seconds to appear
+        // under the install dir before falling back to registry polling.
+        if let Some(dir) = install_dir {
+            let appear_deadline = Instant::now() + Duration::from_secs(8);
+            let mut pid = None;
+            while Instant::now() < appear_deadline {
+                pid = crate::window::pid_under_dir(&dir);
+                if pid.is_some() {
+                    break;
+                }
+                tokio::select! {
+                    _ = recv.recv() => return,
+                    _ = sleep(Duration::from_millis(200)) => {}
+                }
+            }
+
+            if pid.is_some() {
+                // Wait on each game process instantly; when none remain, it's
+                // stopped (some games re-exec into a child, so re-scan after each).
+                loop {
+                    let Some(pid) = crate::window::pid_under_dir(&dir) else {
+                        break;
+                    };
+
+                    tokio::select! {
+                        _ = recv.recv() => return,
+                        _ = tokio::task::spawn_blocking(move || {
+                            crate::window::wait_for_pid_exit(pid)
+                        }) => {}
+                    }
+                }
+                return;
+            }
+        }
+
+        // Fallback: poll Steam's running flag.
+        loop {
+            if app_running(app_id) == Some(false) {
+                return;
+            }
+
+            tokio::select! {
+                _ = recv.recv() => return,
+                _ = sleep(STOP_POLL_INTERVAL) => {}
+            }
         }
     }
 }

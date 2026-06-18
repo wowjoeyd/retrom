@@ -185,6 +185,16 @@ function FullscreenLayout() {
     const webview = getCurrentWebviewWindow();
     const unlisten: UnlistenFn[] = [];
 
+    // Whenever our window genuinely regains focus (programmatically below, or via
+    // the user alt-tabbing / clicking), re-assert spatial focus so the controller
+    // has an anchor again — navigateByDirection needs a focused element and
+    // ACCEPT only fires when its element's layer holds focus.
+    const reassertSpatialFocus = () => {
+      const key = getCurrentFocusKey();
+      if (key) setFocus(key);
+    };
+    window.addEventListener("focus", reassertSpatialFocus);
+
     void (async () => {
       unlisten.push(
         await webview.listen("game-running", () => {
@@ -208,28 +218,27 @@ function FullscreenLayout() {
               ) {
                 await win.setFullscreen(true);
               }
-
-              await invoke("request_foreground").catch(console.error);
-              await webview.setFocus().catch(console.error);
-
-              // The game stole OS focus, so our webview lost it — the gamepad
-              // API only delivers input to a focused document. Re-assert spatial
-              // focus so controller navigation works again, and resume the theme
-              // from where it was paused (resumeTheme also resumes audio ctx).
-              requestAnimationFrame(() => {
-                const key = getCurrentFocusKey();
-                if (key) setFocus(key);
-              });
-              gameMusicPlayer.resumeTheme();
             } catch (e) {
               console.error(e);
             }
+
+            // Resume the theme from where it was paused (also resumes audio ctx).
+            gameMusicPlayer.resumeTheme();
+
+            // Reclaiming the OS foreground is handled in Rust (it retries on a
+            // spaced schedule to beat the closing game). When the window regains
+            // focus, the `focus` listener above re-asserts spatial focus; do it
+            // once more shortly after as a fallback in case that event is missed.
+            setTimeout(reassertSpatialFocus, 500);
           })();
         }),
       );
     })();
 
-    return () => unlisten.forEach((fn) => fn());
+    return () => {
+      window.removeEventListener("focus", reassertSpatialFocus);
+      unlisten.forEach((fn) => fn());
+    };
   }, []);
 
   return (

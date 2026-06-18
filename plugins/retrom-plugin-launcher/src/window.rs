@@ -135,3 +135,90 @@ fn descendant_pids(root: u32) -> HashSet<u32> {
 
     result
 }
+
+/// PID of a currently-running process whose executable lives under `dir`, if any.
+///
+/// Used to track a Steam game by its install directory: Steam launches the game
+/// as its own child (so we never get the PID directly), but the game's process
+/// image lives under the app's install dir, which lets us find it — and then
+/// wait on it for *precise* exit detection (see [`wait_for_pid_exit`]). That
+/// precision matters: reclaiming the foreground only works in the instant after
+/// the game's window is gone and before Steam grabs it.
+pub(crate) fn pid_under_dir(dir: &std::path::Path) -> Option<u32> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // Windows paths are case-insensitive; compare lowercased prefixes.
+    let prefix = dir.to_string_lossy().to_lowercase();
+    if prefix.is_empty() {
+        return None;
+    }
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return None;
+    }
+
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+    let mut found = None;
+    if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
+        loop {
+            let pid = entry.th32ProcessID;
+            if pid != 0 {
+                let handle =
+                    unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+                if !handle.is_null() {
+                    let mut buf = [0u16; 4096];
+                    let mut len = buf.len() as u32;
+                    let ok = unsafe {
+                        QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len)
+                    };
+                    unsafe { CloseHandle(handle) };
+
+                    if ok != 0 {
+                        let path = std::ffi::OsString::from_wide(&buf[..len as usize]);
+                        if path.to_string_lossy().to_lowercase().starts_with(&prefix) {
+                            found = Some(pid);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if unsafe { Process32NextW(snapshot, &mut entry) } == 0 {
+                break;
+            }
+        }
+    }
+
+    unsafe { CloseHandle(snapshot) };
+    found
+}
+
+/// Block until the process with `pid` exits (returns immediately if it's already
+/// gone or can't be opened). Lets us react the instant a game closes.
+pub(crate) fn wait_for_pid_exit(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    };
+
+    let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if handle.is_null() {
+        return;
+    }
+
+    unsafe {
+        WaitForSingleObject(handle, INFINITE);
+        CloseHandle(handle);
+    }
+}

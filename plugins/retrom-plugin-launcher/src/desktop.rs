@@ -48,16 +48,48 @@ impl<R: Runtime> Launcher<R> {
     /// Bring the main Big Picture window back to the OS foreground. Called when a
     /// game exits so the player lands straight back in the library, mirroring
     /// Steam Big Picture's return-to-library behavior.
+    ///
+    /// A game's window can linger for a moment after its process exits, during
+    /// which the foreground steal is refused, so we retry a few times on a spaced
+    /// schedule. The foreground work itself runs on the main (UI) thread; the
+    /// waits happen on this background task so nothing blocks the UI.
     pub fn foreground_main_window(&self) {
         let Some(window) = self.app_handle.get_webview_window("main") else {
             return;
         };
 
-        if let Err(why) = self
-            .app_handle
-            .run_on_main_thread(move || crate::bring_to_foreground(&window))
+        #[cfg(windows)]
         {
-            warn!("Failed to foreground main window on game exit: {why}");
+            let hwnd = match window.hwnd() {
+                Ok(handle) => handle.0 as isize,
+                Err(why) => {
+                    warn!("Failed to get main window handle to foreground: {why}");
+                    return;
+                }
+            };
+
+            // A game's window can linger after its process exits, and for Steam
+            // titles Steam itself grabs the foreground on game close — so retry on
+            // a spaced schedule with a long tail to win it back once Steam settles.
+            // Runs on its own thread so the activation sequence's sleeps never touch
+            // the UI thread (which must stay free to process the activation).
+            // `raise_hwnd` early-returns once we already hold the foreground, so the
+            // later attempts are cheap no-ops in the common (emulator) case.
+            std::thread::spawn(move || {
+                for delay_ms in [0u64, 250, 600, 1200, 2500, 4000] {
+                    if delay_ms > 0 {
+                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                    }
+                    crate::foreground::raise_hwnd(hwnd);
+                }
+            });
+        }
+
+        #[cfg(not(windows))]
+        {
+            if let Err(why) = window.set_focus() {
+                warn!("Failed to focus main window on game exit: {why}");
+            }
         }
     }
 
