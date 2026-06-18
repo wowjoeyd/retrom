@@ -17,12 +17,11 @@ import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer, useFocusable } from "../focus-container";
 import { Button } from "@retrom/ui/components/button";
 import { cn } from "@retrom/ui/lib/utils";
-import { Gamepad2 } from "lucide-react";
+import { EllipsisVertical, Gamepad2 } from "lucide-react";
 import { DesktopOnly } from "@/lib/env";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { useGameDetail } from "@/providers/game-details";
 import { PanelHints } from "../menubar/panel-chrome";
-import { HotkeyIcon } from "../hotkey-button";
 import { Image } from "@/lib/utils";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 
@@ -65,18 +64,22 @@ export function GameActions(props?: {
         handlers={{ ACCEPT: { handler: () => setOpen(true) } }}
       >
         <SheetTrigger asChild>
+          {/* Compact square icon button (vertical ellipsis). The Y = Actions
+              prompt lives in the bottom action bar, so no inline glyph here.
+              Icon-only, but labelled for assistive tech. */}
           <Button
             ref={ref}
             variant="secondary"
+            aria-label="Actions"
+            title="Actions"
             className={cn(
-              "flex h-16 items-center gap-2.5 rounded-md px-6 text-xl font-bold uppercase tracking-wide",
+              "grid size-16 shrink-0 place-items-center rounded-md p-0",
               "border border-border/60 bg-background/50 backdrop-blur-md",
               "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
               "opacity-90 transition-all focus-hover:bg-accent focus-hover:opacity-100",
             )}
           >
-            <HotkeyIcon hotkey="SORT" className="size-6" />
-            Actions
+            <EllipsisVertical className="size-7" />
           </Button>
         </SheetTrigger>
       </HotkeyLayer>

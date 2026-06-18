@@ -46,6 +46,8 @@ type EditableGameMetadata = Omit<
   | "videoUrls"
   | "artworkUrls"
   | "screenshotUrls"
+  // Managed by the theme-download pipeline, not user-edited here.
+  | "themeAudioTitle"
 >;
 type FormSchema = z.infer<typeof formSchema>;
 const formSchema = z.object({

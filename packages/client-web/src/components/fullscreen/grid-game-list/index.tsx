@@ -42,6 +42,7 @@ type GameMusicStatus =
   | "idle"
   | "loading"
   | "playing"
+  | "paused"
   | "blocked"
   | "error"
   | "missing";
@@ -130,6 +131,19 @@ const gameMusic = {
   // playback seamlessly even if the computed source URL string differs (e.g. the
   // bare magic `.../theme` vs the exact `.../theme.webm` from mediaPaths).
   currentGameId: null as number | null,
+  // Web Audio graph for the live theme visualizer. The shared <audio> element is
+  // routed source -> analyser -> destination so the soundtrack mini-player can
+  // read real frequency data. createMediaElementSource may run at most once per
+  // element, so the nodes are created lazily and cached. Routing through Web
+  // Audio means we MUST connect to destination (else the theme goes silent), and
+  // the element must be CORS-clean (crossOrigin set at creation) or the source
+  // is "tainted" and outputs silence — see ensureAnalyser.
+  audioContext: null as AudioContext | null,
+  mediaSource: null as MediaElementAudioSourceNode | null,
+  analyser: null as AnalyserNode | null,
+  // True while the user has explicitly paused the theme from the mini-player, so
+  // a same-game continuation (e.g. a re-fired detail effect) doesn't auto-resume.
+  userPaused: false,
 
   ensureApi(): Promise<void> {
     if (this.apiReady && window.YT?.Player) {
@@ -330,6 +344,20 @@ const gameMusic = {
       if (gameId != null) {
         this.currentGameId = gameId;
       }
+      // Respect an explicit user pause: a re-fired continuation (e.g. the detail
+      // effect re-running) must not silently resume playback the user stopped.
+      if (this.userPaused) {
+        if (videoUrl && this.activeStatus) {
+          this.activeStatus = {
+            ...this.activeStatus,
+            title,
+            targetVolume,
+            fadeMs,
+            url: videoUrl || this.activeStatus.url,
+          };
+        }
+        return;
+      }
       if (videoUrl && this.activeStatus) {
         this.activeStatus = {
           ...this.activeStatus,
@@ -373,6 +401,16 @@ const gameMusic = {
           // resume and let the *real* outcome decide the status. A no-theme game
           // resolves to "missing" (404), never a phantom "playing". The status is
           // only written if this game still owns playback when the promise settles.
+          //
+          // Crucially, reload the element when the source URL actually changed
+          // (e.g. a theme was just downloaded: the old magic/404 URL → the new
+          // exact theme.opus). Without this the continuation path would resume
+          // the stale (failed) src and the freshly downloaded track would never
+          // play — and its duration would never populate.
+          if (videoUrl && a.src !== videoUrl) {
+            a.src = videoUrl;
+            a.load();
+          }
           void a
             .play()
             .then(() => {
@@ -517,6 +555,8 @@ const gameMusic = {
     if (gameId != null) {
       this.currentGameId = gameId;
     }
+    // A real switch starts fresh playback, so any prior user-pause is cleared.
+    this.userPaused = false;
     this.activeStatus = {
       title,
       url: videoUrl,
@@ -542,6 +582,11 @@ const gameMusic = {
         this.audio = new Audio();
         this.audio.loop = true;
         this.audio.preload = "auto";
+        // CORS-clean the element so the Web Audio analyser (visualizer) can read
+        // it without tainting/silencing it. The theme media is served with
+        // permissive CORS, so anonymous mode loads fine. Set before any src so
+        // the very first load is a clean CORS request.
+        this.audio.crossOrigin = "anonymous";
       }
       this.audio.volume = 0;
 
@@ -817,6 +862,7 @@ const gameMusic = {
     this.currentGameId = null;
     this.activeStatus = null;
     this.sourceType = null;
+    this.userPaused = false;
     useGameMusicStatus.getState().hide();
   },
 
@@ -840,6 +886,115 @@ const gameMusic = {
       } catch {}
     }
   },
+
+  // Lazily build (and cache) the Web Audio analyser wired to the shared theme
+  // <audio> element for the live visualizer. Returns null when no element exists
+  // yet or Web Audio is unavailable. createMediaElementSource is called at most
+  // once per element; the source is connected through to destination so audio is
+  // never silenced. Resumes the context (autoplay policy) on creation.
+  ensureAnalyser(): AnalyserNode | null {
+    const a = this.audio;
+    if (!a) return null;
+    if (this.analyser) return this.analyser;
+
+    try {
+      const Ctx: typeof AudioContext | undefined =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctx) return null;
+
+      const ctx = this.audioContext ?? new Ctx();
+      this.audioContext = ctx;
+
+      const source = this.mediaSource ?? ctx.createMediaElementSource(a);
+      this.mediaSource = source;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.75;
+
+      // Route THROUGH to destination — a media element source that isn't
+      // connected to the destination plays no audio.
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      this.analyser = analyser;
+      void ctx.resume?.().catch(() => {});
+      return analyser;
+    } catch (e) {
+      if (import.meta.env.DEV)
+        console.warn("[gameMusic] analyser setup failed", e);
+      return null;
+    }
+  },
+
+  resumeAudioContext() {
+    void this.audioContext?.resume?.().catch(() => {});
+  },
+
+  // Play a specific playlist track for a game, forcing a real (re)load even when
+  // it's the same game — so the soundtrack mini-player's prev/next actually
+  // switches tracks instead of taking the seamless same-game continuation path.
+  playThemeTrack(url: string, title: string | undefined, gameId: number) {
+    const vol = this.activeStatus?.targetVolume ?? 0.3;
+    this.userPaused = false;
+    this.currentGameId = null;
+    void this.playForGame(url, vol, 250, title, [url], gameId);
+  },
+
+  // Pause/resume the actual theme playback for the currently-owned game and
+  // reflect the real state in the shared store (so the mini-player stays honest).
+  pauseTheme() {
+    this.userPaused = true;
+    this._clearAllFades();
+    try {
+      this.audio?.pause();
+    } catch {}
+    try {
+      this.player?.pauseVideo?.();
+    } catch {}
+    const active = this.activeStatus;
+    this._finishStatus({
+      status: "paused",
+      url: active?.url ?? "",
+      title: active?.title,
+      sourceType: this.sourceType ?? "audio",
+    });
+  },
+
+  resumeTheme() {
+    this.userPaused = false;
+    this.resumeAudioContext();
+    const active = this.activeStatus;
+    const a = this.audio;
+    if (a && this.sourceType === "audio") {
+      void a
+        .play()
+        .then(() => {
+          this._fadeTo(active?.targetVolume ?? 0.3, 150);
+          this._finishStatus({
+            status: "playing",
+            url: active?.url ?? "",
+            title: active?.title,
+            sourceType: "audio",
+          });
+        })
+        .catch((e: unknown) => {
+          if (e instanceof Error && e.name === "AbortError") return;
+        });
+    } else if (this.player && this.sourceType === "youtube") {
+      try {
+        this.player.playVideo();
+      } catch {}
+      this._finishStatus({
+        status: "playing",
+        url: active?.url ?? "",
+        title: active?.title,
+        sourceType: "youtube",
+      });
+    }
+  },
 };
 
 // Public API used by grid cards + detail page + now playing
@@ -855,6 +1010,15 @@ export const gameMusicPlayer = {
   stop: (fade?: number, url?: string, gameId?: number) =>
     gameMusic.stop(fade, url, gameId),
   userActivatePlayback: () => gameMusic.userActivatePlayback?.(),
+  ensureAnalyser: () => gameMusic.ensureAnalyser(),
+  resumeAudioContext: () => gameMusic.resumeAudioContext(),
+  pauseTheme: () => gameMusic.pauseTheme(),
+  resumeTheme: () => gameMusic.resumeTheme(),
+  playThemeTrack: (url: string, title: string | undefined, gameId: number) =>
+    gameMusic.playThemeTrack(url, title, gameId),
+  // The shared <audio> element backing native theme playback, for reading live
+  // progress (currentTime/duration). Null when no theme has played yet.
+  getThemeMedia: (): HTMLMediaElement | null => gameMusic.audio,
   clearCacheForGame: (gameId: number) => {
     for (const [url] of gameMusic.recentResults) {
       if (
@@ -1242,7 +1406,13 @@ function gameMetadataQueryMatches(key: readonly unknown[], gameId: number) {
     (k): k is { gameIds?: number[] } =>
       typeof k === "object" && k !== null && "gameIds" in k,
   );
-  return !!req?.gameIds?.includes(gameId);
+  if (req?.gameIds?.includes(gameId)) return true;
+  // GameDetailProvider keys the metadata query as
+  // ["game", "games", "game-metadata", "games-metadata", gameId] — the id is a
+  // bare element, not a {gameIds} request. The SoundtrackConsole + detail title
+  // read from THIS query, so it must be invalidated too or the detail page shows
+  // a stale "no theme" / missing title / missing duration after a download.
+  return key.includes(gameId);
 }
 
 export function pollForDownloadedTheme(

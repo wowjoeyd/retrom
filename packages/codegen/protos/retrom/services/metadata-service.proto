@@ -23,6 +23,7 @@ service MetadataService {
   rpc SearchGameSoundtrack(SearchGameSoundtrackRequest) returns (SearchGameSoundtrackResponse);
   rpc DownloadGameSoundtrack(DownloadGameSoundtrackRequest) returns (DownloadGameSoundtrackResponse);
   rpc AutoDownloadGameSoundtrack(AutoDownloadGameSoundtrackRequest) returns (AutoDownloadGameSoundtrackResponse);
+  rpc DeleteGameSoundtrackTrack(DeleteGameSoundtrackTrackRequest) returns (DeleteGameSoundtrackTrackResponse);
 
   rpc GetLocalMetadataStatus(GetLocalMetadataStatusRequest) returns (GetLocalMetadataStatusResponse);
   rpc DeleteLocalMetadata(DeleteLocalMetadataRequest) returns (DeleteLocalMetadataResponse);
@@ -49,7 +50,12 @@ message GetGameMetadataResponse {
     repeated string video_urls = 4;
     repeated string screenshot_urls = 5;
     repeated string artwork_urls = 6;
+    // The primary theme track (first in the playlist), kept for backward compat.
     optional string theme_audio_url = 7;
+    // The full theme playlist: parallel arrays of track URLs and their display
+    // titles (resolved from each file's embedded Opus TITLE tag, else "Theme").
+    repeated string theme_audio_urls = 8;
+    repeated string theme_audio_titles = 9;
   }
 
   repeated GameMetadata metadata = 1;
@@ -176,6 +182,16 @@ message DownloadGameSoundtrackRequest {
 message DownloadGameSoundtrackResponse {
   string job_id = 1;
 }
+
+// Delete a single downloaded theme track from a game's playlist. `filename` is
+// the track file's name (e.g. "theme.opus" / "theme-2.opus"), as derived from
+// the track URL the client holds.
+message DeleteGameSoundtrackTrackRequest {
+  int32 game_id = 1;
+  string filename = 2;
+}
+
+message DeleteGameSoundtrackTrackResponse {}
 
 // Auto-search YouTube and download theme audio for any of the given games that
 // don't already have a theme file.  Used for batch (Phase 3) and auto (Phase 4).

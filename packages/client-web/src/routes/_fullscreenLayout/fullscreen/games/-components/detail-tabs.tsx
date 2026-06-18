@@ -1,9 +1,6 @@
 import { cn } from "@retrom/ui/lib/utils";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
-import {
-  FocusContainer,
-  useFocusable,
-} from "@/components/fullscreen/focus-container";
+import { FocusContainer } from "@/components/fullscreen/focus-container";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { HotkeyIcon } from "@/components/fullscreen/hotkey-button";
 import { useGameDetail } from "@/providers/game-details";
@@ -23,11 +20,12 @@ export const DETAIL_TABS = [
 export type TabKey = (typeof DETAIL_TABS)[number]["key"];
 export const DETAIL_TAB_KEYS: TabKey[] = DETAIL_TABS.map((t) => t.key);
 
-// Controller-focusable horizontal tabs. Left/Right moves between tab headers
-// (focusing a header also selects it, Steam-style) and LB/RB switch from
-// anywhere via the page-level bumper handler. Down enters the content; BACK from
-// content returns to the active header; BACK from the header row bubbles to the
-// page handler (→ grid).
+// The tab headers are NOT part of spatial navigation — they're driven purely by
+// the LB/RB bumpers (the page-level cycleTab handler) and act as visual
+// indicators (still clickable by mouse). Keeping them out of the focus tree is
+// what makes the D-pad / thumbstick skip straight from the hero into the active
+// tab's content (e.g. Down on the hero → the first media thumbnail), instead of
+// landing on a tab header. BACK from content returns to the hero.
 export function DetailTabs(props: {
   active: TabKey;
   onChange: (key: TabKey) => void;
@@ -41,20 +39,16 @@ export function DetailTabs(props: {
       <div className="flex items-center justify-center gap-3 border-b border-border/60 sm:gap-5">
         <BumperHint hotkey="PAGE_LEFT" />
 
-        <FocusContainer
-          opts={{ focusKey: "detail-tabs" }}
-          className="flex gap-1"
-        >
+        <div className="flex gap-1">
           {DETAIL_TABS.map((tab) => (
             <TabButton
               key={tab.key}
-              tabKey={tab.key}
               label={tab.label}
               active={active === tab.key}
               onActivate={() => onChange(tab.key)}
             />
           ))}
-        </FocusContainer>
+        </div>
 
         <BumperHint hotkey="PAGE_RIGHT" />
       </div>
@@ -62,13 +56,15 @@ export function DetailTabs(props: {
       <HotkeyLayer
         id="detail-tab-content"
         handlers={{
-          BACK: { handler: () => setFocus(`detail-tab-${active}`) },
+          BACK: { handler: () => setFocus("fullscreen-action-button") },
         }}
       >
         {/* Wide content deck — a card that mirrors the control deck above so the
             active tab content sits in a deliberate, aligned surface rather than
-            floating in dead space. */}
+            floating in dead space. The region id lets the page's bumper handler
+            tell whether focus is currently inside the content. */}
         <FocusContainer
+          id="detail-tab-content-region"
           opts={{ focusKey: "detail-tab-content" }}
           className="min-h-[16rem] rounded-2xl border border-border/60 bg-background/30 p-6 backdrop-blur-sm sm:p-8"
         >
@@ -95,52 +91,64 @@ function BumperHint(props: { hotkey: "PAGE_LEFT" | "PAGE_RIGHT" }) {
   );
 }
 
+// Visual-only tab header. Not spatially focusable (controller switches tabs with
+// LB/RB); still mouse-clickable.
 function TabButton(props: {
-  tabKey: TabKey;
   label: string;
   active: boolean;
   onActivate: () => void;
 }) {
-  const { tabKey, label, active, onActivate } = props;
-
-  const { ref } = useFocusable<HTMLButtonElement>({
-    focusKey: `detail-tab-${tabKey}`,
-    onFocus: ({ node }) => {
-      node?.focus({ preventScroll: true });
-      node?.scrollIntoView({ block: "nearest" });
-      onActivate();
-    },
-  });
+  const { label, active, onActivate } = props;
 
   return (
-    <HotkeyLayer handlers={{ ACCEPT: { handler: onActivate } }}>
-      <button
-        ref={ref}
-        type="button"
-        tabIndex={-1}
-        onClick={onActivate}
-        className={cn(
-          "relative px-5 py-3 text-lg font-bold uppercase tracking-wide outline-none transition-colors",
-          active ? "text-accent-text" : "text-muted-foreground",
-          "focus-hover:text-foreground",
-          "after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:rounded-full after:transition-all",
-          active ? "after:bg-accent" : "after:bg-transparent",
-          "focus-hover:after:bg-accent/60",
-        )}
-      >
-        {label}
-      </button>
-    </HotkeyLayer>
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={onActivate}
+      className={cn(
+        "relative px-5 py-3 text-lg font-bold uppercase tracking-wide outline-none transition-colors",
+        active ? "text-accent-text" : "text-muted-foreground",
+        "hover:text-foreground",
+        "after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:rounded-full after:transition-all",
+        active ? "after:bg-accent" : "after:bg-transparent",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
 function InfoTab() {
-  const { gameMetadata } = useGameDetail();
+  const { gameMetadata, extraMetadata } = useGameDetail();
   const description = gameMetadata?.description || "";
+  const genres = extraMetadata?.genres?.value ?? [];
 
   return (
     <div className="flex flex-col gap-8">
       <ExtraInfo />
+
+      {/* About block: structured ingested metadata grouped above the
+          description. Only genres are currently ingested into the queryable
+          model; other IGDB/Steam facets (developer, publisher, modes, rating)
+          aren't stored, so they're omitted rather than invented. */}
+      {genres.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-[0.65rem] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+            Genres
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {genres.map((genre) => (
+              <span
+                key={genre.id || genre.slug || genre.name}
+                className="rounded-full border border-border/60 bg-muted/30 px-3 py-1 text-sm font-semibold text-foreground/85"
+              >
+                {genre.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {description ? (
         <Description description={description} />
       ) : (

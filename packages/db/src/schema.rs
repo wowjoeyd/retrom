@@ -132,6 +132,7 @@ diesel::table! {
         release_date -> Nullable<Timestamptz>,
         last_played -> Nullable<Timestamptz>,
         minutes_played -> Nullable<Int4>,
+        theme_audio_title -> Nullable<Text>,
     }
 }
 

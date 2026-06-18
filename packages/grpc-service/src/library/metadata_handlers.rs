@@ -712,7 +712,12 @@ pub async fn update_metadata(
                 });
 
                 if let Some(theme_file) = find_theme_audio_file(&cache_dir) {
-                    compress_theme_audio(&theme_file, &cache_dir).await;
+                    // This pass only (re)compresses the already-extracted primary
+                    // track and has no source video id to probe a title from; the
+                    // title is captured by the extraction paths (download /
+                    // per-game update / auto-download) and resolved on read from
+                    // the embedded tag.
+                    compress_theme_audio(&theme_file, &cache_dir, "theme", None).await;
                 }
 
                 Ok(())

@@ -20,7 +20,6 @@ import { Background } from "./-components/background";
 import { SoundtrackConsole } from "./-components/soundtrack-console";
 import { AchievementsChip } from "./-components/achievements-chip";
 import { DetailReticle } from "./-components/reticle";
-import { HotkeyIcon } from "@/components/fullscreen/hotkey-button";
 import {
   DetailTabs,
   DETAIL_TAB_KEYS,
@@ -115,6 +114,10 @@ function GameComponent() {
         fade,
         metaData.name,
         audioCandidates,
+        // Tag ownership with this game so the soundtrack mini-player reflects
+        // "Now Playing" (and enables pause + the live visualizer) even when the
+        // detail page is reached directly rather than via a grid hover.
+        gameIdNumber,
       );
     }
     return () => {
@@ -186,10 +189,11 @@ function LoadingDetail() {
 }
 
 // Primary action: a bold purple-gradient PLAY/INSTALL — the brightest element
-// on screen. The bound ACCEPT glyph is overlaid by the ActionButton wrapper.
+// on screen. The bound ACCEPT prompt lives in the bottom action bar (A = Select),
+// so no inline glyph is baked into the button.
 const buttonStyles = cn(
   buttonVariants({ variant: "accent", size: "lg" }),
-  "relative h-16 w-auto rounded-xl pl-7 pr-14 text-2xl font-black uppercase tracking-wide text-white",
+  "relative h-16 w-auto rounded-xl px-8 text-2xl font-black uppercase tracking-wide text-white",
   "bg-[linear-gradient(135deg,var(--color-accent-text),var(--color-accent))]",
   "shadow-[0_0_34px_-6px_var(--color-accent)]",
   "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
@@ -214,21 +218,28 @@ function Inner() {
 
   const goToAchievements = () => {
     setActiveTab("achievements");
-    requestAnimationFrame(() => setFocus("detail-tab-achievements"));
+    requestAnimationFrame(() => setFocus("detail-tab-content"));
   };
 
-  // LB/RB (and D-pad on the tab row) cycle tabs from anywhere on the page.
-  // Registered on the page HotkeyLayer so an open sheet/dialog (portaled, with
-  // focus trapped inside it) never receives these — its own handlers win.
+  // LB/RB cycle tabs from anywhere on the page (the tab headers themselves are
+  // not spatially focusable). Registered on the page HotkeyLayer so an open
+  // sheet/dialog (portaled, with focus trapped inside it) never receives these.
+  // If focus is already inside the tab content, pull it into the newly-active
+  // content (the old content unmounts, so focus would otherwise be lost);
+  // otherwise leave focus on the hero so the user can switch tabs and then press
+  // Down to enter the content.
   const cycleTab = (dir: 1 | -1) => {
     setActiveTab((current) => {
       const i = DETAIL_TAB_KEYS.indexOf(current);
-      const nextKey =
-        DETAIL_TAB_KEYS[
-          (i + dir + DETAIL_TAB_KEYS.length) % DETAIL_TAB_KEYS.length
-        ];
-      requestAnimationFrame(() => setFocus(`detail-tab-${nextKey}`));
-      return nextKey;
+      return DETAIL_TAB_KEYS[
+        (i + dir + DETAIL_TAB_KEYS.length) % DETAIL_TAB_KEYS.length
+      ];
+    });
+    requestAnimationFrame(() => {
+      const region = document.getElementById("detail-tab-content-region");
+      if (region?.contains(document.activeElement)) {
+        setFocus("detail-tab-content");
+      }
     });
   };
 
@@ -261,6 +272,18 @@ function Inner() {
     const onFocusIn = (e: FocusEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target || !viewport.contains(target)) return;
+      // The hero is the top of the page. When focus lands on any hero control
+      // (e.g. coming back up from deep in the Media tab), reveal the full hero
+      // art/title by scrolling all the way to the top instead of pinning the
+      // focused button to the viewport's top edge. Deferred to the next frame so
+      // it wins over the control's own onFocus scrollIntoView.
+      const hero = document.getElementById("detail-hero");
+      if (hero?.contains(target)) {
+        requestAnimationFrame(() =>
+          viewport.scrollTo({ top: 0, behavior: "auto" }),
+        );
+        return;
+      }
       target.scrollIntoView({ block: "nearest", behavior: "instant" });
     };
 
@@ -341,7 +364,10 @@ function Inner() {
             <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-[max(2rem,4vw)] pb-28 pt-[34dvh]">
               {/* Hero lower band: left cluster (title + actions) and the right
                   cluster (soundtrack + achievements) reflow and never overlap. */}
-              <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-8">
+              <div
+                id="detail-hero"
+                className="flex flex-wrap items-end justify-between gap-x-10 gap-y-8"
+              >
                 <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
                   <h1
                     className={cn(
@@ -449,17 +475,8 @@ function ActionButton() {
       id="fullscreen-action-button"
       handlers={{ ACCEPT: { handler: () => ref.current?.click() } }}
     >
-      {/* The bound ACCEPT glyph is baked into the primary action (right inset,
-          with pr-14 reserved in buttonStyles). pointer-events-none so it never
-          intercepts the click. */}
-      <div className="relative w-min">
+      <div className="w-min">
         <ActionButtonImpl ref={ref} game={game} className={buttonStyles} />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
-        >
-          <HotkeyIcon hotkey="ACCEPT" className="size-7" />
-        </span>
       </div>
     </HotkeyLayer>
   );

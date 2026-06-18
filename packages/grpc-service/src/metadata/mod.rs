@@ -11,6 +11,7 @@ use retrom_codegen::{
         get_igdb_search_response::SearchResults,
         metadata_service_server::MetadataService,
         AutoDownloadGameSoundtrackRequest, AutoDownloadGameSoundtrackResponse,
+        DeleteGameSoundtrackTrackRequest, DeleteGameSoundtrackTrackResponse,
         DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, DownloadGameSoundtrackRequest,
         DownloadGameSoundtrackResponse, Game, GameGenre, GameGenreMap, GetGameMetadataRequest,
         GetGameMetadataResponse, GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
@@ -32,8 +33,9 @@ use retrom_service_common::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
         soundtrack::{
             compress_theme_audio, extract_video_id_from_url, find_soundtrack_url,
-            find_theme_audio_file, search_soundtrack_candidates, set_youtube_cookies_path,
-            try_extract_theme_audio,
+            find_theme_audio_file, find_theme_audio_files, next_theme_basename,
+            normalize_track_title, probe_video_title, read_opus_title,
+            search_soundtrack_candidates, set_youtube_cookies_path, try_extract_theme_audio,
         },
         steam::provider::SteamWebApiProvider,
         GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
@@ -93,7 +95,7 @@ impl MetadataService for MetadataServiceHandlers {
             }
         };
 
-        let metadata = match retrom_db::schema::game_metadata::table
+        let mut metadata = match retrom_db::schema::game_metadata::table
             .filter(retrom_db::schema::game_metadata::game_id.eq_any(&game_ids))
             .load::<retrom::GameMetadata>(&mut conn)
             .instrument(tracing::info_span!("load_game_metadata"))
@@ -190,6 +192,8 @@ impl MetadataService for MetadataServiceHandlers {
                                 screenshot_urls: vec![],
                                 artwork_urls: vec![],
                                 theme_audio_url: None,
+                                theme_audio_urls: vec![],
+                                theme_audio_titles: vec![],
                             };
 
                             let cache_opts = meta.get_cacheable_media_opts();
@@ -331,29 +335,67 @@ impl MetadataService for MetadataServiceHandlers {
         // This ensures the native audio preview works even if store_metadata_locally is false
         // (the theme audio is server-generated short soundtrack metadata, not user media).
         // Primary population of these files now happens up-front in the library metadata jobs.
-        for meta in &metadata {
+        for meta in &mut metadata {
             if let Some(cache_dir) = meta.get_cache_dir() {
-                if let Some(theme_path) = find_theme_audio_file(&cache_dir) {
-                    if let Ok(public) = get_public_url(&theme_path) {
-                        tracing::debug!(
-                            "including extracted theme audio in mediaPaths for game {}: {}",
-                            meta.game_id,
-                            public
-                        );
-                        let entry = media_paths
-                            .entry(meta.game_id)
-                            .or_insert_with(|| MediaPaths {
-                                cover_url: None,
-                                background_url: None,
-                                icon_url: None,
-                                video_urls: vec![],
-                                screenshot_urls: vec![],
-                                artwork_urls: vec![],
-                                theme_audio_url: None,
-                            });
-                        entry.theme_audio_url = Some(public);
+                let theme_files = find_theme_audio_files(&cache_dir);
+                if theme_files.is_empty() {
+                    continue;
+                }
+
+                // Build the full playlist (parallel URL/title arrays). Each track's
+                // title comes from its embedded Opus TITLE tag, falling back to
+                // "Theme".
+                let mut theme_urls: Vec<String> = Vec::new();
+                let mut theme_titles: Vec<String> = Vec::new();
+                for path in &theme_files {
+                    if let Ok(public) = get_public_url(path) {
+                        let title = read_opus_title(path).unwrap_or_else(|| "Theme".to_string());
+                        theme_urls.push(public);
+                        theme_titles.push(title);
                     }
                 }
+
+                if theme_urls.is_empty() {
+                    continue;
+                }
+
+                // The primary track backs the singular fields (backward compat) and
+                // the persisted DB title. Backfill the stored title from the primary
+                // track's tag when absent, so the detail title isn't "Theme".
+                if meta.theme_audio_title.is_none() {
+                    let primary_title = theme_titles[0].clone();
+                    if primary_title != "Theme" {
+                        if let Err(why) = diesel::update(schema::game_metadata::table)
+                            .filter(schema::game_metadata::game_id.eq(meta.game_id))
+                            .set(schema::game_metadata::theme_audio_title.eq(Some(&primary_title)))
+                            .execute(&mut conn)
+                            .await
+                        {
+                            tracing::warn!(
+                                "failed to backfill theme_audio_title for game {}: {}",
+                                meta.game_id,
+                                why
+                            );
+                        }
+                        meta.theme_audio_title = Some(primary_title);
+                    }
+                }
+
+                let primary = theme_urls[0].clone();
+                let entry = media_paths.entry(meta.game_id).or_insert_with(|| MediaPaths {
+                    cover_url: None,
+                    background_url: None,
+                    icon_url: None,
+                    video_urls: vec![],
+                    screenshot_urls: vec![],
+                    artwork_urls: vec![],
+                    theme_audio_url: None,
+                    theme_audio_urls: vec![],
+                    theme_audio_titles: vec![],
+                });
+                entry.theme_audio_url = Some(primary);
+                entry.theme_audio_urls = theme_urls;
+                entry.theme_audio_titles = theme_titles;
             }
         }
 
@@ -510,6 +552,7 @@ impl MetadataService for MetadataServiceHandlers {
                                 match try_extract_theme_audio(
                                     &vid,
                                     cache_dir_clone.clone(),
+                                    "theme",
                                     overwrite_theme_audio,
                                     true,
                                 )
@@ -521,7 +564,17 @@ impl MetadataService for MetadataServiceHandlers {
                                             game_id,
                                             path
                                         );
-                                        compress_theme_audio(&path, &cache_dir_clone).await;
+                                        let title = probe_video_title(&vid)
+                                            .await
+                                            .as_deref()
+                                            .and_then(normalize_track_title);
+                                        compress_theme_audio(
+                                            &path,
+                                            &cache_dir_clone,
+                                            "theme",
+                                            title.as_deref(),
+                                        )
+                                        .await;
                                     }
                                     None => tracing::warn!(
                                         "theme: extraction FAILED for game {} (video {})",
@@ -1136,9 +1189,18 @@ impl MetadataService for MetadataServiceHandlers {
         let job_manager = self.job_manager.clone();
         let job_name = format!("Download Soundtrack For Game {}", game_id);
         let task = async move {
-            match try_extract_theme_audio(&video_id, cache_dir.clone(), true, false).await {
+            // Append to the next free playlist slot so downloading a soundtrack
+            // ADDS a track rather than replacing the existing one (multi-track).
+            let basename = next_theme_basename(&cache_dir);
+            match try_extract_theme_audio(&video_id, cache_dir.clone(), &basename, false, false)
+                .await
+            {
                 Some(path) => {
-                    compress_theme_audio(&path, &cache_dir).await;
+                    let title = probe_video_title(&video_id)
+                        .await
+                        .as_deref()
+                        .and_then(normalize_track_title);
+                    compress_theme_audio(&path, &cache_dir, &basename, title.as_deref()).await;
                 }
                 None => {
                     tracing::warn!(
@@ -1162,6 +1224,72 @@ impl MetadataService for MetadataServiceHandlers {
         };
 
         Ok(Response::new(DownloadGameSoundtrackResponse { job_id }))
+    }
+
+    async fn delete_game_soundtrack_track(
+        &self,
+        request: Request<DeleteGameSoundtrackTrackRequest>,
+    ) -> Result<Response<DeleteGameSoundtrackTrackResponse>, Status> {
+        let req = request.into_inner();
+        let game_id = req.game_id;
+        let filename = req.filename;
+
+        // Guard against path traversal — the client only ever sends a bare track
+        // file name.
+        if filename.is_empty()
+            || filename.contains('/')
+            || filename.contains('\\')
+            || filename.contains("..")
+        {
+            return Err(Status::invalid_argument("invalid track filename"));
+        }
+
+        let mut conn = self
+            .db_pool
+            .get()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        let meta: retrom::GameMetadata = schema::game_metadata::table
+            .filter(schema::game_metadata::game_id.eq(game_id))
+            .first::<retrom::GameMetadata>(&mut conn)
+            .await
+            .map_err(|_| Status::not_found("game metadata not found"))?;
+
+        let cache_dir = meta.get_cache_dir().unwrap_or_else(|| {
+            RetromDirs::new()
+                .media_dir()
+                .join("games")
+                .join(game_id.to_string())
+        });
+
+        // Only allow deleting a file that is actually a known theme track for this
+        // game (also rejects anything outside the playlist).
+        let tracks = find_theme_audio_files(&cache_dir);
+        let target = cache_dir.join(&filename);
+        let is_primary = !tracks.is_empty() && tracks[0] == target;
+        if !tracks.iter().any(|p| p == &target) {
+            return Err(Status::not_found("theme track not found"));
+        }
+
+        if let Err(e) = tokio::fs::remove_file(&target).await {
+            return Err(Status::internal(format!(
+                "failed to delete theme track: {e}"
+            )));
+        }
+
+        // If the primary track was removed, clear the stored title so the read
+        // path re-derives it from the new primary track's embedded tag.
+        if is_primary {
+            let _ = diesel::update(schema::game_metadata::table)
+                .filter(schema::game_metadata::game_id.eq(game_id))
+                .set(schema::game_metadata::theme_audio_title.eq(None::<String>))
+                .execute(&mut conn)
+                .await;
+        }
+
+        tracing::info!("deleted theme track {:?} for game {}", target, game_id);
+        Ok(Response::new(DeleteGameSoundtrackTrackResponse {}))
     }
 
     async fn auto_download_game_soundtrack(
@@ -1261,10 +1389,17 @@ impl MetadataService for MetadataServiceHandlers {
                             .await;
                     }
 
-                    // Download and compress theme audio.
-                    match try_extract_theme_audio(&video_id, cache_dir.clone(), true, false).await {
+                    // Download and compress theme audio (auto = the primary track).
+                    match try_extract_theme_audio(&video_id, cache_dir.clone(), "theme", true, false)
+                        .await
+                    {
                         Some(path) => {
-                            compress_theme_audio(&path, &cache_dir).await;
+                            let title = probe_video_title(&video_id)
+                                .await
+                                .as_deref()
+                                .and_then(normalize_track_title);
+                            compress_theme_audio(&path, &cache_dir, "theme", title.as_deref())
+                                .await;
                         }
                         None => {
                             tracing::warn!(
