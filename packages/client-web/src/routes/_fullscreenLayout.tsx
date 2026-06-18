@@ -33,6 +33,7 @@ import { consumeQuickScrollNav } from "../components/fullscreen/alphabet-scroll-
 import { Background, Scene } from "../components/fullscreen/scene";
 import { ActionBarProvider } from "@/providers/fullscreen/action-bar-context";
 import { StartupMovie } from "../components/fullscreen/startup-movie";
+import { FullscreenCursorManager } from "../components/fullscreen/cursor-manager";
 
 declare global {
   export interface HotkeyZones {
@@ -206,6 +207,7 @@ function FullscreenLayout() {
               <ResolveCloudSaveConflictModal />
               <InstallOnPlayModal />
               <StartupMovie />
+              <FullscreenCursorManager />
             </ActionBarProvider>
           </GroupContextProvider>
         </GamepadProvider>

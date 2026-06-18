@@ -5,7 +5,7 @@ import {
 } from "@/components/fullscreen/focus-container";
 import { GameActions } from "@/components/fullscreen/game-actions";
 import { Scene } from "@/components/fullscreen/scene";
-import { getFileStub, Image } from "@/lib/utils";
+import { getFileStub } from "@/lib/utils";
 import { GameDetailProvider, useGameDetail } from "@/providers/game-details";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { buttonVariants } from "@retrom/ui/components/button";
@@ -17,15 +17,15 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { Background } from "./-components/background";
-import { StatsStrip } from "./-components/stats-strip";
-import { MusicPanel } from "./-components/music-panel";
+import { SoundtrackConsole } from "./-components/soundtrack-console";
+import { AchievementsChip } from "./-components/achievements-chip";
+import { DetailReticle } from "./-components/reticle";
+import { HotkeyIcon } from "@/components/fullscreen/hotkey-button";
 import {
   DetailTabs,
   DETAIL_TAB_KEYS,
   type TabKey,
 } from "./-components/detail-tabs";
-import { useInstallationStatus } from "@/queries/useInstallationStatus";
-import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
 import { useGameMetadata } from "@/queries/useGameMetadata";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
@@ -185,11 +185,15 @@ function LoadingDetail() {
   );
 }
 
+// Primary action: a bold purple-gradient PLAY/INSTALL — the brightest element
+// on screen. The bound ACCEPT glyph is overlaid by the ActionButton wrapper.
 const buttonStyles = cn(
-  buttonVariants({ variant: "secondary", size: "lg" }),
-  "font-bold w-auto text-2xl uppercase px-8 h-16 rounded-md",
+  buttonVariants({ variant: "accent", size: "lg" }),
+  "relative h-16 w-auto rounded-xl pl-7 pr-14 text-2xl font-black uppercase tracking-wide text-white",
+  "bg-[linear-gradient(135deg,var(--color-accent-text),var(--color-accent))]",
+  "shadow-[0_0_34px_-6px_var(--color-accent)]",
   "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
-  "opacity-90 focus-hover:opacity-100 transition-all",
+  "transition-all focus-hover:-translate-y-0.5 focus-hover:brightness-110 focus-hover:shadow-[0_0_44px_-4px_var(--color-accent)]",
   '[&_div[role="progressbar"]]:w-[6ch] [&_div[role="progressbar"]]:bg-primary-foreground',
   '[&_div[role="progressbar"]_>_*]:bg-accent',
 );
@@ -201,9 +205,17 @@ function Inner() {
   const scrollWrapRef = useRef<HTMLDivElement>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>("info");
+  // Actions panel open state is lifted so the page-level Ⓨ (SORT) hotkey can
+  // open it from anywhere, while the trigger button still opens it on ACCEPT.
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   const goBack = () =>
     navigate({ to: "/fullscreen", search: (prev) => prev, resetScroll: false });
+
+  const goToAchievements = () => {
+    setActiveTab("achievements");
+    requestAnimationFrame(() => setFocus("detail-tab-achievements"));
+  };
 
   // LB/RB (and D-pad on the tab row) cycle tabs from anywhere on the page.
   // Registered on the page HotkeyLayer so an open sheet/dialog (portaled, with
@@ -224,6 +236,7 @@ function Inner() {
   // bottom bar carries only the global/detail actions.
   useActionBar([
     { hotkey: "MENU", label: "Menu" },
+    { hotkey: "SORT", label: "Actions" },
     { hotkey: "ACCEPT", label: "Select" },
     { hotkey: "BACK", label: "Back" },
   ]);
@@ -270,6 +283,7 @@ function Inner() {
       id="game-page"
       handlers={{
         BACK: { handler: goBack },
+        SORT: { handler: () => setActionsOpen(true) },
         PAGE_LEFT: { handler: () => cycleTab(-1) },
         PAGE_RIGHT: { handler: () => cycleTab(1) },
       }}
@@ -280,10 +294,17 @@ function Inner() {
             opts={{ focusKey: "game-details", forceFocus: true }}
             className="relative block w-full"
           >
-            {/* Cinematic hero backdrop — animated art that fades into the page.
-                Absolutely positioned so the content deck can tuck into its lower
-                gradient without a giant title pushing everything down. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[66dvh] overflow-hidden">
+            {/* Full-bleed cinematic hero art. Stays art-forward — no contained
+                panel — with a graceful blurred-cover fallback beneath the scene
+                for games that have no dedicated background art. */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[72dvh] overflow-hidden">
+              {coverUrl && (
+                <img
+                  src={coverUrl}
+                  aria-hidden
+                  className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl"
+                />
+              )}
               <CatchBoundary
                 getResetKey={() => "resetBg"}
                 onCatch={(error) => console.error(error)}
@@ -311,58 +332,41 @@ function Inner() {
                 </Scene>
               </CatchBoundary>
 
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/0" />
-              <div className="absolute inset-0 bg-gradient-to-r from-background/70 via-transparent to-transparent" />
+              {/* Bottom-up scrim guarantees the title/controls stay legible on
+                  any art, bright or dark. */}
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/85 to-background/10" />
+              <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/20 to-transparent" />
             </div>
 
-            {/* Content column — a glass control deck tucked into the lower hero,
-                followed by the centered tab chrome. One consistent max-width keeps
-                the deck, tab rail, and content visually aligned. */}
-            <div className="relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 pb-28 pt-[24dvh]">
-              {/* Control deck — title, cover, primary actions, metadata chips, and
-                  the soundtrack module gathered into one cohesive Retrom-purple
-                  glass panel instead of separate floating pieces. */}
-              <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-background/40 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent"
-                />
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -left-20 -top-20 h-52 w-52 rounded-full bg-accent/10 blur-3xl"
-                />
-
-                <div className="relative flex flex-col gap-6">
-                  <div className="flex items-end gap-6">
-                    {coverUrl && (
-                      <div className="hidden h-52 w-36 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted shadow-2xl sm:block">
-                        <Image
-                          src={coverUrl}
-                          alt={name}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
+            <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-[max(2rem,4vw)] pb-28 pt-[34dvh]">
+              {/* Hero lower band: left cluster (title + actions) and the right
+                  cluster (soundtrack + achievements) reflow and never overlap. */}
+              <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-8">
+                <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+                  <h1
+                    className={cn(
+                      "-ml-1 line-clamp-2 text-balance font-black uppercase tracking-tight text-white",
+                      "text-[clamp(2.75rem,7vw,5.5rem)] leading-[0.92]",
+                      "drop-shadow-[0_3px_24px_rgba(0,0,0,0.85)]",
                     )}
+                  >
+                    {name}
+                  </h1>
 
-                    <div className="flex min-w-0 flex-1 flex-col gap-5">
-                      <h1 className="line-clamp-2 text-balance text-5xl font-black uppercase leading-[0.95] tracking-tight text-foreground drop-shadow-[0_2px_16px_rgba(0,0,0,0.7)] lg:text-6xl">
-                        {name}
-                      </h1>
-
-                      <div className="flex items-stretch gap-3">
-                        <div className="w-min">
-                          <ActionButton />
-                        </div>
-                        <GameActions />
-                      </div>
-
-                      <StatsStrip />
-                    </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ActionButton />
+                    <GameActions
+                      open={actionsOpen}
+                      onOpenChange={setActionsOpen}
+                    />
                   </div>
-
-                  <MusicPanel />
                 </div>
-              </section>
+
+                <div className="flex shrink-0 flex-col items-end gap-4">
+                  <SoundtrackConsole />
+                  <AchievementsChip onActivate={goToAchievements} />
+                </div>
+              </div>
 
               <DetailTabs active={activeTab} onChange={setActiveTab} />
             </div>
@@ -370,13 +374,16 @@ function Inner() {
         </ScrollArea>
         <ActionBar />
       </div>
+
+      {/* Signature focus reticle — tracks the real spatial focus across the
+          hero, tabs, content, actions panel, and media viewer. */}
+      <DetailReticle />
     </HotkeyLayer>
   );
 }
 
 function ActionButton() {
   const { game } = useGameDetail();
-  const installationStatus = useInstallationStatus(game.id);
   const [inputDevice] = useInputDeviceContext();
   // hasFocused: prevents re-running the initial-focus setup after it succeeds.
   const hasFocused = useRef(false);
@@ -442,15 +449,18 @@ function ActionButton() {
       id="fullscreen-action-button"
       handlers={{ ACCEPT: { handler: () => ref.current?.click() } }}
     >
-      <ActionButtonImpl
-        ref={ref}
-        game={game}
-        className={cn(
-          buttonStyles,
-          installationStatus !== InstallationStatus.INSTALLING &&
-            "focus:bg-accent",
-        )}
-      />
+      {/* The bound ACCEPT glyph is baked into the primary action (right inset,
+          with pr-14 reserved in buttonStyles). pointer-events-none so it never
+          intercepts the click. */}
+      <div className="relative w-min">
+        <ActionButtonImpl ref={ref} game={game} className={buttonStyles} />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"
+        >
+          <HotkeyIcon hotkey="ACCEPT" className="size-7" />
+        </span>
+      </div>
     </HotkeyLayer>
   );
 }

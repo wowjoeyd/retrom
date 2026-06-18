@@ -37,7 +37,11 @@ export function InstallGameAction() {
         <MenuEntryButton
           id="install-game-action-open"
           icon={<Download size={18} />}
-          label="Download and install to this device"
+          label={
+            openDisabled
+              ? "Already installed"
+              : "Download and install to this device"
+          }
           focusOpts={{ focusable: !openDisabled }}
           disabled={openDisabled}
         >

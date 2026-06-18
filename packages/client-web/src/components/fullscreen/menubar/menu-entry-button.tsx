@@ -71,6 +71,9 @@ export const MenuEntryButton = forwardRef<HTMLButtonElement, Props>(
           variant="ghost"
           type={type}
           size={size}
+          // Lets the detail-page reticle render danger-colored when a
+          // destructive row (e.g. Delete) holds focus.
+          data-reticle-variant={destructive ? "danger" : undefined}
           {...rest}
           onFocus={(e) => {
             if (!focused && e.target === e.currentTarget) {

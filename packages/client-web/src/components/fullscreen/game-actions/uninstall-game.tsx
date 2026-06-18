@@ -35,7 +35,11 @@ export function UninstallGameAction() {
         <MenuEntryButton
           id="uninstall-game-action-open"
           icon={<PackageX size={18} />}
-          label="Remove the locally installed files"
+          label={
+            openDisabled
+              ? "Not installed"
+              : "Remove the locally installed files"
+          }
           destructive
           focusOpts={{ focusable: !openDisabled }}
           disabled={openDisabled}

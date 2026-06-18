@@ -16,7 +16,11 @@ import {
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { Hotkey } from "@/providers/hotkeys";
 import { useHotkeyMapping } from "@/providers/hotkeys/mapping";
-import { GamepadButtonDownEvent } from "@/providers/gamepad/event";
+import { gamepadAxisToHotkey } from "@/providers/hotkeys/gamepad-axis";
+import {
+  GamepadAxisActiveEvent,
+  GamepadButtonDownEvent,
+} from "@/providers/gamepad/event";
 import { HotkeyIcon } from "@/components/fullscreen/hotkey-button";
 import { Image } from "@/lib/utils";
 import { useGameDetail } from "@/providers/game-details";
@@ -182,11 +186,9 @@ function MediaViewer(props: {
   const next = useCallback(() => go(1), [go]);
 
   // The focusable stage is a real <button> so DOM focus reliably lands inside
-  // the portaled dialog; controller/key events dispatched on it then bubble
-  // through the HotkeyLayer below. The surrounding FocusContainer is a focus
-  // boundary so norigin's directional navigation (LEFT/RIGHT/UP/DOWN still
-  // bubble to the layout's navigateByDirection) can't escape onto the page
-  // behind the dialog — the user only navigates what's in this view.
+  // the portaled dialog and the reticle has a concrete element to frame. The
+  // surrounding FocusContainer is a norigin focus boundary; all input is owned
+  // by the capture trap on the dialog node below.
   const { ref } = useFocusable<HTMLButtonElement>({
     focusKey: "media-viewer-stage",
     initialFocus: true,
@@ -195,10 +197,10 @@ function MediaViewer(props: {
   });
 
   // Radix's FocusScope can lose the race and leave DOM focus on the dialog
-  // container (or on the thumbnail behind it) across frames. If focus is not on
-  // the stage, gamepad/key events never reach the HotkeyLayer and the viewer
-  // appears to ignore input. Re-assert focus every frame until the stage truly
-  // holds DOM focus. (Mirrors focusFirstAction in the grid context menu.)
+  // container (or on the thumbnail behind it) across frames. Re-assert focus on
+  // the stage every frame until it truly holds DOM focus so the reticle frames
+  // it, focus restoration on close is clean, and the input trap (scoped to the
+  // dialog node) reliably sees every press.
   useEffect(() => {
     const start = performance.now();
     let raf = 0;
@@ -218,50 +220,100 @@ function MediaViewer(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Defensive capture for the focus-race window: while DOM focus is still
-  // settling and sits on the dialog container itself, the HotkeyLayer (a
-  // descendant) never sees the event. Handle flip/close from the container too
-  // so input is never dropped. Skips when the stage button holds focus — the
-  // HotkeyLayer owns that path then, so this never double-fires.
+  // While the viewer is open it OWNS all controller/keyboard input. We trap in
+  // the CAPTURE phase on `document` — the root of every event's propagation path
+  // — so each press is handled before it can reach the page behind. This is the
+  // leak fix: gamepad events are dispatched on `document.activeElement` and
+  // directional nav (UP/DOWN/LEFT/RIGHT) + BACK are handled by document-level
+  // (bubble) listeners in the fullscreen layout / detail page. The earlier trap
+  // lived on the dialog node, so it only fired when focus had actually landed
+  // *inside* the dialog; if focus stayed on the originating thumbnail (Radix
+  // onOpenAutoFocus is prevented) or otherwise leaked to the page, a flip/BACK
+  // press dispatched on the page behind bypassed the trap entirely — flipping
+  // did nothing and BACK exited to the grid.
+  //
+  // Trapping on `document` is robust regardless of where focus is, but it must
+  // NOT steal input from a higher modal layer (e.g. the global guide menu opened
+  // over the viewer). `shouldDefer` yields whenever focus is inside *another*
+  // open `[role="dialog"]` so that layer keeps owning its own input; the ONLY
+  // pass-through from the viewer itself is MENU (so the guide can open).
   useEffect(() => {
-    const node = contentRef.current;
-    if (!node) return;
+    const shouldDefer = (): boolean => {
+      const active = document.activeElement;
+      if (!active) return false;
+      const dialog = contentRef.current;
+      if (dialog && dialog.contains(active)) return false;
+      const otherModal = active.closest('[role="dialog"]');
+      return !!otherModal && otherModal !== dialog;
+    };
 
-    const act = (hotkey: Hotkey | undefined) => {
+    const handle = (hotkey: Hotkey | undefined): boolean => {
       switch (hotkey) {
+        case "MENU":
+          // Let the guide button bubble to the global menubar.
+          return false;
         case "BACK":
           onClose();
+          return true;
+        case "ACCEPT":
+        case "RIGHT":
+        case "PAGE_RIGHT":
+          next();
           return true;
         case "LEFT":
         case "PAGE_LEFT":
           prev();
           return true;
-        case "RIGHT":
-        case "PAGE_RIGHT":
-          next();
+        case "UP":
+        case "DOWN":
+          // No vertical navigation inside the viewer — swallow so it can't
+          // scroll or move focus on the page behind.
           return true;
         default:
-          return false;
+          // Other recognized hotkeys (OPTION/SORT/FILTER) are swallowed too so
+          // nothing acts on the page behind; unmapped keys (undefined) pass.
+          return hotkey !== undefined;
       }
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement !== node) return;
-      if (act(keyboardToHotkey[e.key])) {
+      if (shouldDefer()) return;
+      if (handle(keyboardToHotkey[e.key])) {
         e.preventDefault();
         e.stopPropagation();
       }
     };
-    const onGamepad = (e: GamepadButtonDownEvent) => {
-      if (document.activeElement !== node) return;
-      if (act(gamepadToHotkey[e.detail.button])) e.stopPropagation();
+    // Gamepad button/axis events are dispatched as non-cancelable CustomEvents,
+    // so stopPropagation (not preventDefault) is what blocks the document-level
+    // navigateByDirection / back handlers.
+    const onButton = (e: GamepadButtonDownEvent) => {
+      if (shouldDefer()) return;
+      if (handle(gamepadToHotkey[e.detail.button])) e.stopPropagation();
+    };
+    const onAxis = (e: GamepadAxisActiveEvent) => {
+      if (shouldDefer()) return;
+      if (handle(gamepadAxisToHotkey(e))) e.stopPropagation();
     };
 
-    node.addEventListener("keydown", onKeyDown);
-    node.addEventListener(GamepadButtonDownEvent.EVENT_NAME, onGamepad);
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener(
+      GamepadButtonDownEvent.EVENT_NAME,
+      onButton,
+      true,
+    );
+    document.addEventListener(GamepadAxisActiveEvent.EVENT_NAME, onAxis, true);
     return () => {
-      node.removeEventListener("keydown", onKeyDown);
-      node.removeEventListener(GamepadButtonDownEvent.EVENT_NAME, onGamepad);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener(
+        GamepadButtonDownEvent.EVENT_NAME,
+        onButton,
+        true,
+      );
+      document.removeEventListener(
+        GamepadAxisActiveEvent.EVENT_NAME,
+        onAxis,
+        true,
+      );
     };
   }, [keyboardToHotkey, gamepadToHotkey, prev, next, onClose]);
 
@@ -285,86 +337,73 @@ function MediaViewer(props: {
           Use left and right to flip through media; back to close.
         </DialogDescription>
 
-        {/* allowBubbling "on-misses": BACK and the flip keys are handled (and
-            so swallowed, never reaching the page behind), but MENU has no
-            handler here so it bubbles to the global menubar — the user can
-            still open the menu from the viewer. */}
-        <HotkeyLayer
-          id="media-viewer"
-          handlers={{
-            BACK: { handler: onClose },
-            ACCEPT: { handler: next },
-            LEFT: { handler: prev },
-            RIGHT: { handler: next },
-            PAGE_LEFT: { handler: prev },
-            PAGE_RIGHT: { handler: next },
+        {/* The FocusContainer is still a norigin boundary so directional focus
+            can't wander out of the viewer; all input is owned by the capture
+            trap on the dialog node above. */}
+        <FocusContainer
+          opts={{
+            focusKey: "media-viewer",
+            isFocusBoundary: true,
           }}
+          className="flex flex-col"
         >
-          <FocusContainer
-            opts={{
-              focusKey: "media-viewer",
-              isFocusBoundary: true,
-            }}
-            className="flex flex-col"
-          >
-            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-t-lg bg-black">
-              <button
-                ref={ref}
-                type="button"
-                tabIndex={-1}
-                onClick={next}
-                aria-label="Next media"
-                className="absolute inset-0 flex items-center justify-center outline-none"
-              >
-                {failed ? (
-                  <span className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <ImageOff size={48} className="opacity-50" />
-                    <span className="text-sm">
-                      This media can’t be displayed.
-                    </span>
+          <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-t-lg bg-black">
+            <button
+              ref={ref}
+              type="button"
+              tabIndex={-1}
+              onClick={next}
+              aria-label="Next media"
+              className="absolute inset-0 flex items-center justify-center outline-none"
+            >
+              {failed ? (
+                <span className="flex flex-col items-center gap-2 text-muted-foreground">
+                  <ImageOff size={48} className="opacity-50" />
+                  <span className="text-sm">
+                    This media can’t be displayed.
                   </span>
-                ) : (
-                  <Image
-                    key={media[index]}
-                    src={media[index]}
-                    alt=""
-                    onError={() => setFailed(true)}
-                    className="max-h-[80vh] max-w-full object-contain"
-                  />
-                )}
-              </button>
-
-              {/* Mouse affordance only; siblings of the stage button (not
-                  norigin focusables) so D-pad LEFT/RIGHT stays a flip. */}
-              {media.length > 1 && (
-                <>
-                  <ChevronZone side="left" onClick={prev} />
-                  <ChevronZone side="right" onClick={next} />
-                </>
-              )}
-
-              <span className="pointer-events-none absolute bottom-3 right-4 rounded-md bg-background/80 px-2.5 py-1 text-sm font-semibold tabular-nums text-foreground/90 backdrop-blur-sm">
-                {index + 1} / {media.length}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-center gap-6 border-t border-border/60 bg-muted/10 px-5 py-2.5 text-xs text-muted-foreground">
-              {media.length > 1 && (
-                <span className="flex items-center gap-2">
-                  <span className="flex items-center gap-1">
-                    <HotkeyIcon hotkey="LEFT" className="size-6" />
-                    <HotkeyIcon hotkey="RIGHT" className="size-6" />
-                  </span>
-                  <span className="uppercase tracking-wide">Flip</span>
                 </span>
+              ) : (
+                <Image
+                  key={media[index]}
+                  src={media[index]}
+                  alt=""
+                  onError={() => setFailed(true)}
+                  className="max-h-[80vh] max-w-full object-contain"
+                />
               )}
+            </button>
+
+            {/* Mouse affordance only; siblings of the stage button (not
+                norigin focusables) so D-pad LEFT/RIGHT stays a flip. */}
+            {media.length > 1 && (
+              <>
+                <ChevronZone side="left" onClick={prev} />
+                <ChevronZone side="right" onClick={next} />
+              </>
+            )}
+
+            <span className="pointer-events-none absolute bottom-3 right-4 rounded-md bg-background/80 px-2.5 py-1 text-sm font-semibold tabular-nums text-foreground/90 backdrop-blur-sm">
+              {index + 1} / {media.length}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-center gap-6 border-t border-border/60 bg-muted/10 px-5 py-2.5 text-xs text-muted-foreground">
+            {media.length > 1 && (
               <span className="flex items-center gap-2">
-                <HotkeyIcon hotkey="BACK" className="size-6" />
-                <span className="uppercase tracking-wide">Close</span>
+                <span className="flex items-center gap-1">
+                  <HotkeyIcon hotkey="PAGE_LEFT" className="size-6" />
+                  <HotkeyIcon hotkey="PAGE_RIGHT" className="size-6" />
+                </span>
+                <span className="uppercase tracking-wide">Flip</span>
               </span>
-            </div>
-          </FocusContainer>
-        </HotkeyLayer>
+            )}
+            <span className="flex items-center gap-2">
+              <HotkeyIcon hotkey="BACK" className="size-6" />
+              <span className="uppercase tracking-wide">Close</span>
+            </span>
+          </div>
+        </FocusContainer>
       </DialogContent>
     </Dialog>
   );

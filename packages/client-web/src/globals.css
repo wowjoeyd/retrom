@@ -29,12 +29,29 @@
     cursor: pointer;
   }
 
+  /* Fullscreen controller mode hides the mouse until it's physically moved.
+     !important and the universal selector override per-element cursors (e.g.
+     the button cursor:pointer above) so nothing leaks a visible cursor. */
+  body.fs-cursor-hidden,
+  body.fs-cursor-hidden * {
+    cursor: none !important;
+  }
+
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-border, currentColor);
+  }
+
+  /* While the fullscreen detail page (and its portaled panels/viewer) are
+     mounted, the signature reticle replaces per-element focus rings. Zeroing the
+     ring width collapses every `focus:ring-[length:var(--fs-focus-ring-width)]`
+     on the page without editing each focusable. Scoped to a body class so it
+     never affects the grid (a separate route) when detail is unmounted. */
+  body.fs-reticle-active {
+    --fs-focus-ring-width: 0px;
   }
 }
 
@@ -86,6 +103,63 @@
     .fs-eq-bar {
       animation: none;
       transform: scaleY(0.55);
+    }
+  }
+
+  /* Reticle focus visual (fullscreen detail page signature). Four corner
+     brackets that glide between focused elements. Each corner is a fixed-size
+     box translated to a corner of the focused rect — only `transform`/`opacity`
+     animate (never width/height), so it stays cheap on HTPC/handheld. */
+  .fs-reticle {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    pointer-events: none;
+  }
+
+  .fs-reticle > i {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border: 3px solid var(--color-ring);
+    opacity: 0;
+    will-change: transform;
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms ease,
+      border-color 140ms ease;
+  }
+
+  .fs-reticle[data-visible="true"] > i {
+    opacity: 1;
+  }
+
+  .fs-reticle > i:nth-child(1) {
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .fs-reticle > i:nth-child(2) {
+    border-left: 0;
+    border-bottom: 0;
+  }
+  .fs-reticle > i:nth-child(3) {
+    border-right: 0;
+    border-top: 0;
+  }
+  .fs-reticle > i:nth-child(4) {
+    border-left: 0;
+    border-top: 0;
+  }
+
+  .fs-reticle[data-variant="danger"] > i {
+    border-color: var(--color-destructive-text);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fs-reticle > i {
+      transition: opacity 180ms ease;
     }
   }
 }

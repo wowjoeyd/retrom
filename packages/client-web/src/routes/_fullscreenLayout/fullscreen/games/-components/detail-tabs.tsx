@@ -11,10 +11,12 @@ import { ExtraInfo } from "./extra-info";
 import { Description } from "./description";
 import { SimilarGames } from "./similar-games";
 import { MediaTab } from "./media-tab";
+import { AchievementsTab } from "./achievements-tab";
 
 export const DETAIL_TABS = [
   { key: "info", label: "Game Info" },
   { key: "media", label: "Media" },
+  { key: "achievements", label: "Achievements" },
   { key: "similar", label: "Similar Games" },
 ] as const;
 
@@ -72,6 +74,7 @@ export function DetailTabs(props: {
         >
           {active === "info" && <InfoTab />}
           {active === "media" && <MediaTab />}
+          {active === "achievements" && <AchievementsTab />}
           {active === "similar" && <SimilarGames />}
         </FocusContainer>
       </HotkeyLayer>
