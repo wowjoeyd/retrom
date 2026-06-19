@@ -38,8 +38,10 @@ walkdir = { workspace = true }
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
   "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Input_XboxController",
   "Win32_UI_WindowsAndMessaging",
 ] }
 # Used to detect when a Steam game starts/stops by polling the keys Steam keeps

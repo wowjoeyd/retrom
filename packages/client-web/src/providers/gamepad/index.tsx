@@ -18,6 +18,25 @@ import {
 import { getControllerMapping } from "./controller-ids";
 import { ControllerMapping } from "./maps";
 import { axisValueToAxisState, GamepadAxisState } from "./utils";
+import { listen } from "@tauri-apps/api/event";
+import { checkIsDesktop } from "@/lib/env";
+
+/**
+ * Controller input forwarded from the Rust side (XInput), shaped so we can build
+ * a synthetic {@link Gamepad} with live button/axis state and re-dispatch the
+ * matching event. Indices follow the W3C standard-gamepad mapping.
+ */
+type NativeGamepadInput = {
+  index: number;
+  id: string;
+  event: "button-down" | "button-up" | "axis-active" | "axis-inactive";
+  button: number;
+  axis: number;
+  value: number;
+  repeat: boolean;
+  buttons: boolean[];
+  axes: number[];
+};
 
 const DPAD_BUTTONS = new Set([12, 13, 14, 15]);
 const LEFT_STICK_NAVIGATION_AXES = new Set([0, 1]);
@@ -347,6 +366,88 @@ export function GamepadProvider(props: PropsWithChildren) {
       cancelAnimationFrame(frame);
     };
   }, [onDisconnect, onConnect, pollGamepad]);
+
+  // On desktop, also accept controller input forwarded natively from Rust. The
+  // WebView2 Gamepad API only delivers input to a focused document, so once a
+  // game grabs (and fails to release) the OS foreground, navigator.getGamepads()
+  // freezes and the rAF poll above goes dead. The Rust side reads the controller
+  // via XInput regardless of focus and emits these events; we re-dispatch them
+  // exactly like a polled press. Guarded on `!document.hasFocus()` so we never
+  // double-process while the Gamepad API is the live source.
+  useEffect(() => {
+    if (!checkIsDesktop()) return;
+
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    void listen<NativeGamepadInput>("native-gamepad-input", ({ payload }) => {
+      // No focus guard here: the Rust side only emits these while a game isn't
+      // running AND our window isn't the foreground (i.e. when the WebView2
+      // Gamepad API is frozen), so there's no double-input to avoid — and
+      // `document.hasFocus()` proved unreliable in the dead state.
+      const gamepad = {
+        id: payload.id,
+        index: payload.index,
+        connected: true,
+        mapping: "standard",
+        timestamp: performance.now(),
+        buttons: payload.buttons.map((pressed) => ({
+          pressed,
+          touched: pressed,
+          value: pressed ? 1 : 0,
+        })),
+        axes: payload.axes,
+        vibrationActuator: null,
+      } as unknown as Gamepad;
+
+      const node: EventTarget =
+        (document.activeElement as HTMLElement | null) ?? document.body;
+
+      switch (payload.event) {
+        case "button-down":
+          node.dispatchEvent(
+            new GamepadButtonDownEvent({
+              gamepad,
+              button: payload.button,
+              repeat: payload.repeat,
+            }),
+          );
+          break;
+        case "button-up":
+          node.dispatchEvent(
+            new GamepadButtonUpEvent({ gamepad, button: payload.button }),
+          );
+          break;
+        case "axis-active":
+          node.dispatchEvent(
+            new GamepadAxisActiveEvent({
+              gamepad,
+              axis: payload.axis,
+              value: payload.value,
+              repeat: payload.repeat,
+            }),
+          );
+          break;
+        case "axis-inactive":
+          node.dispatchEvent(
+            new GamepadAxisInactiveEvent({
+              gamepad,
+              axis: payload.axis,
+              value: payload.value,
+            }),
+          );
+          break;
+      }
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <context.Provider
