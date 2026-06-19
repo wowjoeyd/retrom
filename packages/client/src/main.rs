@@ -83,6 +83,18 @@ pub async fn main() {
 
             registry.with(file_layer).init();
 
+            // Route panics into the log (incl. the panic location/message) so
+            // crashes are visible in retrom.log, not just on stderr.
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let location = info
+                    .location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()))
+                    .unwrap_or_else(|| "<unknown>".into());
+                tracing::error!("PANIC at {location}: {info}");
+                default_hook(info);
+            }));
+
             if config.telemetry.is_some_and(|t| t.enabled) {
                 tracing::info!("Telemetry enabled");
             } else {

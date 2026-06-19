@@ -1,8 +1,14 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use retrom_codegen::retrom::{
-    GamePlayStatusUpdate, GetGameMetadataRequest, PlayStatus, UpdateGameMetadataRequest,
-    UpdatedGameMetadata,
+    GamePlayStatusUpdate, PlayStatus, UpdateGamePlaytimeRequest,
 };
 use retrom_plugin_service_client::RetromPluginServiceClientExt;
 use serde::de::DeserializeOwned;
@@ -30,6 +36,12 @@ pub struct GameProcess {
 pub struct Launcher<R: Runtime> {
     app_handle: AppHandle<R>,
     pub child_processes: RwLock<HashMap<GameId, GameProcess>>,
+    /// True while a game is running. The native gamepad reader (Windows) checks
+    /// this so it stays out of the way during gameplay — otherwise it would keep
+    /// forwarding the controller to Retrom's UI while the game (also reading the
+    /// pad) is in the foreground.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    game_active: Arc<AtomicBool>,
 }
 
 impl<R: Runtime> Launcher<R> {
@@ -37,7 +49,14 @@ impl<R: Runtime> Launcher<R> {
         Self {
             app_handle,
             child_processes: RwLock::new(HashMap::new()),
+            game_active: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Shared "a game is running" flag, for the native gamepad reader.
+    #[cfg(windows)]
+    pub(crate) fn game_active_flag(&self) -> Arc<AtomicBool> {
+        self.game_active.clone()
     }
 
     #[instrument(skip_all)]
@@ -51,8 +70,9 @@ impl<R: Runtime> Launcher<R> {
     ///
     /// A game's window can linger for a moment after its process exits, during
     /// which the foreground steal is refused, so we retry a few times on a spaced
-    /// schedule. The foreground work itself runs on the main (UI) thread; the
-    /// waits happen on this background task so nothing blocks the UI.
+    /// schedule. Each reclaim attempt runs on the window's UI thread (required for
+    /// the `AttachThreadInput` steal to work — see `raise_hwnd`); the waits between
+    /// attempts run on this background task so the UI message pump stays free.
     pub fn foreground_main_window(&self) {
         let Some(window) = self.app_handle.get_webview_window("main") else {
             return;
@@ -68,19 +88,47 @@ impl<R: Runtime> Launcher<R> {
                 }
             };
 
-            // A game's window can linger after its process exits, and for Steam
-            // titles Steam itself grabs the foreground on game close — so retry on
-            // a spaced schedule with a long tail to win it back once Steam settles.
-            // Runs on its own thread so the activation sequence's sleeps never touch
-            // the UI thread (which must stay free to process the activation).
-            // `raise_hwnd` early-returns once we already hold the foreground, so the
-            // later attempts are cheap no-ops in the common (emulator) case.
             std::thread::spawn(move || {
-                for delay_ms in [0u64, 250, 600, 1200, 2500, 4000] {
+                use std::time::Duration;
+
+                // Best-effort foreground reclaim — all an emulator needs (it wins
+                // on the first attempt). `raise_hwnd` is hang-proof and returns
+                // promptly, so run it directly on this worker thread: NEVER on the
+                // UI thread, where its old AttachThreadInput steal could deadlock
+                // against a non-pumping service window (GameInputServiceWindow) and
+                // freeze Retrom. If the reclaim fails, native controller input
+                // keeps the UI usable anyway.
+                let mut won = false;
+                for delay_ms in [0u64, 250, 600, 1200] {
                     if delay_ms > 0 {
-                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                        std::thread::sleep(Duration::from_millis(delay_ms));
                     }
-                    crate::foreground::raise_hwnd(hwnd);
+
+                    won = crate::foreground::raise_hwnd(hwnd);
+
+                    // Also nudge the WebView2 *content* to take focus: the Gamepad
+                    // API only delivers input to a focused document, so this lets it
+                    // resume if we did regain the foreground (emulator case). It's a
+                    // non-blocking dispatch and a no-op if content already has focus.
+                    let webview: &tauri::Webview<R> = window.as_ref();
+                    let _ = webview.set_focus();
+
+                    if won {
+                        break;
+                    }
+                }
+
+                // If we couldn't reclaim the foreground, that's no longer fatal:
+                // Windows can park it on a window we can't steal from (e.g.
+                // GameInputServiceWindow after a controller game), but the native
+                // gamepad reader forwards controller input to the UI regardless of
+                // focus, so fullscreen navigation keeps working anyway.
+                if !won {
+                    warn!(
+                        "Could not reclaim the OS foreground after a game exit \
+                         (foreground now: {}); native controller input remains active",
+                        crate::foreground::foreground_window_desc()
+                    );
                 }
             });
         }
@@ -100,6 +148,7 @@ impl<R: Runtime> Launcher<R> {
         child: GameProcess,
     ) -> crate::Result<()> {
         let already_running = self.child_processes.write().await.insert(game_id, child);
+        self.game_active.store(true, Ordering::SeqCst);
 
         info!("Marking game {game_id} as running");
 
@@ -120,7 +169,11 @@ impl<R: Runtime> Launcher<R> {
 
     #[instrument(skip_all)]
     pub async fn mark_game_as_stopped(&self, game_id: GameId) -> crate::Result<()> {
-        let child = self.child_processes.write().await.remove(&game_id);
+        let mut processes = self.child_processes.write().await;
+        let child = processes.remove(&game_id);
+        // Only clear the "game running" flag once nothing else is still running.
+        self.game_active.store(!processes.is_empty(), Ordering::SeqCst);
+        drop(processes);
 
         info!("Marking game {game_id} as stopped");
 
@@ -128,58 +181,29 @@ impl<R: Runtime> Launcher<R> {
             warn!("Game {game_id} is not running");
         }
 
-        let mut metadata_client = self.app_handle.get_metadata_client().await;
-
-        let req = tonic::Request::new(GetGameMetadataRequest {
-            game_ids: vec![game_id],
-        });
-
-        let metadata_res = match metadata_client.get_game_metadata(req).await {
-            Ok(res) => Some(res.into_inner()),
-            Err(why) => {
-                warn!("Failed to get game metadata: {:#?}", why);
-                None
-            }
-        };
-
-        let metadata = metadata_res.and_then(|res| res.metadata.into_iter().next());
-
-        if let (Some(metadata), Some(child)) = (metadata, child) {
-            // Use existing array members as we cannot define them as optional in the proto
-            // definition.
-            let mut updated_metadata = UpdatedGameMetadata {
-                game_id,
-                links: metadata.links,
-                video_urls: metadata.video_urls,
-                artwork_urls: metadata.artwork_urls,
-                screenshot_urls: metadata.screenshot_urls,
-                ..Default::default()
-            };
-
-            let now = std::time::SystemTime::now();
-
-            updated_metadata.last_played = Some(now.into());
-            let played = metadata.minutes_played.unwrap_or(0);
-
-            let session_duration = now
+        // Record only what a play session needs — minutes played + last-played —
+        // via the narrow UpdateGamePlaytime RPC. Going through update_game_metadata
+        // here would make the server wipe and re-cache ALL of the game's media and
+        // re-extract its theme audio on every exit, which is pure waste for a
+        // playtime bump.
+        if let Some(child) = child {
+            let session_minutes = std::time::SystemTime::now()
                 .duration_since(child.start_time)
                 .ok()
                 .map(|dur| dur.as_secs() / 60)
-                .map(i32::try_from)
-                .map(|res| res.ok().unwrap_or(0));
+                .and_then(|mins| i32::try_from(mins).ok())
+                .unwrap_or(0);
 
-            if let Some(mins) = session_duration {
-                info!("Game {game_id} played for {mins} minutes");
-                updated_metadata.minutes_played = Some(played + mins);
-            }
+            info!("Game {game_id} played for {session_minutes} minutes");
 
-            let request = tonic::Request::new(UpdateGameMetadataRequest {
-                metadata: vec![updated_metadata],
-                overwrite_theme_audio: None,
+            let mut metadata_client = self.app_handle.get_metadata_client().await;
+            let request = tonic::Request::new(UpdateGamePlaytimeRequest {
+                game_id,
+                additional_minutes: session_minutes,
             });
 
-            if let Err(why) = metadata_client.update_game_metadata(request).await {
-                warn!("Failed to update game metadata: {:#?}", why);
+            if let Err(why) = metadata_client.update_game_playtime(request).await {
+                warn!("Failed to update game playtime: {:#?}", why);
             }
         }
 

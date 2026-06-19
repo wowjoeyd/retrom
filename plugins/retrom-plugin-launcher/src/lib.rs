@@ -9,6 +9,8 @@ mod commands;
 mod desktop;
 mod error;
 mod foreground;
+#[cfg(windows)]
+mod gamepad;
 mod launch;
 #[cfg(windows)]
 mod window;
@@ -34,6 +36,14 @@ pub async fn init<R: Runtime>() -> TauriPlugin<R> {
         .setup(|app, api| {
             let launcher = desktop::init(app, api)?;
             app.manage(launcher);
+
+            // Forward native (XInput) controller input to the UI so the fullscreen
+            // experience keeps responding to the controller even when the WebView2
+            // Gamepad API is frozen by losing focus (e.g. after a Steam game). See
+            // `gamepad`.
+            #[cfg(windows)]
+            gamepad::spawn(app.clone(), app.launcher().game_active_flag());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

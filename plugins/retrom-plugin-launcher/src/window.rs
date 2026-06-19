@@ -29,7 +29,9 @@ pub(crate) async fn foreground_game<R: Runtime>(app: AppHandle<R>, pid: u32) {
 
     loop {
         if let Some(hwnd) = resolve_game_hwnd(pid) {
-            if let Err(why) = app.run_on_main_thread(move || crate::foreground::raise_hwnd(hwnd)) {
+            if let Err(why) = app.run_on_main_thread(move || {
+                crate::foreground::raise_hwnd(hwnd);
+            }) {
                 tracing::warn!("Failed to foreground game window for pid {pid}: {why}");
             }
             return;
