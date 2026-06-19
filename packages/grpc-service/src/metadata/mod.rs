@@ -22,7 +22,8 @@ use retrom_codegen::{
         SearchGameSoundtrackResponse, SimilarGameMap,
         SoundtrackCandidate as SoundtrackCandidateProto, SyncSteamMetadataRequest,
         SyncSteamMetadataResponse, UpdateGameMetadataRequest, UpdateGameMetadataResponse,
-        UpdatePlatformMetadataRequest, UpdatePlatformMetadataResponse, UpdatedGameMetadata,
+        UpdateGamePlaytimeRequest, UpdateGamePlaytimeResponse, UpdatePlatformMetadataRequest,
+        UpdatePlatformMetadataResponse, UpdatedGameMetadata,
     },
     timestamp::Timestamp,
 };
@@ -622,6 +623,51 @@ impl MetadataService for MetadataServiceHandlers {
         Ok(Response::new(UpdateGameMetadataResponse {
             metadata_updated,
         }))
+    }
+
+    async fn update_game_playtime(
+        &self,
+        request: Request<UpdateGamePlaytimeRequest>,
+    ) -> Result<Response<UpdateGamePlaytimeResponse>, Status> {
+        let request = request.into_inner();
+        let game_id = request.game_id;
+
+        let mut conn = self
+            .db_pool
+            .get()
+            .await
+            .map_err(|why| Status::internal(why.to_string()))?;
+
+        // Add this session's minutes to the current total. A missing row just
+        // means there's no prior playtime to add to.
+        let current_minutes = schema::game_metadata::table
+            .find(game_id)
+            .first::<retrom::GameMetadata>(&mut conn)
+            .await
+            .ok()
+            .and_then(|meta| meta.minutes_played)
+            .unwrap_or(0);
+
+        // Narrow update: ONLY playtime + last-played. Leaving every other field at
+        // its default makes this an AsChangeset that skips those columns, so media
+        // URLs and the like are preserved — and, unlike update_game_metadata, this
+        // never touches the media cache or re-extracts theme audio.
+        let updated_meta = UpdatedGameMetadata {
+            minutes_played: Some(current_minutes + request.additional_minutes),
+            last_played: Some(std::time::SystemTime::now().into()),
+            ..Default::default()
+        };
+
+        if let Err(why) = diesel::update(schema::game_metadata::table)
+            .filter(schema::game_metadata::game_id.eq(game_id))
+            .set(&updated_meta)
+            .execute(&mut conn)
+            .await
+        {
+            return Err(Status::internal(why.to_string()));
+        }
+
+        Ok(Response::new(UpdateGamePlaytimeResponse {}))
     }
 
     async fn get_platform_metadata(

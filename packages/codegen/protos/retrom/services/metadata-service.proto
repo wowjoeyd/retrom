@@ -10,6 +10,10 @@ import 'retrom/providers/igdb.proto';
 service MetadataService {
   rpc GetGameMetadata(GetGameMetadataRequest) returns (GetGameMetadataResponse);
   rpc UpdateGameMetadata(UpdateGameMetadataRequest) returns (UpdateGameMetadataResponse);
+  // Record a play session's playtime + last-played ONLY. Unlike
+  // UpdateGameMetadata this does not wipe/re-cache the game's media or re-extract
+  // theme audio — used by the launcher when a game exits.
+  rpc UpdateGamePlaytime(UpdateGamePlaytimeRequest) returns (UpdateGamePlaytimeResponse);
 
   rpc GetPlatformMetadata(GetPlatformMetadataRequest) returns (GetPlatformMetadataResponse);
   rpc UpdatePlatformMetadata(UpdatePlatformMetadataRequest) returns (UpdatePlatformMetadataResponse);
@@ -89,6 +93,14 @@ message UpdateGameMetadataRequest {
 message UpdateGameMetadataResponse {
   repeated GameMetadata metadata_updated = 1;
 }
+
+message UpdateGamePlaytimeRequest {
+  int32 game_id = 1;
+  // Minutes to add to the game's recorded total for this session.
+  int32 additional_minutes = 2;
+}
+
+message UpdateGamePlaytimeResponse {}
 
 message GetIgdbPlatformSearchResultsRequest {
   IgdbPlatformSearchQuery query = 1;
