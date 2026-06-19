@@ -1373,6 +1373,17 @@ export function cancelPendingFocusMusic() {
   }
 }
 
+/**
+ * Re-fire spatial focus on whichever card currently holds focus so that theme
+ * music starts after a suppression window ends (e.g. the startup movie). Cards
+ * don't receive a natural onFocus again unless focus actually changes, so this
+ * nudge is needed to kick off the settle timer and start the track.
+ */
+export function resumeFocusedCardMusic() {
+  const key = getCurrentFocusKey();
+  if (key) setFocus(key);
+}
+
 // A soundtrack download RPC returns as soon as the background job is *spawned*,
 // not when the file lands. Until the grid card's metadata refetches, it still
 // shows no theme. Poll-invalidate just this game's metadata until the new
@@ -1831,6 +1842,7 @@ function GameListItem(props: {
 
   const startMusicForThisGame = () => {
     if (!enabled) return;
+    if (gridAutoFocusSuppressed) return;
 
     if (musicSourceForHover) {
       // Call playForGame with the configured volume/fade from the shared gameMusic config.

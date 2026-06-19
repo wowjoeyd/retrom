@@ -4,6 +4,7 @@ import { useConfig } from "@/providers/config";
 import { GamepadButtonDownEvent } from "@/providers/gamepad/event";
 import {
   cancelPendingFocusMusic,
+  resumeFocusedCardMusic,
   setGridAutoFocusSuppressed,
 } from "./grid-game-list";
 
@@ -55,7 +56,14 @@ export function StartupMovie() {
     if (!show) return;
     setGridAutoFocusSuppressed(true);
     cancelPendingFocusMusic();
-    return () => setGridAutoFocusSuppressed(false);
+    return () => {
+      setGridAutoFocusSuppressed(false);
+      // Re-fire focus on the already-focused card so the settle timer starts
+      // and theme music begins immediately when the movie ends/is skipped.
+      // Without this, onFocus never fires again (focus didn't change) and the
+      // card sits silent until the user navigates.
+      resumeFocusedCardMusic();
+    };
   }, [show]);
 
   useEffect(() => {
