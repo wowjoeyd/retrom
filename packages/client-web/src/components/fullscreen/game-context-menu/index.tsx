@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@retrom/ui/components/dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   getCurrentFocusKey,
@@ -16,6 +16,7 @@ import {
   Info,
   LoaderCircle,
   Music2,
+  RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -35,10 +36,13 @@ import { useInstallationStatus } from "@/queries/useInstallationStatus";
 import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
 import { useInstallGame } from "@/mutations/useInstallGame";
 import { useUninstallGame } from "@/mutations/useUninstallGame";
+import { useRefreshGameMetadata } from "@/mutations/useRefreshGameMetadata";
 import { useSearchGameSoundtrack } from "@/queries/useSearchGameSoundtrack";
 import { useDownloadGameSoundtrack } from "@/mutations/useDownloadGameSoundtrack";
+import { useDeleteGameSoundtrackTrack } from "@/mutations/useDeleteGameSoundtrackTrack";
 import { setQuickScrollPaused } from "../alphabet-scroll-overlay";
 import {
+  gameMusicPlayer,
   pollForDownloadedTheme,
   setGridAutoFocusSuppressed,
 } from "../grid-game-list";
@@ -80,16 +84,19 @@ function focusFirstAction(focusKey: string, maxMs = 600) {
   return () => cancelAnimationFrame(raf);
 }
 
-type View = "menu" | "music" | "confirm" | "song-details";
+type View = "menu" | "music" | "confirm";
+
+// What the shared confirm view is asking the user to confirm. Uninstall returns
+// to the action list; a track delete returns to the (multi-track) music view.
+type ConfirmTarget =
+  | { kind: "uninstall" }
+  | { kind: "track"; filename: string; title: string };
 
 export function GridGameContextMenu() {
   const [open, setOpen] = useState(false);
   const [gameId, setGameId] = useState<number | null>(null);
   const [view, setView] = useState<View>("menu");
-  // Whether the music (track search) view was reached via "Download Theme Music"
-  // from the main menu, or via "Replace Theme Music" from Song Details. BACK
-  // returns to wherever it was opened from.
-  const musicFrom = useRef<"menu" | "song-details">("menu");
+  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null);
   const savedFocusKey = useRef<string | undefined>(undefined);
   const contentRef = useRef<HTMLDivElement>(null);
   const { activeGroup } = useGroupContext();
@@ -105,6 +112,7 @@ export function GridGameContextMenu() {
           if (!key || !match) return;
           savedFocusKey.current = key;
           setGameId(Number(match[2]));
+          setConfirmTarget(null);
           setView("menu");
           setOpen(true);
         },
@@ -126,39 +134,49 @@ export function GridGameContextMenu() {
   const close = useCallback(() => {
     setOpen(false);
     setView("menu");
+    setConfirmTarget(null);
     const key = savedFocusKey.current;
     if (key) requestAnimationFrame(() => setFocus(key));
   }, []);
 
-  const openMusic = (from: "menu" | "song-details") => {
-    musicFrom.current = from;
+  const openMusic = useCallback(() => {
+    setConfirmTarget(null);
     setView("music");
-  };
+  }, []);
 
-  // BACK steps sub-views back to the action list before closing the menu.
+  const requestUninstall = useCallback(() => {
+    setConfirmTarget({ kind: "uninstall" });
+    setView("confirm");
+  }, []);
+
+  const requestDeleteTrack = useCallback(
+    (track: { filename: string; title: string }) => {
+      setConfirmTarget({ kind: "track", ...track });
+      setView("confirm");
+    },
+    [],
+  );
+
+  // BACK steps sub-views back before closing the menu. A track-delete confirm
+  // returns to the (multi-track) music view so the playlist stays in context;
+  // everything else returns to the action list.
   const handleBack = useCallback(() => {
     if (view === "music") {
-      if (musicFrom.current === "song-details") {
-        setView("song-details");
-        requestAnimationFrame(() => setFocus("game-context-song-replace"));
-      } else {
-        setView("menu");
-        requestAnimationFrame(() => setFocus("game-context-music"));
-      }
-      return;
-    }
-    if (view === "song-details") {
       setView("menu");
       requestAnimationFrame(() => setFocus("game-context-music"));
       return;
     }
     if (view === "confirm") {
-      setView("menu");
-      requestAnimationFrame(() => setFocus("game-context-uninstall"));
+      const wasTrack = confirmTarget?.kind === "track";
+      setConfirmTarget(null);
+      setView(wasTrack ? "music" : "menu");
+      if (!wasTrack) {
+        requestAnimationFrame(() => setFocus("game-context-uninstall"));
+      }
       return;
     }
     close();
-  }, [view, close]);
+  }, [view, confirmTarget, close]);
 
   // Defensive BACK: while the first action is still settling into focus, Radix's
   // FocusScope can briefly park DOM focus on the dialog container (a <div>). The
@@ -210,12 +228,10 @@ export function GridGameContextMenu() {
 
   const footer =
     view === "music"
-      ? { accept: "Download", back: "Back" }
+      ? { accept: "Select", back: "Back" }
       : view === "confirm"
         ? { accept: "Confirm", back: "Cancel" }
-        : view === "song-details"
-          ? { accept: "Select", back: "Back" }
-          : { accept: "Select", back: "Close" };
+        : { accept: "Select", back: "Close" };
 
   return (
     <Dialog
@@ -266,12 +282,12 @@ export function GridGameContextMenu() {
               </DialogTitle>
               <DialogDescription className="text-xs">
                 {view === "music"
-                  ? "Pick a track to use as theme audio."
+                  ? "Manage this game's theme tracks."
                   : view === "confirm"
-                    ? "This removes the locally installed files."
-                    : view === "song-details"
-                      ? "Theme music for this game."
-                      : "Choose an action for this game."}
+                    ? confirmTarget?.kind === "track"
+                      ? "This permanently deletes the track file."
+                      : "This removes the locally installed files."
+                    : "Choose an action for this game."}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -285,17 +301,26 @@ export function GridGameContextMenu() {
               {view === "menu" && (
                 <MenuView
                   onClose={close}
-                  onOpenMusic={() => openMusic("menu")}
-                  onOpenSongDetails={() => setView("song-details")}
-                  onConfirmUninstall={() => setView("confirm")}
+                  onOpenMusic={openMusic}
+                  onConfirmUninstall={requestUninstall}
                 />
               )}
-              {view === "music" && <MusicView onPicked={close} />}
-              {view === "song-details" && (
-                <SongDetailsView onReplace={() => openMusic("song-details")} />
+              {view === "music" && (
+                <MusicView
+                  onDownloaded={close}
+                  onRequestDelete={requestDeleteTrack}
+                />
               )}
-              {view === "confirm" && (
-                <ConfirmUninstallView onClose={close} onCancel={handleBack} />
+              {view === "confirm" && confirmTarget && (
+                <ConfirmView
+                  target={confirmTarget}
+                  onUninstalled={close}
+                  onTrackDeleted={() => {
+                    setConfirmTarget(null);
+                    setView("music");
+                  }}
+                  onCancel={handleBack}
+                />
               )}
             </GameDetailProvider>
           )}
@@ -328,17 +353,13 @@ function MenuLoading() {
 function MenuView(props: {
   onClose: () => void;
   onOpenMusic: () => void;
-  onOpenSongDetails: () => void;
   onConfirmUninstall: () => void;
 }) {
-  const { onClose, onOpenMusic, onOpenSongDetails, onConfirmUninstall } = props;
-  const { game, extraMetadata } = useGameDetail();
+  const { onClose, onOpenMusic, onConfirmUninstall } = props;
+  const { game, gameMetadata, platformMetadata } = useGameDetail();
   const navigate = useNavigate();
 
-  // A downloaded theme persists only its file path (theme_audio_url); its title
-  // / source / duration are never saved. Presence of that path is what lets us
-  // offer "Song Details" instead of the first-time "Download Theme Music".
-  const hasTheme = !!extraMetadata?.mediaPaths?.themeAudioUrl;
+  const { mutate: refreshMetadata } = useRefreshGameMetadata();
 
   const installationStatus = useInstallationStatus(game.id);
   const isInstalled = installationStatus === InstallationStatus.INSTALLED;
@@ -407,23 +428,24 @@ function MenuView(props: {
         View Details
       </ContextRow>
 
-      {hasTheme ? (
-        <ContextRow
-          id="game-context-music"
-          icon={<Music2 size={18} />}
-          onSelect={onOpenSongDetails}
-        >
-          Song Details
-        </ContextRow>
-      ) : (
-        <ContextRow
-          id="game-context-music"
-          icon={<Music2 size={18} />}
-          onSelect={onOpenMusic}
-        >
-          Download Theme Music
-        </ContextRow>
-      )}
+      <ContextRow
+        id="game-context-music"
+        icon={<Music2 size={18} />}
+        onSelect={onOpenMusic}
+      >
+        Theme Music
+      </ContextRow>
+
+      <ContextRow
+        id="game-context-refresh-metadata"
+        icon={<RefreshCw size={18} />}
+        onSelect={() => {
+          refreshMetadata({ game, gameMetadata, platformMetadata });
+          onClose();
+        }}
+      >
+        Refresh Metadata
+      </ContextRow>
 
       <ContextRow
         id="game-context-cancel"
@@ -436,24 +458,42 @@ function MenuView(props: {
   );
 }
 
-function ConfirmUninstallView(props: {
-  onClose: () => void;
+// Shared confirm view for the menu's two destructive actions: uninstalling the
+// game (returns to the action list) and deleting one theme track (returns to the
+// music view). Both back out via onCancel.
+function ConfirmView(props: {
+  target: ConfirmTarget;
+  onUninstalled: () => void;
+  onTrackDeleted: () => void;
   onCancel: () => void;
 }) {
-  const { onClose, onCancel } = props;
+  const { target, onUninstalled, onTrackDeleted, onCancel } = props;
   const { game, name } = useGameDetail();
+  const queryClient = useQueryClient();
   const { mutate: uninstall } = useUninstallGame(game);
+  const { mutate: deleteTrack } = useDeleteGameSoundtrackTrack();
 
   useEffect(() => {
     const raf = requestAnimationFrame(() =>
-      setFocus("game-context-uninstall-confirm"),
+      setFocus("game-context-confirm-accept"),
     );
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const isTrack = target.kind === "track";
+
   const confirm = () => {
-    uninstall();
-    onClose();
+    if (target.kind === "track") {
+      // Clear the player's "missing" cache so it re-resolves after the playlist
+      // shrinks, and poll until the change lands (mirrors the Actions panel).
+      gameMusicPlayer.clearCacheForGame(game.id);
+      deleteTrack({ gameId: game.id, filename: target.filename });
+      pollForDownloadedTheme(queryClient, game.id);
+      onTrackDeleted();
+    } else {
+      uninstall();
+      onUninstalled();
+    }
   };
 
   return (
@@ -466,61 +506,104 @@ function ConfirmUninstallView(props: {
       className="flex min-h-0 flex-1 flex-col gap-4 p-5"
     >
       <p className="text-sm text-muted-foreground">
-        Uninstall <span className="font-semibold text-foreground">{name}</span>?
-        You can reinstall it from your library at any time.
+        {isTrack ? (
+          <>
+            Delete{" "}
+            <span className="font-semibold text-foreground">
+              “{target.title}”
+            </span>
+            ? This removes the track file and can&apos;t be undone.
+          </>
+        ) : (
+          <>
+            Uninstall{" "}
+            <span className="font-semibold text-foreground">{name}</span>? You
+            can reinstall it from your library at any time.
+          </>
+        )}
       </p>
 
       <div className="flex flex-col gap-2">
         <ContextRow
-          id="game-context-uninstall-confirm"
+          id="game-context-confirm-accept"
           icon={<Trash2 size={18} />}
           destructive
           onSelect={confirm}
         >
-          Uninstall
+          {isTrack ? "Delete track" : "Uninstall"}
         </ContextRow>
         <ContextRow
-          id="game-context-uninstall-cancel"
+          id="game-context-confirm-cancel"
           icon={<X size={18} />}
           onSelect={onCancel}
         >
-          Keep Installed
+          {isTrack ? "Keep track" : "Keep Installed"}
         </ContextRow>
       </div>
     </FocusContainer>
   );
 }
 
-function MusicView(props: { onPicked: () => void }) {
-  const { onPicked } = props;
-  const { game } = useGameDetail();
+// Multi-track theme manager: lists the game's existing tracks (each row deletes,
+// via a confirm) and lets the user append more by searching YouTube. Downloading
+// APPENDS a track (the server picks the next playlist slot), so a game can hold a
+// multi-track soundtrack — the same flow the detail-page Actions panel uses, so
+// both surfaces stay consistent.
+function MusicView(props: {
+  onDownloaded: () => void;
+  onRequestDelete: (track: { filename: string; title: string }) => void;
+}) {
+  const { onDownloaded, onRequestDelete } = props;
+  const { game, extraMetadata } = useGameDetail();
   const queryClient = useQueryClient();
 
   const { data, status } = useSearchGameSoundtrack(game.id, { enabled: true });
   const { mutate: download, status: downloadStatus } =
     useDownloadGameSoundtrack();
 
+  // The game's current playlist (parallel URL/title arrays from the server, with
+  // a fallback to the legacy single-track field).
+  const tracks = useMemo(() => {
+    const mp = extraMetadata?.mediaPaths;
+    const urls = mp?.themeAudioUrls?.length
+      ? mp.themeAudioUrls
+      : mp?.themeAudioUrl
+        ? [mp.themeAudioUrl]
+        : [];
+    const titles = mp?.themeAudioTitles ?? [];
+    return urls.map((rel, i) => ({
+      filename: trackFilename(rel),
+      title: titles[i]?.trim() || "Theme",
+    }));
+  }, [extraMetadata?.mediaPaths]);
+
   const candidates = data?.candidates ?? [];
   const isSearching = status === "pending";
   const isDownloading = downloadStatus === "pending";
 
-  // Focus the first candidate once results arrive (they load async, after the
-  // FocusContainer has already mounted).
+  // Focus the first existing track if any, else the first search candidate once
+  // results arrive (they load async, after the FocusContainer has mounted).
   useEffect(() => {
-    if (candidates.length === 0) return;
-    const raf = requestAnimationFrame(() => setFocus("game-context-track-0"));
+    const raf = requestAnimationFrame(() => {
+      if (tracks.length > 0) {
+        setFocus("game-context-track-existing-0");
+      } else if (candidates.length > 0) {
+        setFocus("game-context-candidate-0");
+      }
+    });
     return () => cancelAnimationFrame(raf);
-  }, [candidates.length]);
+  }, [tracks.length, candidates.length]);
 
   const select = (videoId: string) => {
     if (isDownloading) return;
+    // Clear the player's stale "missing" cache for this game, then start the
+    // download. The RPC returns when the job is spawned, not when the file lands,
+    // so poll this game's metadata until the new track appears and the focused
+    // grid card picks it up without an app refresh.
+    gameMusicPlayer.clearCacheForGame(game.id);
     download({ gameId: game.id, videoId });
-    // The download RPC returns when the job is spawned, not when the file lands.
-    // Poll this game's metadata until the new themeAudioUrl appears so the
-    // focused grid card picks it up and starts playing without an app refresh.
-    // (Also clears the player's stale "missing" cache for this game.)
     pollForDownloadedTheme(queryClient, game.id);
-    onPicked();
+    onDownloaded();
   };
 
   return (
@@ -532,6 +615,30 @@ function MusicView(props: { onPicked: () => void }) {
       }}
       className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-3"
     >
+      {tracks.length > 0 && (
+        <>
+          <p className="px-2 pb-1 pt-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            Your tracks
+          </p>
+          {tracks.map((track, idx) => (
+            <ContextRow
+              key={track.filename}
+              id={`game-context-track-existing-${idx}`}
+              icon={<Trash2 size={18} />}
+              destructive
+              onSelect={() => onRequestDelete(track)}
+            >
+              {track.title}
+            </ContextRow>
+          ))}
+          <div className="my-1.5 h-px bg-border/60" />
+        </>
+      )}
+
+      <p className="px-2 pb-1 pt-1 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        Add a track
+      </p>
+
       {isSearching && (
         <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
           <LoaderCircle className="animate-spin" size={18} />
@@ -550,7 +657,7 @@ function MusicView(props: { onPicked: () => void }) {
         candidates.map((c, idx) => (
           <TrackRow
             key={c.videoId}
-            focusKey={`game-context-track-${idx}`}
+            focusKey={`game-context-candidate-${idx}`}
             title={c.title || "Untitled"}
             thumbnailUrl={c.thumbnailUrl}
             duration={formatDuration(c.durationSecs)}
@@ -562,72 +669,14 @@ function MusicView(props: { onPicked: () => void }) {
   );
 }
 
-// Inline detail view for a game that already has a downloaded theme. Only the
-// local theme file path is persisted server-side (title / source / duration /
-// thumbnail from the original search are never saved), so this honestly shows
-// what is known — status + filename — and never fabricates the rest. Replace
-// routes into the same inline track-search flow; Remove is intentionally absent
-// (no safe per-game removal RPC exists — see report).
-function SongDetailsView(props: { onReplace: () => void }) {
-  const { onReplace } = props;
-  const { name, extraMetadata } = useGameDetail();
-
-  const themeAudioUrl = extraMetadata?.mediaPaths?.themeAudioUrl;
-  const fileName = themeAudioUrl
-    ? themeAudioUrl
-        .split(/[\\/?#]/)
-        .filter(Boolean)
-        .pop()
-    : undefined;
-
-  useEffect(() => {
-    const raf = requestAnimationFrame(() =>
-      setFocus("game-context-song-replace"),
-    );
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
+// Pull the track file's name out of its (possibly URL-encoded) path so it can be
+// handed back to the per-track delete RPC.
+function trackFilename(rel: string): string {
   return (
-    <FocusContainer
-      opts={{
-        focusKey: "game-context-song-details",
-        isFocusBoundary: true,
-        forceFocus: true,
-      }}
-      className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
-    >
-      <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/10 p-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Music2 size={16} className="text-accent" />
-          <span className="truncate">{name}</span>
-        </div>
-
-        <dl className="flex flex-col gap-1.5 text-xs">
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-muted-foreground">Status</dt>
-            <dd className="font-medium text-accent-text">Downloaded</dd>
-          </div>
-          {fileName && (
-            <div className="flex items-center justify-between gap-3">
-              <dt className="shrink-0 text-muted-foreground">File</dt>
-              <dd className="truncate font-mono text-[0.7rem] text-foreground/80">
-                {fileName}
-              </dd>
-            </div>
-          )}
-        </dl>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <ContextRow
-          id="game-context-song-replace"
-          icon={<DownloadIcon size={18} />}
-          onSelect={onReplace}
-        >
-          Replace Theme Music
-        </ContextRow>
-      </div>
-    </FocusContainer>
+    rel
+      .split(/[\\/?#]/)
+      .filter(Boolean)
+      .pop() ?? rel
   );
 }
 

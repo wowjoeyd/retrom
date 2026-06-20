@@ -229,18 +229,28 @@ function Inner() {
   // otherwise leave focus on the hero so the user can switch tabs and then press
   // Down to enter the content.
   const cycleTab = (dir: 1 | -1) => {
+    // Capture whether focus is inside the tab content BEFORE swapping tabs.
+    // setActiveTab unmounts the active tab synchronously, which removes the
+    // focused element (e.g. a screenshot thumbnail) and bounces DOM focus back
+    // to <body>. If we read document.activeElement *after* the swap (in the
+    // rAF), the region no longer contains it, the synchronous setFocus never
+    // fires, and focus is only restored ~300ms later by norigin's debounced
+    // autoRestoreFocus -- so the reticle lands in the new tab late and the
+    // switch feels laggy. Reading it up front keeps the restore synchronous.
+    const region = document.getElementById("detail-tab-content-region");
+    const contentWasFocused = !!region?.contains(document.activeElement);
+
     setActiveTab((current) => {
       const i = DETAIL_TAB_KEYS.indexOf(current);
       return DETAIL_TAB_KEYS[
         (i + dir + DETAIL_TAB_KEYS.length) % DETAIL_TAB_KEYS.length
       ];
     });
-    requestAnimationFrame(() => {
-      const region = document.getElementById("detail-tab-content-region");
-      if (region?.contains(document.activeElement)) {
-        setFocus("detail-tab-content");
-      }
-    });
+    if (contentWasFocused) {
+      // The new tab's focusables mount during React's commit (before this rAF),
+      // so setFocus resolves to the new content's first focusable immediately.
+      requestAnimationFrame(() => setFocus("detail-tab-content"));
+    }
   };
 
   // LB/RB tab hints now live inline with the tab rail (see DetailTabs), so the

@@ -1559,12 +1559,17 @@ export function GridGameList() {
         {activeGroup?.partitionedGames
           ?.filter(([_, games]) => !!games.length)
           .map(([key, games]) => (
-            <FocusContainer
-              opts={{
-                focusKey: `game-list-${activeGroup.id}-${key}-container`,
-                focusable: !!games.length,
-                saveLastFocusedChild: false,
-              }}
+            // Letter sections are PLAIN divs, not FocusContainers, on purpose.
+            // Wrapping each section in its own focus container made every card's
+            // spatial-nav parent the section (not the group), so crossing a
+            // section boundary (e.g. UP from C's top row) had no sibling within
+            // the section: norigin would recurse up, focus the *adjacent section
+            // container*, and getNextFocusKey resolves a container to its
+            // top-left child — snapping to the section's FIRST card instead of
+            // the card directly above. Keeping all cards as direct children of
+            // the single group container restores continuous grid geometry, so
+            // vertical nav lands on the card nearest the current column.
+            <div
               key={key}
               className={cn(!games.length ? "hidden" : "block")}
             >
@@ -1624,7 +1629,7 @@ export function GridGameList() {
                   );
                 })}
               </div>
-            </FocusContainer>
+            </div>
           ))}
       </FocusContainer>
     );

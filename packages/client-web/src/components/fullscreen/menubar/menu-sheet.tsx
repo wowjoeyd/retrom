@@ -26,8 +26,17 @@ declare global {
   }
 }
 
+// Shared visual treatment for the fullscreen slide-out panels. The global Menu
+// (and its sub-sheets) is left-anchored and slides in from the left, so it keeps
+// its right-edge border. The per-game Actions panel is right-anchored; the
+// sub-sheets it opens must use PANEL_CONTENT_CLASS_RIGHT (side="right") so they
+// slide in from the right edge — matching the panel they were opened from —
+// instead of sweeping across from the left.
 export const PANEL_CONTENT_CLASS =
   "z-[110] gap-0 border-r border-border/60 bg-background/95 backdrop-blur-md p-0 sm:min-w-[30rem] sm:max-w-[34rem]";
+
+export const PANEL_CONTENT_CLASS_RIGHT =
+  "z-[110] gap-0 border-l border-border/60 bg-background/95 backdrop-blur-md p-0 sm:min-w-[30rem] sm:max-w-[34rem]";
 
 export function MenuSheet(props: JSX.IntrinsicElements["button"]) {
   const [open, setOpen] = useState(false);

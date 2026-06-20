@@ -13,7 +13,7 @@ import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 import { useInputDeviceContext } from "@/providers/input-device";
 import { gameMusicPlayer, pollForDownloadedTheme } from "../grid-game-list";
 import { PanelHeader, PanelHints } from "../menubar/panel-chrome";
-import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
+import { PANEL_CONTENT_CLASS_RIGHT } from "../menubar/menu-sheet";
 import { useQueryClient } from "@tanstack/react-query";
 
 function formatDuration(secs: number): string {
@@ -145,7 +145,8 @@ export function DownloadMusicAction(props?: {
       </SheetTrigger>
 
       <SheetContent
-        className={PANEL_CONTENT_CLASS}
+        side="right"
+        className={PANEL_CONTENT_CLASS_RIGHT}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
         }}

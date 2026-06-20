@@ -18,7 +18,7 @@ import { Info, Trash2 } from "lucide-react";
 import { ScrollArea } from "@retrom/ui/components/scroll-area";
 import { CheckedState } from "@retrom/ui/components/checkbox";
 import { PanelHeader } from "../menubar/panel-chrome";
-import { PANEL_CONTENT_CLASS } from "../menubar/menu-sheet";
+import { PANEL_CONTENT_CLASS_RIGHT } from "../menubar/menu-sheet";
 
 declare global {
   export interface HotkeyZones {
@@ -60,7 +60,7 @@ export function DeleteGameAction() {
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetContent className={PANEL_CONTENT_CLASS}>
+      <SheetContent side="right" className={PANEL_CONTENT_CLASS_RIGHT}>
         <HotkeyLayer
           zones={{ gameActions: false }}
           handlers={{

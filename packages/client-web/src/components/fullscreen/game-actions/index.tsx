@@ -12,6 +12,7 @@ import { UninstallGameAction } from "./uninstall-game";
 import { InstallGameAction } from "./install-game";
 import { DeleteGameAction } from "./delete-game";
 import { DownloadMusicAction } from "./download-music";
+import { RefreshMetadataAction } from "./refresh-metadata";
 import { useMemo, useState } from "react";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
 import { FocusContainer, useFocusable } from "../focus-container";
@@ -147,6 +148,8 @@ export function GameActions(props?: {
                 </DesktopOnly>
 
                 <DownloadMusicAction />
+
+                <RefreshMetadataAction />
 
                 {/* Destructive action separated below a divider. */}
                 <div className="my-2 h-px bg-border/60" />

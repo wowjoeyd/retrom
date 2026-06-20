@@ -32,6 +32,7 @@ import { InstallOnPlayModal } from "@/components/modals/install-on-play";
 import {
   gameMusicPlayer,
   cancelPendingFocusMusic,
+  useGameMusicStatus,
 } from "../components/fullscreen/grid-game-list";
 import { consumeQuickScrollNav } from "../components/fullscreen/alphabet-scroll-overlay";
 import { Background, Scene } from "../components/fullscreen/scene";
@@ -195,12 +196,22 @@ function FullscreenLayout() {
     };
     window.addEventListener("focus", reassertSpatialFocus);
 
+    // Whether we paused a *playing* theme for this launch, so we only resume on
+    // exit if we actually paused. A no-theme game (nothing playing) is left
+    // untouched on both launch and exit — pausing it would otherwise flip the
+    // soundtrack console to a "Paused" state for a game that has no theme.
+    let pausedThemeForGame = false;
+
     void (async () => {
       unlisten.push(
         await webview.listen("game-running", () => {
-          // Pause (don't stop) so the theme resumes from where it left off when
-          // the game exits, instead of restarting.
-          gameMusicPlayer.pauseTheme();
+          // Only pause when a theme is genuinely playing. Pause (don't stop) so
+          // it resumes from where it left off when the game exits, instead of
+          // restarting.
+          if (useGameMusicStatus.getState().status === "playing") {
+            gameMusicPlayer.pauseTheme();
+            pausedThemeForGame = true;
+          }
         }),
       );
 
@@ -222,8 +233,13 @@ function FullscreenLayout() {
               console.error(e);
             }
 
-            // Resume the theme from where it was paused (also resumes audio ctx).
-            gameMusicPlayer.resumeTheme();
+            // Resume only if we paused a playing theme on launch (also resumes
+            // audio ctx). A no-theme game was never paused, so it keeps its
+            // "no theme" state and never shows a transient pause/resume.
+            if (pausedThemeForGame) {
+              gameMusicPlayer.resumeTheme();
+              pausedThemeForGame = false;
+            }
 
             // Reclaiming the OS foreground is handled in Rust (it retries on a
             // spaced schedule to beat the closing game). When the window regains

@@ -81,7 +81,16 @@ export function DetailReticle() {
     // focusin bubbles from the actually-focused element (incl. portaled panels);
     // scroll (capture) catches controller scroll inside the ScrollArea; resize
     // catches window/overscan changes.
-    const onFocusIn = () => startFollow();
+    //
+    // On focus change, measure synchronously first so the brackets snap to the
+    // new element in the SAME frame focus lands -- not one rAF later. That async
+    // gap is what made a tab switch (e.g. away from a focused screenshot) read as
+    // laggy: the content swapped instantly but the focus indicator only caught up
+    // a frame after. startFollow then keeps tracking scrollIntoView/panel slides.
+    const onFocusIn = () => {
+      measure();
+      startFollow();
+    };
     const onScroll = () => startFollow();
     const onResize = () => startFollow();
 
