@@ -110,6 +110,11 @@ export function GamepadProvider(props: PropsWithChildren) {
     axes: new Map(),
   });
   const repeatInputs = useRef(new Map<string, RepeatInputState>());
+  // Game IDs currently running. While any game is active it owns the controller,
+  // so we must not drive Retrom's UI from gamepad input (otherwise the focused
+  // main window's WebView2 Gamepad API would e.g. open the menu mid-game).
+  const runningGames = useRef(new Set<number>());
+  const gameActive = useRef(false);
 
   const { toast } = useToast();
 
@@ -163,7 +168,12 @@ export function GamepadProvider(props: PropsWithChildren) {
   );
 
   const pollGamepad = useCallback(() => {
-    const node = document.activeElement;
+    // While a game is running it owns the controller. Keep doing edge-detection
+    // bookkeeping below (so resuming doesn't replay stale presses), but target a
+    // null node so every `node?.dispatchEvent(...)` becomes a no-op — Retrom's UI
+    // ignores the controller until the game exits. The Rust native reader is
+    // likewise gated on game_active, so neither input path drives the UI.
+    const node = gameActive.current ? null : document.activeElement;
     const now = performance.now();
 
     // Poll every live pad from the Gamepad API directly rather than only the
@@ -381,8 +391,14 @@ export function GamepadProvider(props: PropsWithChildren) {
     let disposed = false;
 
     void listen<NativeGamepadInput>("native-gamepad-input", ({ payload }) => {
-      // No focus guard here: the Rust side only emits these while a game isn't
-      // running AND our window isn't the foreground (i.e. when the WebView2
+      // Defense-in-depth: never let forwarded input drive the UI while a game we
+      // launched is running (the game owns the pad). The Rust side already gates
+      // forwarding on !game_active, so this only guards against a race at the
+      // very start of a session.
+      if (gameActive.current) return;
+
+      // No focus guard beyond that: the Rust side only emits these while a game
+      // isn't running AND our window isn't the foreground (i.e. when the WebView2
       // Gamepad API is frozen), so there's no double-input to avoid — and
       // `document.hasFocus()` proved unreliable in the dead state.
       const gamepad = {
@@ -446,6 +462,44 @@ export function GamepadProvider(props: PropsWithChildren) {
     return () => {
       disposed = true;
       unlisten?.();
+    };
+  }, []);
+
+  // Track running games (desktop) so the poll above suppresses UI input while a
+  // game owns the controller. A Set keyed by game id stays correct even if more
+  // than one game is somehow active at once.
+  useEffect(() => {
+    if (!checkIsDesktop()) return;
+
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+    const track = (p: Promise<() => void>) =>
+      void p.then((fn) => (disposed ? fn() : unlisteners.push(fn)));
+
+    const sync = () => {
+      gameActive.current = runningGames.current.size > 0;
+    };
+
+    track(
+      listen<{ gameId: number }>("game-running", ({ payload }) => {
+        if (typeof payload?.gameId === "number") {
+          runningGames.current.add(payload.gameId);
+        }
+        sync();
+      }),
+    );
+    track(
+      listen<{ gameId: number }>("game-stopped", ({ payload }) => {
+        if (typeof payload?.gameId === "number") {
+          runningGames.current.delete(payload.gameId);
+        }
+        sync();
+      }),
+    );
+
+    return () => {
+      disposed = true;
+      unlisteners.forEach((fn) => fn());
     };
   }, []);
 

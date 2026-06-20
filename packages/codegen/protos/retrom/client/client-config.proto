@@ -31,6 +31,13 @@ message InterfaceConfig {
 
   bool fullscreen_by_default = 1;
   FullscreenConfig fullscreen_config = 2;
+
+  // Controller "quit to library" hotkey: while a game is running, holding a
+  // deliberate button combo (default LB + RB + Menu for ~1.5s) kills the game
+  // and returns to Big Picture. Lives here at the shared interface level (NOT
+  // under fullscreen_config) so the fullscreen and standard settings menus bind
+  // to the same value. Absent is treated as enabled (default on).
+  optional bool quit_to_library_hotkey_enabled = 3;
 }
 
 message RetromClientConfig {

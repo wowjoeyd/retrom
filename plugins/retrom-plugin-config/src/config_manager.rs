@@ -60,6 +60,15 @@ impl<R: Runtime> ConfigManager<R> {
         tokio::task::block_in_place(|| self.config.blocking_read().clone())
     }
 
+    /// Read the current config from a plain OS thread that is NOT a Tokio task —
+    /// e.g. the native gamepad reader. Calls `blocking_read` directly (correct
+    /// off the runtime); do NOT call this from async code, where it would panic.
+    /// Updates made via [`Self::update_config`] (i.e. when the user saves the
+    /// settings) are visible here immediately, so toggles take effect live.
+    pub fn get_config_off_runtime(&self) -> RetromClientConfig {
+        self.config.blocking_read().clone()
+    }
+
     pub async fn update_config(&self, new_config: RetromClientConfig) -> crate::Result<()> {
         let data = serde_json::to_vec_pretty(&new_config)?;
         tokio::fs::write(&self.config_path, data).await?;

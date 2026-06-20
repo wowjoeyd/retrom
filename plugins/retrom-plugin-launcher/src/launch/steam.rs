@@ -164,16 +164,29 @@ mod windows {
             return;
         }
 
-        wait_for_stop(app_id, install_dir, &mut recv).await;
+        let stop_requested = wait_for_stop(app_id, install_dir.clone(), &mut recv).await;
 
         info!("Steam game {app_id} stopped; returning to library");
+
+        // An explicit stop (UI stop button or the quit-to-library hotkey) means
+        // the game is still running and must actually be killed. Steam runs it in
+        // its own process, so there's no child handle — terminate it by install
+        // dir. A natural exit skips this (the game's already gone).
+        if stop_requested {
+            if let Some(dir) = install_dir.as_deref() {
+                crate::window::kill_pids_under_dir(dir);
+            }
+        }
+
         app.launcher().foreground_main_window();
         if let Err(why) = app.launcher().mark_game_as_stopped(game_id).await {
             warn!("Failed to mark Steam game {game_id} as stopped: {why}");
         }
     }
 
-    /// Block until the game stops (or a UI stop is requested).
+    /// Block until the game stops (or a UI/hotkey stop is requested). Returns
+    /// `true` if the stop was explicitly requested (the game is still running and
+    /// must be killed), `false` if the game exited on its own.
     ///
     /// Prefer watching the game's actual process (found via its install dir):
     /// `WaitForSingleObject` lets us react the *instant* it exits, which is what
@@ -185,7 +198,7 @@ mod windows {
         app_id: u32,
         install_dir: Option<std::path::PathBuf>,
         recv: &mut tokio::sync::mpsc::Receiver<()>,
-    ) {
+    ) -> bool {
         // Try to lock onto the game's process. Give it a few seconds to appear
         // under the install dir before falling back to registry polling.
         if let Some(dir) = install_dir {
@@ -197,7 +210,7 @@ mod windows {
                     break;
                 }
                 tokio::select! {
-                    _ = recv.recv() => return,
+                    _ = recv.recv() => return true,
                     _ = sleep(Duration::from_millis(200)) => {}
                 }
             }
@@ -211,24 +224,24 @@ mod windows {
                     };
 
                     tokio::select! {
-                        _ = recv.recv() => return,
+                        _ = recv.recv() => return true,
                         _ = tokio::task::spawn_blocking(move || {
                             crate::window::wait_for_pid_exit(pid)
                         }) => {}
                     }
                 }
-                return;
+                return false;
             }
         }
 
         // Fallback: poll Steam's running flag.
         loop {
             if app_running(app_id) == Some(false) {
-                return;
+                return false;
             }
 
             tokio::select! {
-                _ = recv.recv() => return,
+                _ = recv.recv() => return true,
                 _ = sleep(STOP_POLL_INTERVAL) => {}
             }
         }

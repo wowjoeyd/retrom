@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use retrom_codegen::retrom::emulator::OperatingSystem;
-use tauri::{http::HeaderValue, Runtime, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri::{http::HeaderValue, Manager, Runtime, WebviewUrl, WebviewWindow, WindowEvent};
 use tokio::sync::Mutex;
 use tracing::{error, warn};
 
@@ -111,6 +111,12 @@ impl<R: Runtime> LaunchAdapter<R> for WasmAdapter {
 
         tokio::spawn(async move {
             recv.recv().await;
+            // Close the embedded webview if it's still open — e.g. when the stop
+            // came from the quit-to-library hotkey rather than the window's own
+            // close button. Closing an already-closing window is a harmless no-op.
+            if let Some(win) = app.get_webview_window("emulator-js") {
+                let _ = win.close();
+            }
             app.launcher().foreground_main_window();
             if let Err(why) = app.launcher().mark_game_as_stopped(game_id).await {
                 warn!("Failed to mark game {game_id} as stopped: {why}");

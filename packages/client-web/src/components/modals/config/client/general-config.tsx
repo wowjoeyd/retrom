@@ -40,6 +40,9 @@ const configSchema = z.object({
   config: z.object({
     interface: z.object({
       fullscreenByDefault: z.boolean(),
+      // Shared with the fullscreen settings menu (see menubar/config); lives at
+      // the interface level so both menus bind to the same value.
+      quitToLibraryHotkeyEnabled: z.boolean().optional(),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
         startupMovieEnabled: z.boolean().optional(),
@@ -94,6 +97,8 @@ export function GeneralConfig() {
       config: {
         interface: {
           fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+          quitToLibraryHotkeyEnabled:
+            config?.interface?.quitToLibraryHotkeyEnabled ?? true,
           fullscreenConfig: {
             ...config?.interface?.fullscreenConfig,
             windowedFullscreenMode:
@@ -417,6 +422,35 @@ export function GeneralConfig() {
                         Steam Big Picture style: double-tap your
                         controller&apos;s guide/home button anywhere to jump
                         into fullscreen mode.
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.quitToLibraryHotkeyEnabled"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="quit-to-library-hotkey"
+                      checked={field.value ?? true}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="quit-to-library-hotkey">
+                        Quit to library hotkey
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        While a game is running, hold LB + RB + Menu for ~1.5
+                        seconds to close it and return to Retrom. Useful for
+                        emulators with no in-game quit.
                       </p>
                     </div>
                   </div>

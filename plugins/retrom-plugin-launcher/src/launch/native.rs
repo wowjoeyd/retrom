@@ -287,10 +287,26 @@ impl<R: Runtime> LaunchAdapter<R> for NativeAdapter {
             _ = recv.recv() => {
                 info!("Received stop signal for game {game_id}");
 
+                // Capture the process tree BEFORE killing. Emulators commonly
+                // re-exec into a child that owns the real window, and Windows
+                // doesn't reparent orphans, so once the tracked parent dies we
+                // can no longer find them. `process.kill()` only terminates the
+                // direct child — without killing the tree, the real emulator
+                // survives and fights Retrom for the OS foreground, freezing the
+                // return to the library (whereas a natural exit leaves nothing
+                // behind). So kill the whole captured tree on an explicit stop.
+                #[cfg(windows)]
+                let process_tree = game_pid.map(crate::window::descendant_pids);
+
                 if let Err(why) = process.kill().await {
                     warn!("Failed to kill game process for game {game_id}: {why}");
                 } else {
                     info!("Killed game process for game {game_id}");
+                }
+
+                #[cfg(windows)]
+                if let Some(tree) = process_tree {
+                    crate::window::kill_pids(tree);
                 }
             }
             _ = process.wait() => {

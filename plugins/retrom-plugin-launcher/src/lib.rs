@@ -13,6 +13,8 @@ mod foreground;
 mod gamepad;
 mod launch;
 #[cfg(windows)]
+mod quit;
+#[cfg(windows)]
 mod window;
 
 pub use foreground::bring_to_foreground;
@@ -40,7 +42,10 @@ pub async fn init<R: Runtime>() -> TauriPlugin<R> {
             // Forward native (XInput) controller input to the UI so the fullscreen
             // experience keeps responding to the controller even when the WebView2
             // Gamepad API is frozen by losing focus (e.g. after a Steam game). See
-            // `gamepad`.
+            // `gamepad`. The same reader also detects the quit-to-library hold (see
+            // `quit`) and creates its display-only indicator window once the event
+            // loop is running — NOT here in setup, where WebviewWindow::build()
+            // would deadlock (the loop isn't pumping yet) and hang startup.
             #[cfg(windows)]
             gamepad::spawn(app.clone(), app.launcher().game_active_flag());
 

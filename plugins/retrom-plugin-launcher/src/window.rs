@@ -90,7 +90,7 @@ fn resolve_game_hwnd(root_pid: u32) -> Option<isize> {
 }
 
 /// Collect `root` and every descendant process of it, via a process snapshot.
-fn descendant_pids(root: u32) -> HashSet<u32> {
+pub(crate) fn descendant_pids(root: u32) -> HashSet<u32> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
@@ -147,6 +147,13 @@ fn descendant_pids(root: u32) -> HashSet<u32> {
 /// precision matters: reclaiming the foreground only works in the instant after
 /// the game's window is gone and before Steam grabs it.
 pub(crate) fn pid_under_dir(dir: &std::path::Path) -> Option<u32> {
+    pids_under_dir(dir).into_iter().next()
+}
+
+/// Every currently-running process whose executable image lives under `dir`.
+/// Backs both exit detection ([`pid_under_dir`]) and forced termination
+/// ([`kill_pids_under_dir`]).
+fn pids_under_dir(dir: &std::path::Path) -> Vec<u32> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -157,21 +164,22 @@ pub(crate) fn pid_under_dir(dir: &std::path::Path) -> Option<u32> {
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
+    let mut found = Vec::new();
+
     // Windows paths are case-insensitive; compare lowercased prefixes.
     let prefix = dir.to_string_lossy().to_lowercase();
     if prefix.is_empty() {
-        return None;
+        return found;
     }
 
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
-        return None;
+        return found;
     }
 
     let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
-    let mut found = None;
     if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
         loop {
             let pid = entry.th32ProcessID;
@@ -189,8 +197,7 @@ pub(crate) fn pid_under_dir(dir: &std::path::Path) -> Option<u32> {
                     if ok != 0 {
                         let path = std::ffi::OsString::from_wide(&buf[..len as usize]);
                         if path.to_string_lossy().to_lowercase().starts_with(&prefix) {
-                            found = Some(pid);
-                            break;
+                            found.push(pid);
                         }
                     }
                 }
@@ -204,6 +211,59 @@ pub(crate) fn pid_under_dir(dir: &std::path::Path) -> Option<u32> {
 
     unsafe { CloseHandle(snapshot) };
     found
+}
+
+/// Forcibly terminate each of the given processes. Best-effort — processes that
+/// have already exited or can't be opened are skipped.
+pub(crate) fn kill_pids(pids: impl IntoIterator<Item = u32>) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    for pid in pids {
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !handle.is_null() {
+                TerminateProcess(handle, 1);
+                CloseHandle(handle);
+            }
+        }
+    }
+}
+
+/// Forcibly terminate every running process whose executable lives under `dir`.
+///
+/// Lets a quit-to-library / explicit stop actually close a Steam game: Steam
+/// runs the game in its own process (we never get a child handle to kill), so we
+/// terminate it by install dir instead.
+pub(crate) fn kill_pids_under_dir(dir: &std::path::Path) {
+    kill_pids(pids_under_dir(dir));
+}
+
+/// Bounding rectangle (physical pixels: `x, y, width, height`) of the monitor
+/// that `hwnd` is displayed on. Used to place the click-through quit indicator
+/// over the game's monitor. Returns `None` if the monitor can't be resolved.
+pub(crate) fn monitor_rect_for_window(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let hwnd = hwnd as HWND;
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_null() {
+            return None;
+        }
+
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+
+        let r = info.rcMonitor;
+        Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
+    }
 }
 
 /// Block until the process with `pid` exits (returns immediately if it's already

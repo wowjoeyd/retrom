@@ -152,6 +152,61 @@ fn map_state(state: &XINPUT_STATE) -> ([bool; BUTTON_COUNT], [f32; 4]) {
     (b, axes)
 }
 
+/// Whether forwarding controller input into Retrom's UI is appropriate given the
+/// current foreground window `fg` (raw HWND as `isize`).
+///
+/// We forward only to bridge the case where Retrom is the experience on screen
+/// but a non-app "service" window holds the foreground — e.g. Win11's
+/// `GameInputServiceWindow` right after a controller game — which freezes the
+/// WebView2 Gamepad API. We must NOT forward when the user has switched to a
+/// genuine other application (its window is visible *and* titled), or the
+/// controller would silently drive Retrom in the background.
+fn foreground_allows_forwarding(fg: isize) -> bool {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    let fg = fg as HWND;
+    if fg.is_null() {
+        // No window owns the foreground — a transient state (e.g. right after a
+        // game closes). Retrom is the visible app, so forwarding is correct.
+        return true;
+    }
+
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(fg, &mut pid) };
+    if pid == unsafe { GetCurrentProcessId() } {
+        // One of our own windows holds the foreground.
+        return true;
+    }
+
+    // A different process owns the foreground. Treat it as a real application the
+    // user switched to — and block forwarding — only if its window is both
+    // visible and titled. Foreground-stealing service windows are invisible
+    // and/or untitled, so those still allow forwarding.
+    let visible = unsafe { IsWindowVisible(fg) } != 0;
+    let titled = unsafe { GetWindowTextLengthW(fg) } > 0;
+    !(visible && titled)
+}
+
+/// Whether any connected pad currently holds the full quit-to-library combo.
+/// Reads XInput directly (cheap) so it stays independent of the forwarding
+/// baseline tracked in [`poll_pad`].
+fn combo_pressed(get_state: XInputGetStateFn) -> bool {
+    for i in 0..4u32 {
+        let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
+        if unsafe { get_state(i, &mut state) } == 0 {
+            let (buttons, _) = map_state(&state);
+            if crate::quit::COMBO.iter().all(|&b| buttons[b]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn axis_state(value: f32, threshold: f32) -> i8 {
     if value > threshold {
         1
@@ -201,25 +256,47 @@ fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>) {
         std::thread::sleep(Duration::from_millis(100));
     }
 
+    // Create the display-only quit indicator window now that the main window
+    // exists (so the event loop is running). Doing this during plugin setup —
+    // before the loop pumps — deadlocks WebviewWindow::build() and hangs startup.
+    // Built from this background thread (not the main thread) so build() can
+    // round-trip through the loop without blocking it.
+    if main_hwnd != 0 {
+        crate::quit::create_indicator_window(&app);
+    }
+
     let get_state = resolve_get_state();
     let mut pads: [PadState; 4] = Default::default();
+    let mut quit_detector = crate::quit::QuitHoldDetector::default();
 
     info!("Native gamepad reader started (main_hwnd=0x{main_hwnd:x})");
 
     loop {
-        // Forward to the UI only when BOTH:
-        //   - no game is running — during gameplay the game (which reads the pad
-        //     itself) is foreground and Retrom must stay out of the way; and
-        //   - our window is NOT the foreground — when it is, the WebView2 Gamepad
-        //     API is live and handles input, so forwarding too would double every
-        //     press.
-        // i.e. forward exactly in the stuck state: back at the library, but a
-        // window we can't take focus from (e.g. GameInputServiceWindow) holds it.
-        let foreground =
-            main_hwnd != 0 && unsafe { GetForegroundWindow() } as isize == main_hwnd;
-        let forward = !game_active.load(Ordering::Relaxed) && !foreground;
+        // Forward controller input into Retrom's UI only in the narrow "stuck"
+        // state it exists for: no game is running, Retrom is NOT the foreground
+        // (so the focused-document Gamepad API is frozen), AND the window that
+        // holds the foreground is a non-app *service* window that stole it (e.g.
+        // Win11's GameInputServiceWindow right after a controller game) rather
+        // than a real application the user switched to.
+        //
+        // Crucially we do NOT forward just because Retrom isn't focused: if the
+        // user alt-tabbed to another app (or it's fullscreen over Retrom), the
+        // controller must drive THAT app, not leak into Retrom's background UI.
+        // And never forward while a game we launched runs — the game owns the pad
+        // and the quit combo is detected separately (see `quit`).
+        let game_running = game_active.load(Ordering::Relaxed);
+        let fg = unsafe { GetForegroundWindow() } as isize;
+        let is_main_fg = main_hwnd != 0 && fg == main_hwnd;
+        let forward = !game_running && !is_main_fg && foreground_allows_forwarding(fg);
 
         let now = Instant::now();
+
+        // Quit-to-library hold detection is the one thing we DO act on while a
+        // game owns the foreground — checked independently of input forwarding,
+        // and only while a game is running (so it's inert in the library/menus).
+        let combo_down = game_running && combo_pressed(get_state);
+        quit_detector.poll(&app, combo_down, game_running, now);
+
         for i in 0..4u32 {
             poll_pad(&app, get_state, i, &mut pads[i as usize], now, forward);
         }

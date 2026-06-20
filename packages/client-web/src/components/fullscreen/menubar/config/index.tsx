@@ -39,6 +39,9 @@ type FormSchema = z.infer<typeof formSchema>;
 const formSchema = z.object({
   interface: z.object({
     fullscreenByDefault: z.boolean(),
+    // Shared with the standard settings menu (see general-config.tsx); lives at
+    // the interface level, not under fullscreenConfig, so both menus bind to it.
+    quitToLibraryHotkeyEnabled: z.boolean().optional(),
     fullscreenConfig: z.object({
       startupMovieEnabled: z.boolean().optional(),
       doubleTapGuideOpensFullscreen: z.boolean().optional(),
@@ -80,6 +83,8 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
     defaultValues: {
       interface: {
         fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+        quitToLibraryHotkeyEnabled:
+          config?.interface?.quitToLibraryHotkeyEnabled ?? true,
         fullscreenConfig: {
           startupMovieEnabled:
             config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
@@ -145,6 +150,8 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
             interface: {
               fullscreenByDefault:
                 config?.interface?.fullscreenByDefault ?? false,
+              quitToLibraryHotkeyEnabled:
+                config?.interface?.quitToLibraryHotkeyEnabled ?? true,
               fullscreenConfig: {
                 startupMovieEnabled:
                   config?.interface?.fullscreenConfig?.startupMovieEnabled ??
@@ -299,6 +306,27 @@ function ConfigForm() {
               >
                 Steam Big Picture style: double-tap your controller&apos;s
                 guide/home button anywhere to jump into fullscreen
+              </ConfigCheckbox>
+            </FormItem>
+          )}
+        />
+      </PanelSection>
+
+      <PanelSection title="Controller">
+        <FormField
+          control={form.control}
+          name="interface.quitToLibraryHotkeyEnabled"
+          render={({ field }) => (
+            <FormItem>
+              <ConfigCheckbox
+                id="config-menu-quit-hotkey"
+                label="Quit to library hotkey"
+                checked={field.value ?? true}
+                onCheckedChange={field.onChange}
+              >
+                While a game is running, hold LB + RB + Menu for ~1.5s to close
+                it and return to Retrom (handy for emulators with no in-game
+                quit)
               </ConfigCheckbox>
             </FormItem>
           )}

@@ -101,10 +101,15 @@ pub async fn main() {
                 tracing::info!("Telemetry disabled");
             }
 
-            if let Err(why) = app
-                .handle()
-                .plugin(tauri_plugin_window_state::Builder::default().build())
-            {
+            if let Err(why) = app.handle().plugin(
+                tauri_plugin_window_state::Builder::default()
+                    // The quit-to-library indicator is positioned manually over
+                    // the game's monitor each time it's shown — don't let the
+                    // window-state plugin save/restore its geometry.
+                    .with_denylist(&["quit-indicator"])
+                    .skip_initial_state("quit-indicator")
+                    .build(),
+            ) {
                 tracing::error!("Failed to initialize window state plugin: {}", why);
             }
 
