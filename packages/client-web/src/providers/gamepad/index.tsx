@@ -20,6 +20,7 @@ import { ControllerMapping } from "./maps";
 import { axisValueToAxisState, GamepadAxisState } from "./utils";
 import { listen } from "@tauri-apps/api/event";
 import { checkIsDesktop } from "@/lib/env";
+import { isGamepadUiSuppressed } from "./capture-suppression";
 
 /**
  * Controller input forwarded from the Rust side (XInput), shaped so we can build
@@ -173,7 +174,14 @@ export function GamepadProvider(props: PropsWithChildren) {
     // null node so every `node?.dispatchEvent(...)` becomes a no-op — Retrom's UI
     // ignores the controller until the game exits. The Rust native reader is
     // likewise gated on game_active, so neither input path drives the UI.
-    const node = gameActive.current ? null : document.activeElement;
+    //
+    // The quit-hotkey rebind control suppresses input the same way while it
+    // captures a new combo, so the buttons being pressed to record the combo
+    // don't also navigate the settings menu or close it.
+    const node =
+      gameActive.current || isGamepadUiSuppressed()
+        ? null
+        : document.activeElement;
     const now = performance.now();
 
     // Poll every live pad from the Gamepad API directly rather than only the
@@ -392,10 +400,11 @@ export function GamepadProvider(props: PropsWithChildren) {
 
     void listen<NativeGamepadInput>("native-gamepad-input", ({ payload }) => {
       // Defense-in-depth: never let forwarded input drive the UI while a game we
-      // launched is running (the game owns the pad). The Rust side already gates
-      // forwarding on !game_active, so this only guards against a race at the
-      // very start of a session.
-      if (gameActive.current) return;
+      // launched is running (the game owns the pad), or while the quit-hotkey
+      // rebind control is capturing a combo. The Rust side already gates
+      // forwarding on !game_active and isn't forwarding while focused, so this
+      // only guards against races.
+      if (gameActive.current || isGamepadUiSuppressed()) return;
 
       // No focus guard beyond that: the Rust side only emits these while a game
       // isn't running AND our window isn't the foreground (i.e. when the WebView2

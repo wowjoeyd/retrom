@@ -34,7 +34,7 @@ const REPEAT_START_INTERVAL: Duration = Duration::from_millis(190);
 const REPEAT_MIN_INTERVAL: Duration = Duration::from_millis(60);
 const REPEAT_ACCELERATION: Duration = Duration::from_millis(18);
 
-const BUTTON_COUNT: usize = 17;
+pub(crate) const BUTTON_COUNT: usize = 17;
 /// D-pad button indices (standard mapping) — these key-repeat while held.
 const DPAD: [usize; 4] = [12, 13, 14, 15];
 /// Left-stick axes (standard mapping) — these drive navigation and key-repeat.
@@ -191,21 +191,58 @@ fn foreground_allows_forwarding(fg: isize) -> bool {
     !(visible && titled)
 }
 
-/// Whether any connected pad currently holds the full quit-to-library combo.
+/// Whether any connected pad currently holds the full quit-to-library `combo`.
 /// Reads XInput directly (cheap) so it stays independent of the forwarding
-/// baseline tracked in [`poll_pad`].
-fn combo_pressed(get_state: XInputGetStateFn) -> bool {
+/// baseline tracked in [`poll_pad`]. `combo` is the user-configured binding
+/// (see [`crate::quit::configured_combo`]); an empty combo never matches.
+fn combo_pressed(get_state: XInputGetStateFn, combo: &[usize]) -> bool {
+    if combo.is_empty() {
+        return false;
+    }
+
     for i in 0..4u32 {
         let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
         if unsafe { get_state(i, &mut state) } == 0 {
             let (buttons, _) = map_state(&state);
-            if crate::quit::COMBO.iter().all(|&b| buttons[b]) {
+            if combo.iter().all(|&b| buttons[b]) {
                 return true;
             }
         }
     }
     false
 }
+
+/// Union of the buttons currently held across every connected pad, as standard
+/// mapping indices. Used only while the settings UI is capturing a new combo so
+/// it can see chords (and the Guide button, which the WebView2 Gamepad API never
+/// reports) regardless of which window holds the foreground.
+fn held_buttons_union(get_state: XInputGetStateFn) -> Vec<u32> {
+    let mut union = [false; BUTTON_COUNT];
+    for i in 0..4u32 {
+        let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
+        if unsafe { get_state(i, &mut state) } == 0 {
+            let (buttons, _) = map_state(&state);
+            for (slot, pressed) in union.iter_mut().zip(buttons) {
+                *slot |= pressed;
+            }
+        }
+    }
+
+    union
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, &down)| down.then_some(idx as u32))
+        .collect()
+}
+
+/// Payload for [`REBIND_EVENT`]: the buttons held this tick while capturing.
+#[derive(Clone, Serialize)]
+struct RebindButtons {
+    buttons: Vec<u32>,
+}
+
+/// Event the settings UI listens to while rebinding the quit combo.
+const REBIND_EVENT: &str = "quit-rebind:buttons";
 
 fn axis_state(value: f32, threshold: f32) -> i8 {
     if value > threshold {
@@ -237,11 +274,19 @@ fn should_repeat(repeat: &mut Repeat, now: Instant) -> bool {
 }
 
 /// Start the native controller reader. Polls until the app exits.
-pub fn spawn<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>) {
-    std::thread::spawn(move || run(app, game_active));
+///
+/// `rebind_active` is raised by the settings UI (via the launcher's
+/// `set_quit_rebind_active` command) while the user is capturing a new combo;
+/// it makes the reader broadcast held buttons on [`REBIND_EVENT`].
+pub fn spawn<R: Runtime>(
+    app: AppHandle<R>,
+    game_active: Arc<AtomicBool>,
+    rebind_active: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || run(app, game_active, rebind_active));
 }
 
-fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>) {
+fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>, rebind_active: Arc<AtomicBool>) {
     // The main window may not exist yet at plugin-setup time, so wait for it.
     let mut main_hwnd = 0isize;
     for _ in 0..100 {
@@ -269,6 +314,16 @@ fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>) {
     let mut pads: [PadState; 4] = Default::default();
     let mut quit_detector = crate::quit::QuitHoldDetector::default();
 
+    // The active quit combo, refreshed from config at the start of each game
+    // session so a rebind in settings takes effect on the next launch without
+    // re-reading (and cloning) the whole config on every 60 Hz tick.
+    let mut active_combo: Vec<usize> = crate::quit::COMBO.to_vec();
+    let mut prev_game_running = false;
+
+    // Last button union emitted while capturing, so we only emit on change.
+    let mut prev_rebind_union: Vec<u32> = Vec::new();
+    let mut prev_rebinding = false;
+
     info!("Native gamepad reader started (main_hwnd=0x{main_hwnd:x})");
 
     loop {
@@ -291,11 +346,34 @@ fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>) {
 
         let now = Instant::now();
 
+        // Refresh the configured combo when a new game session begins (rising
+        // edge of game_running), so settings rebinds apply on the next launch.
+        if game_running && !prev_game_running {
+            active_combo = crate::quit::configured_combo(&app);
+        }
+        prev_game_running = game_running;
+
+        // While the settings UI is capturing a new combo, broadcast the held
+        // button union (on change) so it can read chords — including Guide, which
+        // the Gamepad API can't see. Gated on !game_running so it stays inert
+        // during play. Clear once on exit so a stale "held" set doesn't linger.
+        let rebinding = !game_running && rebind_active.load(Ordering::Relaxed);
+        if rebinding {
+            let union = held_buttons_union(get_state);
+            if union != prev_rebind_union {
+                let _ = app.emit(REBIND_EVENT, RebindButtons { buttons: union.clone() });
+                prev_rebind_union = union;
+            }
+        } else if prev_rebinding {
+            prev_rebind_union.clear();
+        }
+        prev_rebinding = rebinding;
+
         // Quit-to-library hold detection is the one thing we DO act on while a
         // game owns the foreground — checked independently of input forwarding,
         // and only while a game is running (so it's inert in the library/menus).
-        let combo_down = game_running && combo_pressed(get_state);
-        quit_detector.poll(&app, combo_down, game_running, now);
+        let combo_down = game_running && combo_pressed(get_state, &active_combo);
+        quit_detector.poll(&app, combo_down, game_running, &active_combo, now);
 
         for i in 0..4u32 {
             poll_pad(&app, get_state, i, &mut pads[i as usize], now, forward);

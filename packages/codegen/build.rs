@@ -248,6 +248,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".retrom",
             "#[serde(rename_all(serialize = \"camelCase\", deserialize = \"camelCase\"))]",
         )
+        // Tolerate this repeated field being absent from older client configs
+        // written before it existed: serde requires a Vec field unless it has a
+        // default, so without this, loading an existing config.json panics the
+        // config plugin on startup. Missing/empty means "use the default combo".
+        .field_attribute(
+            "retrom.InterfaceConfig.quit_to_library_hotkey_buttons",
+            "#[serde(default)]",
+        )
         .field_attribute(
             "retrom.IGDBConfig.client_id",
             "#[serde(alias = \"client_id\", alias = \"clientId\")]",

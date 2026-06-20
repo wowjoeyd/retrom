@@ -47,7 +47,11 @@ pub async fn init<R: Runtime>() -> TauriPlugin<R> {
             // loop is running — NOT here in setup, where WebviewWindow::build()
             // would deadlock (the loop isn't pumping yet) and hang startup.
             #[cfg(windows)]
-            gamepad::spawn(app.clone(), app.launcher().game_active_flag());
+            gamepad::spawn(
+                app.clone(),
+                app.launcher().game_active_flag(),
+                app.launcher().rebind_active_flag(),
+            );
 
             Ok(())
         })
@@ -55,6 +59,7 @@ pub async fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::play_game,
             commands::stop_game,
             commands::get_game_play_status,
+            commands::set_quit_rebind_active,
         ])
         .build()
 }

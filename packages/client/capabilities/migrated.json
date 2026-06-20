@@ -61,6 +61,7 @@
     "launcher:allow-play-game",
     "launcher:allow-stop-game",
     "launcher:allow-get-game-play-status",
+    "launcher:allow-set-quit-rebind-active",
     "updater:default",
     "shell:allow-open",
     "process:default",

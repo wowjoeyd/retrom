@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import xboxLb from "@/assets/controller-icons/xbox/xbox_lb.svg";
-import xboxRb from "@/assets/controller-icons/xbox/xbox_rb.svg";
-import xboxMenu from "@/assets/controller-icons/xbox/xbox_button_menu.svg";
+import {
+  DEFAULT_QUIT_COMBO,
+  quitButtonGlyph,
+} from "@/components/quit-hotkey/combo";
 
 /**
  * Display-only "hold to return to Retrom" indicator, rendered in the dedicated,
@@ -11,9 +12,9 @@ import xboxMenu from "@/assets/controller-icons/xbox/xbox_button_menu.svg";
  * reacts to the `quit-hold:*` events the native gamepad reader emits while the
  * quit-to-library combo is held, drawing a filling ring over the game.
  *
- * Themed to match Big Picture: dark glass + purple accent. The combo glyphs are
- * the Xbox LB / RB / Menu art (the source behind the gamepad glyph map) — the
- * combo is XInput/Xbox-specific, so Xbox glyphs are always correct here.
+ * Themed to match Big Picture: dark glass + purple accent. The combo glyphs come
+ * from the `quit-hold:start` payload, so they reflect the buttons actually bound
+ * (the combo is XInput/Xbox-specific, so Xbox glyphs are always correct here).
  */
 
 // Big Picture purple accent.
@@ -24,11 +25,12 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 type Phase = "idle" | "holding" | "confirmed";
 
-type HoldStart = { durationMs?: number };
+type HoldStart = { durationMs?: number; buttons?: number[] };
 
 export function QuitIndicator() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [durationMs, setDurationMs] = useState(1500);
+  const [buttons, setButtons] = useState<number[]>([...DEFAULT_QUIT_COMBO]);
   // Bumped on each new hold so the ring/pill animations restart cleanly via key.
   const [holdId, setHoldId] = useState(0);
   const [reduceMotion] = useState(
@@ -60,6 +62,9 @@ export function QuitIndicator() {
     track(
       listen<HoldStart>("quit-hold:start", ({ payload }) => {
         setDurationMs(payload?.durationMs ?? 1500);
+        if (payload?.buttons && payload.buttons.length > 0) {
+          setButtons(payload.buttons);
+        }
         setHoldId((id) => id + 1);
         setPhase("holding");
       }),
@@ -79,6 +84,12 @@ export function QuitIndicator() {
 
   const animate = !reduceMotion;
   const confirmed = phase === "confirmed";
+
+  // Inside the ring, show the last combo button that has dedicated art (combos
+  // usually end on an action/menu button); fall back to the first glyph.
+  const centerGlyph =
+    [...buttons].reverse().map(quitButtonGlyph).find((g) => g.src) ??
+    quitButtonGlyph(buttons[0] ?? DEFAULT_QUIT_COMBO[2]);
 
   // Ring fill: animate from empty to full over the hold duration; on confirm (or
   // with reduced motion) snap to full.
@@ -169,11 +180,17 @@ export function QuitIndicator() {
               justifyContent: "center",
             }}
           >
-            <img
-              src={xboxMenu}
-              alt="Menu"
-              style={{ width: 34, height: 34, objectFit: "contain" }}
-            />
+            {centerGlyph.src ? (
+              <img
+                src={centerGlyph.src}
+                alt={centerGlyph.label}
+                style={{ width: 34, height: 34, objectFit: "contain" }}
+              />
+            ) : (
+              <span style={{ fontSize: 15, fontWeight: 700 }}>
+                {centerGlyph.label}
+              </span>
+            )}
           </div>
         </div>
 
@@ -186,11 +203,33 @@ export function QuitIndicator() {
             opacity: 0.92,
           }}
         >
-          <Glyph src={xboxLb} alt="LB" />
-          <Plus />
-          <Glyph src={xboxRb} alt="RB" />
-          <Plus />
-          <Glyph src={xboxMenu} alt="Menu" />
+          {buttons.map((button, i) => {
+            const glyph = quitButtonGlyph(button);
+            return (
+              <span
+                key={`${button}-${i}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
+              >
+                {i > 0 && <Plus />}
+                {glyph.src ? (
+                  <Glyph src={glyph.src} alt={glyph.label} />
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      padding: "2px 6px",
+                      borderRadius: 6,
+                      background: "rgba(255,255,255,0.12)",
+                    }}
+                  >
+                    {glyph.label}
+                  </span>
+                )}
+              </span>
+            );
+          })}
         </div>
 
         <div

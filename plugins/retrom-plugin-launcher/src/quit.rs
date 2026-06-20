@@ -38,13 +38,51 @@ const CONFIRM_FLASH: Duration = Duration::from_millis(350);
 /// The default combo, as W3C standard-gamepad button indices: LB + RB +
 /// Menu(Start). Bumpers + Menu held together is reported reliably by XInput
 /// (unlike the Guide button, which Game Bar masks/claims) and is very unlikely
-/// to be triggered by accident during normal play.
+/// to be triggered by accident during normal play. Used when the user hasn't
+/// rebound the combo (see [`configured_combo`]).
 pub(crate) const COMBO: [usize; 3] = [4, 5, 9];
+
+/// Fewest buttons a custom combo may have. A rebind with fewer than this is
+/// ignored in favor of the default, so a single stray button can never quit a
+/// game (the frontend enforces the same floor when capturing — see the settings
+/// menus). The held-duration requirement is the other half of that protection.
+pub(crate) const MIN_COMBO_BUTTONS: usize = 2;
+
+/// The user-configured quit combo (W3C standard-gamepad button indices), or the
+/// built-in [`COMBO`] when unset/too short/invalid. Read off the config the same
+/// way the enable toggle is, so a save in settings is visible immediately; the
+/// gamepad reader refreshes this once per game session (see [`crate::gamepad`]).
+pub(crate) fn configured_combo<R: Runtime>(app: &AppHandle<R>) -> Vec<usize> {
+    use retrom_plugin_config::ConfigExt;
+
+    let configured: Vec<usize> = app
+        .config_manager()
+        .get_config_off_runtime()
+        .config
+        .and_then(|c| c.interface)
+        .map(|i| i.quit_to_library_hotkey_buttons)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|b| b as usize)
+        // Drop anything outside the standard-mapping range so a malformed config
+        // can't panic the indexing in `combo_pressed`.
+        .filter(|&b| b < crate::gamepad::BUTTON_COUNT)
+        .collect();
+
+    if configured.len() >= MIN_COMBO_BUTTONS {
+        configured
+    } else {
+        COMBO.to_vec()
+    }
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HoldStart {
     duration_ms: u64,
+    /// The active combo (standard-gamepad button indices) so the indicator
+    /// renders the buttons actually bound, not the hardcoded default.
+    buttons: Vec<u32>,
 }
 
 /// Create the display-only hold-to-quit indicator window: transparent,
@@ -128,11 +166,14 @@ impl QuitHoldDetector {
     ///
     /// `combo_down` — whether any connected pad currently holds the full combo.
     /// `game_active` — whether a game session is currently running.
+    /// `combo` — the active combo's button indices, forwarded to the indicator
+    /// so it shows the buttons actually bound.
     pub(crate) fn poll<R: Runtime>(
         &mut self,
         app: &AppHandle<R>,
         combo_down: bool,
         game_active: bool,
+        combo: &[usize],
         now: Instant,
     ) {
         let active = combo_down && game_active;
@@ -152,6 +193,7 @@ impl QuitHoldDetector {
                             "quit-hold:start",
                             HoldStart {
                                 duration_ms: HOLD_DURATION.as_millis() as u64,
+                                buttons: combo.iter().map(|&b| b as u32).collect(),
                             },
                         );
                     }

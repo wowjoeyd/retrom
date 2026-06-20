@@ -114,6 +114,32 @@ Denies the play_game command without any pre-configured scope.
 <tr>
 <td>
 
+`retrom-plugin-launcher:allow-set-quit-rebind-active`
+
+</td>
+<td>
+
+Enables the set_quit_rebind_active command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-launcher:deny-set-quit-rebind-active`
+
+</td>
+<td>
+
+Denies the set_quit_rebind_active command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `retrom-plugin-launcher:allow-stop-game`
 
 </td>

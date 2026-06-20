@@ -57,6 +57,19 @@ pub(crate) async fn stop_game<R: Runtime>(app: AppHandle<R>, payload: Vec<u8>) -
     Ok(())
 }
 
+/// Toggle quit-to-library combo capture. While active, the native gamepad reader
+/// broadcasts held buttons on `quit-rebind:buttons` so the settings UI can record
+/// a new combo (see the config menus). No-op on platforms without the reader.
+#[command]
+#[instrument(skip_all)]
+pub(crate) async fn set_quit_rebind_active<R: Runtime>(
+    app: AppHandle<R>,
+    active: bool,
+) -> Result<()> {
+    app.launcher().set_rebind_active(active);
+    Ok(())
+}
+
 #[command]
 #[instrument(skip_all)]
 pub(crate) async fn get_game_play_status<R: Runtime>(

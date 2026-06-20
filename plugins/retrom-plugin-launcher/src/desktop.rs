@@ -42,6 +42,12 @@ pub struct Launcher<R: Runtime> {
     /// pad) is in the foreground.
     #[cfg_attr(not(windows), allow(dead_code))]
     game_active: Arc<AtomicBool>,
+    /// True while the settings UI is capturing a new quit-to-library combo. The
+    /// native gamepad reader (Windows) watches this and, while set, broadcasts
+    /// the held button union so the UI can capture chords (incl. the Guide
+    /// button the Gamepad API can't see). Toggled via `set_quit_rebind_active`.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    rebind_active: Arc<AtomicBool>,
 }
 
 impl<R: Runtime> Launcher<R> {
@@ -50,6 +56,7 @@ impl<R: Runtime> Launcher<R> {
             app_handle,
             child_processes: RwLock::new(HashMap::new()),
             game_active: Arc::new(AtomicBool::new(false)),
+            rebind_active: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -57,6 +64,18 @@ impl<R: Runtime> Launcher<R> {
     #[cfg(windows)]
     pub(crate) fn game_active_flag(&self) -> Arc<AtomicBool> {
         self.game_active.clone()
+    }
+
+    /// Shared "settings is capturing a combo" flag, for the native gamepad reader.
+    #[cfg(windows)]
+    pub(crate) fn rebind_active_flag(&self) -> Arc<AtomicBool> {
+        self.rebind_active.clone()
+    }
+
+    /// Toggle combo-capture mode (see [`Self::rebind_active_flag`]). Called by the
+    /// `set_quit_rebind_active` command when the user starts/stops a rebind.
+    pub fn set_rebind_active(&self, active: bool) {
+        self.rebind_active.store(active, Ordering::SeqCst);
     }
 
     #[instrument(skip_all)]

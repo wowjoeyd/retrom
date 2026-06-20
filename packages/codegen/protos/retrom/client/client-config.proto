@@ -38,6 +38,13 @@ message InterfaceConfig {
   // under fullscreen_config) so the fullscreen and standard settings menus bind
   // to the same value. Absent is treated as enabled (default on).
   optional bool quit_to_library_hotkey_enabled = 3;
+
+  // The button combo for the quit-to-library hotkey, as W3C standard-gamepad
+  // button indices (e.g. 4 = LB, 5 = RB, 9 = Menu). Rebindable from either
+  // settings menu, which both write this one shared value; the native gamepad
+  // reader detects exactly these buttons at runtime. Empty/unset means "use the
+  // built-in default" (LB + RB + Menu), so existing configs keep working.
+  repeated uint32 quit_to_library_hotkey_buttons = 4;
 }
 
 message RetromClientConfig {

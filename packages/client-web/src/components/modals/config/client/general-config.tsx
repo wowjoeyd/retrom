@@ -34,6 +34,7 @@ import {
   emulatorUserDataAutoSyncEnabled,
   setEmulatorUserDataAutoSyncEnabled,
 } from "@/components/emulator-user-data-auto-sync";
+import { QuitHotkeyRebind } from "./quit-hotkey-rebind";
 
 type ConfigSchema = z.infer<typeof configSchema>;
 const configSchema = z.object({
@@ -43,6 +44,10 @@ const configSchema = z.object({
       // Shared with the fullscreen settings menu (see menubar/config); lives at
       // the interface level so both menus bind to the same value.
       quitToLibraryHotkeyEnabled: z.boolean().optional(),
+      // The rebindable quit-to-library combo (standard-gamepad button indices),
+      // also shared with the fullscreen menu. Empty = use the default combo.
+      // Non-optional (proto3 repeated has no presence) — defaults to [].
+      quitToLibraryHotkeyButtons: z.array(z.number()),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
         startupMovieEnabled: z.boolean().optional(),
@@ -99,6 +104,8 @@ export function GeneralConfig() {
           fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
           quitToLibraryHotkeyEnabled:
             config?.interface?.quitToLibraryHotkeyEnabled ?? true,
+          quitToLibraryHotkeyButtons:
+            config?.interface?.quitToLibraryHotkeyButtons ?? [],
           fullscreenConfig: {
             ...config?.interface?.fullscreenConfig,
             windowedFullscreenMode:
@@ -448,12 +455,27 @@ export function GeneralConfig() {
                       </label>
 
                       <p className="text-sm text-muted-foreground max-w-[45ch]">
-                        While a game is running, hold LB + RB + Menu for ~1.5
+                        While a game is running, hold the combo below for ~1.5
                         seconds to close it and return to Retrom. Useful for
                         emulators with no in-game quit.
                       </p>
                     </div>
                   </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.quitToLibraryHotkeyButtons"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <QuitHotkeyRebind
+                    value={field.value ?? []}
+                    onChange={field.onChange}
+                  />
                 </FormControl>
               </FormItem>
             )}
