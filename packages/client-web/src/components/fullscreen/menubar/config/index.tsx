@@ -40,6 +40,9 @@ type FormSchema = z.infer<typeof formSchema>;
 const formSchema = z.object({
   interface: z.object({
     fullscreenByDefault: z.boolean(),
+    // Which focus cue(s) to show. Shared with the standard settings menu; lives
+    // at the interface level so both menus bind to the same value.
+    focusIndicator: z.enum(["BOTH", "RETICLE_ONLY", "RINGS_ONLY"]),
     // Shared with the standard settings menu (see general-config.tsx); lives at
     // the interface level, not under fullscreenConfig, so both menus bind to it.
     quitToLibraryHotkeyEnabled: z.boolean().optional(),
@@ -87,6 +90,7 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
     defaultValues: {
       interface: {
         fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+        focusIndicator: config?.interface?.focusIndicator ?? "BOTH",
         quitToLibraryHotkeyEnabled:
           config?.interface?.quitToLibraryHotkeyEnabled ?? true,
         quitToLibraryHotkeyButtons:
@@ -156,6 +160,7 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
             interface: {
               fullscreenByDefault:
                 config?.interface?.fullscreenByDefault ?? false,
+              focusIndicator: config?.interface?.focusIndicator ?? "BOTH",
               quitToLibraryHotkeyEnabled:
                 config?.interface?.quitToLibraryHotkeyEnabled ?? true,
               quitToLibraryHotkeyButtons:
@@ -412,6 +417,46 @@ function ConfigForm() {
                   value={"BACKGROUND"}
                 >
                   Background
+                </ConfigSelectItem>
+              </ConfigSelect>
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </PanelSection>
+
+      <PanelSection title="Focus Indicator">
+        <FormField
+          control={form.control}
+          name="interface.focusIndicator"
+          render={({ field }) => (
+            <FormItem>
+              <ConfigSelect
+                onValueChange={(value) => field.onChange(value)}
+                defaultValue={field.value}
+                triggerProps={{
+                  label: "Focus indicator",
+                  id: "config-focus-indicator",
+                }}
+              >
+                <ConfigSelectItem
+                  id="config-focus-indicator-BOTH"
+                  value="BOTH"
+                >
+                  Reticle + Rings
+                </ConfigSelectItem>
+                <ConfigSelectItem
+                  id="config-focus-indicator-RETICLE_ONLY"
+                  value="RETICLE_ONLY"
+                >
+                  Reticle only
+                </ConfigSelectItem>
+                <ConfigSelectItem
+                  id="config-focus-indicator-RINGS_ONLY"
+                  value="RINGS_ONLY"
+                >
+                  Rings only
                 </ConfigSelectItem>
               </ConfigSelect>
 

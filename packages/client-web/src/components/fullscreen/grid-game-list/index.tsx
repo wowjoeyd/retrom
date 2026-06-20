@@ -1895,7 +1895,9 @@ function GameListItem(props: {
         "transition-transform duration-200 ease-out will-change-transform",
         "focus-within:z-10 hover:z-10",
         "shadow-lg shadow-background relative cursor-pointer",
-        "rounded h-full w-full",
+        // Soft accent glow on focus, on this (non-clipped) outer wrapper so it
+        // isn't cut off by the cover image's overflow-hidden.
+        "rounded h-full w-full focus-within:shadow-[var(--fs-focus-glow)]",
       )}
     >
       <HotkeyLayer
@@ -2022,7 +2024,6 @@ function GameImage(props: {
         className={cn(
           "absolute inset-0 rounded",
           "bg-gradient-to-t from-background/95 via-background/30 to-transparent",
-          "ring-accent ring-inset group-focus-within:ring-[length:var(--fs-focus-ring-width)]",
           props.kind === "BACKGROUND" ? "text-lg py-2 px-4" : "text-2xl p-4",
           "flex flex-col justify-end font-black",
         )}

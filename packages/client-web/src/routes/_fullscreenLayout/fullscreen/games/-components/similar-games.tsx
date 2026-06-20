@@ -134,7 +134,7 @@ function SimilarGame(props: { gameId: number }) {
         ref={ref}
         tabIndex={-1}
         className={cn(
-          "focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0 focus:ring-ring min-w-[150px] max-w-[200px]",
+          "focus-hover:shadow-[var(--fs-focus-glow)] min-w-[150px] max-w-[200px]",
           "outline-none scale-95 transition-all duration-200 focus-hover:scale-100 cursor-pointer",
         )}
         onClick={() => goToGame()}

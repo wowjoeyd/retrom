@@ -19,7 +19,6 @@ import {
 import { Background } from "./-components/background";
 import { SoundtrackConsole } from "./-components/soundtrack-console";
 import { AchievementsChip } from "./-components/achievements-chip";
-import { DetailReticle } from "./-components/reticle";
 import {
   DetailTabs,
   DETAIL_TAB_KEYS,
@@ -196,8 +195,7 @@ const buttonStyles = cn(
   "relative h-16 w-auto rounded-xl px-8 text-2xl font-black uppercase tracking-wide text-white",
   "bg-[linear-gradient(135deg,var(--color-accent-text),var(--color-accent))]",
   "shadow-[0_0_34px_-6px_var(--color-accent)]",
-  "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
-  "transition-all focus-hover:-translate-y-0.5 focus-hover:brightness-110 focus-hover:shadow-[0_0_44px_-4px_var(--color-accent)]",
+  "transition-all focus-hover:-translate-y-0.5 focus-hover:brightness-110 focus-hover:shadow-[var(--fs-focus-glow)]",
   '[&_div[role="progressbar"]]:w-[6ch] [&_div[role="progressbar"]]:bg-primary-foreground',
   '[&_div[role="progressbar"]_>_*]:bg-accent',
 );
@@ -410,10 +408,6 @@ function Inner() {
         </ScrollArea>
         <ActionBar />
       </div>
-
-      {/* Signature focus reticle — tracks the real spatial focus across the
-          hero, tabs, content, actions panel, and media viewer. */}
-      <DetailReticle />
     </HotkeyLayer>
   );
 }

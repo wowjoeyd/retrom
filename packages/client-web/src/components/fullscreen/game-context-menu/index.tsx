@@ -802,7 +802,7 @@ function PlayRow(props: { onLaunch: () => void }) {
         game={game}
         className={cn(
           "mb-1 h-max w-full justify-start rounded-md px-4 py-3 text-base font-semibold",
-          "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
+          "focus-hover:shadow-[var(--fs-focus-glow)]",
         )}
       />
     </HotkeyLayer>

@@ -76,8 +76,8 @@ export function GameActions(props?: {
             className={cn(
               "grid size-16 shrink-0 place-items-center rounded-md p-0",
               "border border-border/60 bg-background/50 backdrop-blur-md",
-              "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
               "opacity-90 transition-all focus-hover:bg-accent focus-hover:opacity-100",
+              "focus-hover:shadow-[var(--fs-focus-glow)]",
             )}
           >
             <EllipsisVertical className="size-7" />

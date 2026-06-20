@@ -6,6 +6,14 @@
 @layer base {
   :root {
     --fs-focus-ring-width: 3px;
+    /* The fullscreen focus highlight, as a soft accent glow rather than a hard
+       ring: a crisp luminous edge for definition, then two blurred layers for
+       the glow + halo. Applied via `shadow-[var(--fs-focus-glow)]` on focus.
+       Set to `none` (see body.fs-rings-hidden) for the "reticle only" mode. */
+    --fs-focus-glow:
+      0 0 0 1.5px color-mix(in srgb, var(--color-accent-text) 75%, transparent),
+      0 0 15px 1px color-mix(in srgb, var(--color-accent-text) 50%, transparent),
+      0 0 36px 6px color-mix(in srgb, var(--color-accent) 32%, transparent);
   }
 
   * {
@@ -45,13 +53,13 @@
     border-color: var(--color-border, currentColor);
   }
 
-  /* While the fullscreen detail page (and its portaled panels/viewer) are
-     mounted, the signature reticle replaces per-element focus rings. Zeroing the
-     ring width collapses every `focus:ring-[length:var(--fs-focus-ring-width)]`
-     on the page without editing each focusable. Scoped to a body class so it
-     never affects the grid (a separate route) when detail is unmounted. */
-  body.fs-reticle-active {
+  /* "Reticle only" focus mode: collapse the per-element focus glow (and any
+     remaining ring width) so the reticle is the sole cue. Toggled by the
+     FullscreenReticle component, which is only mounted in fullscreen, so the
+     windowed UI keeps its highlight. */
+  body.fs-rings-hidden {
     --fs-focus-ring-width: 0px;
+    --fs-focus-glow: none;
   }
 }
 
@@ -106,10 +114,13 @@
     }
   }
 
-  /* Reticle focus visual (fullscreen detail page signature). Four corner
-     brackets that glide between focused elements. Each corner is a fixed-size
-     box translated to a corner of the focused rect — only `transform`/`opacity`
-     animate (never width/height), so it stays cheap on HTPC/handheld. */
+  /* Reticle focus visual: four corner brackets that frame the focused element.
+     Each corner is a fixed-size box translated to a corner of the focused rect.
+     The position (transform) is NOT transitioned — it tracks the element 1:1
+     every frame, exactly like the per-element ring highlights, so it never lags
+     or trails behind a moving/growing/scrolling target. Only opacity (show/hide)
+     and border-color (danger) animate, and only transform changes per frame, so
+     it stays cheap on HTPC/handheld. */
   .fs-reticle {
     position: fixed;
     inset: 0;
@@ -127,7 +138,6 @@
     opacity: 0;
     will-change: transform;
     transition:
-      transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 180ms ease,
       border-color 140ms ease;
   }

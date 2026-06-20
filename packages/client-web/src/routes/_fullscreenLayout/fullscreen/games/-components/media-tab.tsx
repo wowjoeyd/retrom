@@ -57,6 +57,7 @@ export function MediaTab() {
             tabIndex={-1}
             className={cn(
               "flex flex-col items-center justify-center gap-3 rounded-xl py-16 text-center outline-none",
+              "scroll-my-6",
               "border border-dashed border-border/60 bg-muted/10 text-muted-foreground",
               "transition-colors focus-hover:border-accent/60",
             )}
@@ -132,9 +133,12 @@ function MediaThumb(props: { url: string; idx: number; onOpen: () => void }) {
         onClick={onOpen}
         className={cn(
           "group relative aspect-video w-full overflow-hidden rounded-xl border border-border/60 bg-muted outline-none",
+          // Leave room above/below when scrolled into view so the focused thumb
+          // (its scale + glow) and the reticle's outset aren't clipped flush
+          // against the viewport edge by scrollIntoView({ block: "nearest" }).
+          "scroll-my-6",
           "scale-[0.98] transition-all duration-200 focus-hover:scale-100",
-          "focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-ring focus:ring-offset-0",
-          "focus-hover:border-accent/70 focus-hover:shadow-[0_0_28px_-6px_var(--color-accent)]",
+          "focus-hover:border-accent/70 focus-hover:shadow-[var(--fs-focus-glow)]",
         )}
       >
         {failed ? (

@@ -29,6 +29,13 @@ import { useForm } from "@retrom/ui/components/form";
 import { migrateInstallationDir } from "@retrom/plugin-installer";
 import { z } from "zod";
 import { RetromClientConfig } from "@retrom/codegen/retrom/client/client-config_pb";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@retrom/ui/components/select";
 import { RawMessage } from "@/utils/protos";
 import {
   emulatorUserDataAutoSyncEnabled,
@@ -90,6 +97,24 @@ export function GeneralConfig() {
     checkIsDesktop() &&
     isEmulatorPackageSyncEnabled() &&
     isEnhancedEmulatorUserDataEnabled();
+
+  // Focus indicator is shared with the fullscreen settings menu (one value at
+  // interface level). The main form here is typed against the proto *message*
+  // (numeric enums), but the store holds the JSON form (string enums), so this
+  // enum can't live in that form — apply it directly to the store on change,
+  // the same way the emulator auto-sync toggle above is handled.
+  const focusIndicator = config?.interface?.focusIndicator ?? "BOTH";
+  const setFocusIndicator = (
+    value: "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY",
+  ) => {
+    configStore.setState((s) => {
+      s.config = {
+        ...s.config,
+        interface: { ...s.config?.interface, focusIndicator: value },
+      };
+      return s;
+    });
+  };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -436,6 +461,37 @@ export function GeneralConfig() {
               </FormItem>
             )}
           />
+
+          {/* Not a form field (see setFocusIndicator note) — applied to the
+              store on change, so plain controls rather than Form* wrappers. */}
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="focus-indicator"
+              className="text-sm font-medium leading-none"
+            >
+              Focus indicator
+            </label>
+            <Select
+              value={focusIndicator}
+              onValueChange={(v) =>
+                setFocusIndicator(v as "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY")
+              }
+            >
+              <SelectTrigger id="focus-indicator">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BOTH">Reticle + Rings</SelectItem>
+                <SelectItem value="RETICLE_ONLY">Reticle only</SelectItem>
+                <SelectItem value="RINGS_ONLY">Rings only</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground max-w-[45ch]">
+              Which cue marks the focused item when navigating fullscreen with a
+              controller or keyboard: the corner-bracket reticle, the per-element
+              ring highlight, or both. Applies immediately.
+            </p>
+          </div>
 
           <FormField
             control={form.control}

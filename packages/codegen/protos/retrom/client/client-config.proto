@@ -10,6 +10,15 @@ message InterfaceConfig {
     BACKGROUND = 1;
   }
 
+  // Which focus cue(s) the fullscreen UI shows when navigating: the
+  // corner-bracket reticle, the per-element ring highlight, or both. BOTH (the
+  // proto3 default) preserves the existing look.
+  enum FocusIndicator {
+    BOTH = 0;
+    RETICLE_ONLY = 1;
+    RINGS_ONLY = 2;
+  }
+
   message GridListConfig {
     int32 columns = 1;
     int32 gap = 2;
@@ -45,6 +54,13 @@ message InterfaceConfig {
   // reader detects exactly these buttons at runtime. Empty/unset means "use the
   // built-in default" (LB + RB + Menu), so existing configs keep working.
   repeated uint32 quit_to_library_hotkey_buttons = 4;
+
+  // Which focus cue(s) to show in the fullscreen UI. Lives at the interface
+  // level (NOT under fullscreen_config) so the fullscreen and standard settings
+  // menus bind to the same value. Optional (explicit presence) so it stays
+  // optional in the generated message type; absent is treated as BOTH, which
+  // keeps the current behavior.
+  optional FocusIndicator focus_indicator = 5;
 }
 
 message RetromClientConfig {

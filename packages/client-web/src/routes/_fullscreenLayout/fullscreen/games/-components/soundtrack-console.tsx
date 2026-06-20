@@ -445,7 +445,7 @@ function Transport(props: {
 
 const TRANSPORT_BOX = cn(
   "grid size-11 place-items-center rounded-lg border outline-none transition-all",
-  "ring-ring focus:ring-[length:var(--fs-focus-ring-width)] focus:ring-offset-0",
+  "focus-hover:shadow-[var(--fs-focus-glow)]",
 );
 
 function PlayPauseButton(props: { playing: boolean; onActivate: () => void }) {
@@ -477,7 +477,7 @@ function PlayPauseButton(props: { playing: boolean; onActivate: () => void }) {
         className={cn(
           TRANSPORT_BOX,
           "border-accent/60 bg-accent/15 text-accent-text",
-          "focus-hover:bg-accent focus-hover:text-accent-foreground focus-hover:shadow-[0_0_18px_-4px_var(--color-accent)]",
+          "focus-hover:bg-accent focus-hover:text-accent-foreground",
         )}
       >
         {playing ? (

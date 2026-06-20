@@ -39,6 +39,7 @@ import { Background, Scene } from "../components/fullscreen/scene";
 import { ActionBarProvider } from "@/providers/fullscreen/action-bar-context";
 import { StartupMovie } from "../components/fullscreen/startup-movie";
 import { FullscreenCursorManager } from "../components/fullscreen/cursor-manager";
+import { FullscreenReticle } from "../components/fullscreen/reticle";
 
 declare global {
   export interface HotkeyZones {
@@ -301,6 +302,11 @@ function FullscreenLayout() {
               <InstallOnPlayModal />
               <StartupMovie />
               <FullscreenCursorManager />
+              {/* Global focus reticle — frames the spatially-focused element
+                  across the grid, panels, guide/context menus, and detail page.
+                  Mounted here (not per-route) so it's the one consistent cue and
+                  never affects the windowed UI. */}
+              <FullscreenReticle />
             </ActionBarProvider>
           </GroupContextProvider>
         </GamepadProvider>

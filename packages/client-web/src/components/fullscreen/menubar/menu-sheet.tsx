@@ -10,8 +10,12 @@ import { Config } from "./config";
 import { HotkeyButton } from "../hotkey-button";
 import { Library } from "./library";
 import { HotkeyLayer } from "@/providers/hotkeys/layers";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "@/providers/hotkeys";
+import {
+  getCurrentFocusKey,
+  setFocus,
+} from "@noriginmedia/norigin-spatial-navigation";
 import { FocusContainer } from "../focus-container";
 import { ScrollArea } from "@retrom/ui/components/scroll-area";
 import { Menu } from "lucide-react";
@@ -40,10 +44,20 @@ export const PANEL_CONTENT_CLASS_RIGHT =
 
 export function MenuSheet(props: JSX.IntrinsicElements["button"]) {
   const [open, setOpen] = useState(false);
+  // The spatial-focus key that was focused before the menu opened (e.g. a grid
+  // card or a detail control), so we can restore focus there on close instead
+  // of orphaning it — which otherwise leaves the reticle floating at the menu's
+  // last item. Captured at open time, before focus moves into the panel.
+  const prevFocusKeyRef = useRef<string | null>(null);
+
+  const changeOpen = (next: boolean) => {
+    if (next && !open) prevFocusKeyRef.current = getCurrentFocusKey() ?? null;
+    setOpen(next);
+  };
 
   useHotkeys({
     handlers: {
-      MENU: { handler: () => setOpen(true), zone: "menuBar" },
+      MENU: { handler: () => changeOpen(true), zone: "menuBar" },
     },
   });
 
@@ -62,7 +76,7 @@ export function MenuSheet(props: JSX.IntrinsicElements["button"]) {
   }, [open]);
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={changeOpen}>
       <SheetTrigger asChild>
         <HotkeyButton {...props} hotkey="MENU">
           menu
@@ -76,6 +90,11 @@ export function MenuSheet(props: JSX.IntrinsicElements["button"]) {
           onCloseAutoFocus={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            // Return spatial focus to wherever it was before the menu opened
+            // (grid card, detail control, …) so the reticle follows it back
+            // instead of floating at the closed menu's last item.
+            const prev = prevFocusKeyRef.current;
+            if (prev) setFocus(prev);
           }}
         >
           <HotkeyLayer
