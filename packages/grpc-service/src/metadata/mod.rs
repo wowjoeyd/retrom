@@ -50,6 +50,7 @@ use tracing::{error, Instrument, Level};
 use walkdir::WalkDir;
 
 use super::jobs::job_manager::{JobManager, JobOptions};
+use crate::library::metadata_handlers::enrich_game_igdb_genres;
 
 /// Remove stale cached images for a game's metadata while PRESERVING its
 /// extracted theme audio tracks.
@@ -966,6 +967,7 @@ impl MetadataService for MetadataServiceHandlers {
         let force_refresh = request.force_refresh.unwrap_or(false);
 
         let steam_provider = self.steam_provider.clone();
+        let igdb_provider = self.igdb_client.clone();
         let pool = self.db_pool.clone();
 
         let game_ids = selectors.iter().map(|s| s.game_id).collect::<Vec<_>>();
@@ -1007,6 +1009,7 @@ impl MetadataService for MetadataServiceHandlers {
                 let pool = pool.clone();
                 let steam_games = steam_games.clone();
                 let steam_provider = steam_provider.clone();
+                let igdb_provider = igdb_provider.clone();
 
                 async move {
                     let steam_game = steam_games
@@ -1072,6 +1075,23 @@ impl MetadataService for MetadataServiceHandlers {
                                     .await
                                     .map_err(|e| Status::internal(e.to_string()))?;
                             }
+                        }
+
+                        // The Steam store gives no genres in the library's IGDB
+                        // taxonomy, so a forced refresh additionally runs the same
+                        // IGDB enrichment the bulk library job uses — matching the
+                        // game to IGDB by name and populating genres + similar
+                        // games. Without this, refreshing a single Steam game left
+                        // it with zero genres and the Similar Games tab could only
+                        // fall back to "same platform".
+                        if let Err(why) =
+                            enrich_game_igdb_genres(&igdb_provider, &pool, game.id).await
+                        {
+                            tracing::warn!(
+                                "Failed to enrich IGDB genres for Steam game {}: {}",
+                                game.id,
+                                why
+                            );
                         }
                     } else {
                         // Lightweight sync: playtime + last_played only.

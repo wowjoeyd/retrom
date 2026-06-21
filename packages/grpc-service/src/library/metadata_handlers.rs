@@ -11,14 +11,14 @@ use retrom_codegen::retrom::{
     igdb_filters::{FilterOperator, FilterValue},
     igdb_game_search_query, igdb_platform_search_query, GameGenre, GameMetadata,
     GetIgdbSearchRequest, IgdbFields, IgdbFilters, IgdbGameSearchQuery, IgdbPlatformSearchQuery,
-    NewGameGenre, NewGameGenreMap, NewSimilarGameMap, PlatformMetadata,
+    IgdbSearch, NewGameGenre, NewGameGenreMap, NewSimilarGameMap, PlatformMetadata,
     UpdateLibraryMetadataResponse, UpdatedGameMetadata,
 };
 use retrom_codegen::timestamp::Timestamp;
-use retrom_db::schema;
+use retrom_db::{schema, Pool};
 use retrom_service_common::media_cache::cacheable_media::CacheableMetadata;
 use retrom_service_common::metadata_providers::{
-    igdb::provider::IgdbSearchData,
+    igdb::provider::{IGDBProvider, IgdbSearchData},
     soundtrack::{compress_theme_audio, find_theme_audio_file, set_youtube_cookies_path},
     GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
 };
@@ -29,6 +29,286 @@ use std::{
     sync::Arc,
 };
 use tracing::instrument;
+
+/// Enrich a single game with IGDB genres + similar-game maps, in the one IGDB
+/// genre taxonomy used across the whole library. Emulator ROMs are matched to
+/// IGDB when scraped and already carry an igdb_id, so they're looked up by id.
+/// Steam games are only ever touched by the Steam path (no igdb_id, no genres),
+/// so they're matched to IGDB by name and the resolved id is persisted — their
+/// display metadata (name/images) is left untouched. Idempotent: every insert is
+/// on-conflict-do-nothing, so it's safe to re-run on each refresh.
+///
+/// Shared by the bulk library metadata job and the single-game Steam refresh so
+/// both populate genres from the same source.
+#[instrument(skip(igdb_provider, db_pool))]
+pub(crate) async fn enrich_game_igdb_genres(
+    igdb_provider: &IGDBProvider,
+    db_pool: &Pool,
+    game_id: i32,
+) -> Result<(), String> {
+    let mut conn = match db_pool.get().await {
+        Ok(conn) => conn,
+        Err(why) => {
+            return Err(why.to_string());
+        }
+    };
+
+    let game_meta: GameMetadata = match schema::game_metadata::table
+        .filter(schema::game_metadata::game_id.eq(game_id))
+        .first::<retrom::GameMetadata>(&mut conn)
+        .await
+    {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            tracing::debug!("Game does not have metadata");
+            return Ok(());
+        }
+    };
+
+    // don't hold the db connection while we fetch metadata, as we are likely
+    // to be rate limited
+    drop(conn);
+
+    // The IGDB game this library entry maps to. Emulator ROMs are matched to
+    // IGDB when their metadata is scraped, so they already carry an igdb_id and
+    // we look it up directly. Steam games are enriched only by the Steam path
+    // and have NO igdb_id, so genre / similar-game enrichment used to skip them
+    // entirely (leaving them with zero genres). Instead, match those against
+    // IGDB by name — reusing the very same IGDB genres + similar games the rest
+    // of the library uses, so the genre taxonomy stays unified.
+    let fields = IgdbFields {
+        selector: Some(Selector::Include(IncludeFields {
+            value: [
+                "genres.*",
+                "similar_games.id",
+                "franchise.games.id",
+                "franchises.games.id",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        })),
+    }
+    .into();
+
+    let query = match game_meta.igdb_id {
+        Some(igdb_id) => {
+            let mut filter_map = HashMap::<String, FilterValue>::new();
+            filter_map.insert(
+                "id".to_string(),
+                FilterValue {
+                    value: igdb_id.to_string(),
+                    operator: i32::from(FilterOperator::Equal).into(),
+                },
+            );
+
+            GetIgdbSearchRequest {
+                search_type: IgdbSearchType::Game.into(),
+                fields,
+                filters: IgdbFilters {
+                    filters: filter_map,
+                }
+                .into(),
+                ..Default::default()
+            }
+        }
+        None => {
+            let name = match game_meta.name.as_deref() {
+                Some(name) if !name.is_empty() => name.to_string(),
+                _ => {
+                    tracing::debug!("Game has no IGDB id or name to enrich genres from");
+                    return Ok(());
+                }
+            };
+
+            GetIgdbSearchRequest {
+                search_type: IgdbSearchType::Game.into(),
+                search: Some(IgdbSearch { value: name }),
+                fields,
+                ..Default::default()
+            }
+        }
+    };
+
+    let extra_metadata = match igdb_provider.search_metadata(query).await {
+        Some(IgdbSearchData::Game(matches)) => matches,
+        _ => {
+            return Ok(());
+        }
+    };
+
+    // An id lookup returns the single exact game. A name search (the Steam path)
+    // returns relevance-ordered candidates; keep only the best (first) match,
+    // and backfill its IGDB id onto the row so subsequent refreshes take the
+    // fast id path and so this game can itself be matched as another game's
+    // "similar game". The existing (Steam) display metadata — name, images, etc
+    // — is left untouched; only the id is written.
+    let igdb_games: Vec<_> = if game_meta.igdb_id.is_some() {
+        extra_metadata.games
+    } else {
+        let best_match = match extra_metadata.games.into_iter().next() {
+            Some(best_match) => best_match,
+            None => return Ok(()),
+        };
+
+        if let Some(resolved_id) = best_match.id.to_i64() {
+            let mut conn = match db_pool.get().await {
+                Ok(conn) => conn,
+                Err(why) => {
+                    return Err(why.to_string());
+                }
+            };
+
+            if let Err(why) = diesel::update(schema::game_metadata::table)
+                .filter(schema::game_metadata::game_id.eq(game_meta.game_id))
+                .set(schema::game_metadata::igdb_id.eq(Some(resolved_id)))
+                .execute(&mut conn)
+                .await
+            {
+                tracing::warn!(
+                    "Failed to backfill IGDB id for game {}: {}",
+                    game_meta.game_id,
+                    why
+                );
+            }
+        }
+
+        vec![best_match]
+    };
+
+    let mut similar_game_ids = HashSet::new();
+
+    igdb_games.iter().for_each(|game| {
+        game.similar_games.iter().for_each(|game| {
+            similar_game_ids.insert(game.id);
+        });
+
+        if let Some(franchise) = game.franchise.as_ref() {
+            franchise.games.iter().for_each(|game| {
+                similar_game_ids.insert(game.id);
+            });
+        }
+
+        game.franchises.iter().for_each(|franchise| {
+            franchise.games.iter().for_each(|game| {
+                similar_game_ids.insert(game.id);
+            });
+        });
+    });
+
+    let mut conn = match db_pool.get().await {
+        Ok(conn) => conn,
+        Err(why) => {
+            return Err(why.to_string());
+        }
+    };
+
+    let similar_game_metas = match schema::game_metadata::table
+        .filter(
+            schema::game_metadata::igdb_id.eq_any(similar_game_ids.iter().map(|id| id.to_i64())),
+        )
+        .load::<retrom::GameMetadata>(&mut conn)
+        .await
+    {
+        Ok(metas) => metas,
+        Err(why) => {
+            tracing::error!("Failed to load similar game metadata: {}", why);
+            return Err(why.to_string());
+        }
+    };
+
+    drop(conn);
+
+    let new_similar_game_maps = similar_game_ids
+        .into_iter()
+        .filter_map(|id| {
+            let similar_game_id = match similar_game_metas
+                .iter()
+                .find(|metadata| metadata.igdb_id == id.to_i64())
+                .map(|metadata| metadata.game_id)
+            {
+                Some(id) => id,
+                None => return None,
+            };
+
+            if similar_game_id == game_meta.game_id {
+                return None;
+            }
+
+            Some(NewSimilarGameMap {
+                game_id: game_meta.game_id,
+                similar_game_id,
+                ..Default::default()
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let new_genres = igdb_games
+        .iter()
+        .flat_map(|igdb_game| {
+            igdb_game.genres.iter().map(|genre| NewGameGenre {
+                slug: genre.slug.clone(),
+                name: genre.name.clone(),
+                ..Default::default()
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut conn = match db_pool.get().await {
+        Ok(conn) => conn,
+        Err(why) => {
+            return Err(why.to_string());
+        }
+    };
+
+    if let Err(why) = diesel::insert_into(schema::similar_game_maps::table)
+        .values(&new_similar_game_maps)
+        .on_conflict_do_nothing()
+        .execute(&mut conn)
+        .await
+    {
+        tracing::error!("Failed to insert similar games: {}", why);
+    }
+
+    if let Err(why) = diesel::insert_into(schema::game_genres::table)
+        .values(&new_genres)
+        .on_conflict_do_nothing()
+        .execute(&mut conn)
+        .await
+    {
+        tracing::error!("Failed to insert genres: {}", why);
+    }
+
+    let genres: Vec<GameGenre> = schema::game_genres::table
+        .filter(schema::game_genres::slug.eq_any(new_genres.iter().map(|genre| &genre.slug)))
+        .load(&mut conn)
+        .await
+        .unwrap_or_default();
+
+    let new_genre_maps = genres
+        .into_iter()
+        .map(|genre| NewGameGenreMap {
+            game_id: game_meta.game_id,
+            genre_id: genre.id,
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+
+    if let Err(why) = diesel::insert_into(schema::game_genre_maps::table)
+        .values(&new_genre_maps)
+        .on_conflict_do_nothing()
+        .execute(&mut conn)
+        .await
+    {
+        tracing::error!("Failed to insert genre maps: {}", why);
+    }
+
+    drop(conn);
+
+    tracing::debug!("Extra metadata task completed");
+
+    Ok(())
+}
 
 #[instrument(skip(state))]
 pub async fn update_metadata(
@@ -254,226 +534,28 @@ pub async fn update_metadata(
         })
         .collect();
 
+    // Genre / similar-game enrichment must also cover Steam games. They are
+    // third_party rows (filtered out of `games` above) and are otherwise only
+    // touched by the Steam path, which writes no genres and no igdb_id — so
+    // without this they would never receive genres and the Similar Games tab
+    // could only ever fall back to "same platform" for them. Enrich them through
+    // the SAME pipeline as emulator games (which matches id-less rows to IGDB by
+    // name), keeping a single unified genre taxonomy across the whole library.
+    let steam_games_to_enrich: Vec<retrom::Game> = schema::games::table
+        .filter(schema::games::third_party.eq(true))
+        .filter(schema::games::steam_app_id.is_not_null())
+        .load(&mut conn)
+        .await
+        .unwrap_or_default();
+
     let extra_metadata_tasks = games
         .into_iter()
+        .chain(steam_games_to_enrich)
         .map(|game| {
             let igdb_provider = state.igdb_client.clone();
             let db_pool = db_pool.clone();
 
-            async move {
-                let mut conn = match db_pool.get().await {
-                    Ok(conn) => conn,
-                    Err(why) => {
-                        return Err(why.to_string());
-                    }
-                };
-
-                let game_meta: GameMetadata = match schema::game_metadata::table
-                    .filter(schema::game_metadata::game_id.eq(game.id))
-                    .first::<retrom::GameMetadata>(&mut conn)
-                    .await
-                {
-                    Ok(metadata) => metadata,
-                    Err(_) => {
-                        tracing::debug!("Game does not have metadata");
-                        return Ok(());
-                    }
-                };
-
-                // don't hold the db connection while we fetch metadata, as we are likely
-                // to be rate limited
-                drop(conn);
-
-                let game_igdb_id = match game_meta.igdb_id {
-                    Some(id) => id,
-                    None => {
-                        tracing::debug!("Game does not have an IGDB ID");
-                        return Ok(());
-                    }
-                };
-
-                let mut filter_map = HashMap::<String, FilterValue>::new();
-
-                filter_map.insert(
-                    "id".to_string(),
-                    FilterValue {
-                        value: game_igdb_id.to_string(),
-                        operator: i32::from(FilterOperator::Equal).into(),
-                    },
-                );
-
-                let filters = IgdbFilters {
-                    filters: filter_map,
-                }
-                .into();
-
-                let fields = IgdbFields {
-                    selector: Some(Selector::Include(IncludeFields {
-                        value: [
-                            "genres.*",
-                            "similar_games.id",
-                            "franchise.games.id",
-                            "franchises.games.id",
-                        ]
-                        .into_iter()
-                        .map(String::from)
-                        .collect(),
-                    })),
-                }
-                .into();
-
-                let query = GetIgdbSearchRequest {
-                    search_type: IgdbSearchType::Game.into(),
-                    fields,
-                    filters,
-                    ..Default::default()
-                };
-
-                let extra_metadata = match igdb_provider.search_metadata(query).await {
-                    Some(IgdbSearchData::Game(matches)) => matches,
-                    _ => {
-                        return Ok(());
-                    }
-                };
-
-                let mut similar_game_ids = HashSet::new();
-
-                extra_metadata.games.iter().for_each(|game| {
-                    game.similar_games.iter().for_each(|game| {
-                        similar_game_ids.insert(game.id);
-                    });
-
-                    if let Some(franchise) = game.franchise.as_ref() {
-                        franchise.games.iter().for_each(|game| {
-                            similar_game_ids.insert(game.id);
-                        });
-                    }
-
-                    game.franchises.iter().for_each(|franchise| {
-                        franchise.games.iter().for_each(|game| {
-                            similar_game_ids.insert(game.id);
-                        });
-                    });
-                });
-
-                let mut conn = match db_pool.get().await {
-                    Ok(conn) => conn,
-                    Err(why) => {
-                        return Err(why.to_string());
-                    }
-                };
-
-                let similar_game_metas = match schema::game_metadata::table
-                    .filter(
-                        schema::game_metadata::igdb_id
-                            .eq_any(similar_game_ids.iter().map(|id| id.to_i64())),
-                    )
-                    .load::<retrom::GameMetadata>(&mut conn)
-                    .await
-                {
-                    Ok(metas) => metas,
-                    Err(why) => {
-                        tracing::error!("Failed to load similar game metadata: {}", why);
-                        return Err(why.to_string());
-                    }
-                };
-
-                drop(conn);
-
-                let new_similar_game_maps = similar_game_ids
-                    .into_iter()
-                    .filter_map(|id| {
-                        let similar_game_id = match similar_game_metas
-                            .iter()
-                            .find(|metadata| metadata.igdb_id == id.to_i64())
-                            .map(|metadata| metadata.game_id)
-                        {
-                            Some(id) => id,
-                            None => return None,
-                        };
-
-                        if similar_game_id == game_meta.game_id {
-                            return None;
-                        }
-
-                        Some(NewSimilarGameMap {
-                            game_id: game_meta.game_id,
-                            similar_game_id,
-                            ..Default::default()
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                let new_genres = extra_metadata
-                    .games
-                    .iter()
-                    .flat_map(|igdb_game| {
-                        igdb_game.genres.iter().map(|genre| NewGameGenre {
-                            slug: genre.slug.clone(),
-                            name: genre.name.clone(),
-                            ..Default::default()
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                let mut conn = match db_pool.get().await {
-                    Ok(conn) => conn,
-                    Err(why) => {
-                        return Err(why.to_string());
-                    }
-                };
-
-                if let Err(why) = diesel::insert_into(schema::similar_game_maps::table)
-                    .values(&new_similar_game_maps)
-                    .on_conflict_do_nothing()
-                    .execute(&mut conn)
-                    .await
-                {
-                    tracing::error!("Failed to insert similar games: {}", why);
-                }
-
-                if let Err(why) = diesel::insert_into(schema::game_genres::table)
-                    .values(&new_genres)
-                    .on_conflict_do_nothing()
-                    .execute(&mut conn)
-                    .await
-                {
-                    tracing::error!("Failed to insert genres: {}", why);
-                }
-
-                let genres: Vec<GameGenre> = schema::game_genres::table
-                    .filter(
-                        schema::game_genres::slug
-                            .eq_any(new_genres.iter().map(|genre| &genre.slug)),
-                    )
-                    .load(&mut conn)
-                    .await
-                    .unwrap_or_default();
-
-                let new_genre_maps = genres
-                    .into_iter()
-                    .map(|genre| NewGameGenreMap {
-                        game_id: game_meta.game_id,
-                        genre_id: genre.id,
-                        ..Default::default()
-                    })
-                    .collect::<Vec<_>>();
-
-                if let Err(why) = diesel::insert_into(schema::game_genre_maps::table)
-                    .values(&new_genre_maps)
-                    .on_conflict_do_nothing()
-                    .execute(&mut conn)
-                    .await
-                {
-                    tracing::error!("Failed to insert genre maps: {}", why);
-                }
-
-                drop(conn);
-
-                tracing::debug!("Extra metadata task completed");
-
-                Ok(())
-            }
+            async move { enrich_game_igdb_genres(&igdb_provider, &db_pool, game.id).await }
         })
         .collect();
 
