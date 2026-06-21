@@ -26,7 +26,8 @@
       "dependsOn": ["vite:build"]
     },
     "tsc:typecheck": {
-      "dependsOn": ["generate"]
+      "dependsOn": ["generate"],
+      "cache": false
     },
     "typecheck": {
       "dependsOn": ["tsc:typecheck"]
