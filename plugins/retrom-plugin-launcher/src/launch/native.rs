@@ -314,19 +314,28 @@ impl<R: Runtime> LaunchAdapter<R> for NativeAdapter {
             }
         };
 
-        // Return to the library immediately, then finish bookkeeping — save sync
-        // can take a moment when uploading to the cloud, and the player shouldn't
-        // be left staring at the desktop in the meantime.
+        // Hand control back to the player FIRST, THEN sync saves. mark_game_as_stopped
+        // clears the `game_active` flag (so the native gamepad reader resumes driving
+        // the UI) and emits game-stopped; save sync is a network/IPC call that can
+        // stall or hang. Running it BEFORE marking stopped — the old order — left
+        // `game_active` set for the whole sync, so a controller-only Big Picture
+        // session was stranded (controller dead, restart-only) until the upload
+        // finished or timed out. This is emulator-only because only the native path
+        // syncs saves. Tracing each phase so a hang here is pinpointed in retrom.log.
+        info!("Game {game_id} teardown: reclaiming foreground");
         app.launcher().foreground_main_window();
-
-        sync_saves().await;
 
         // Always mark the game as stopped, even if a teardown step above errored,
         // so a failed teardown can never leave Retrom wedged believing a game is
         // running.
+        info!("Game {game_id} teardown: marking stopped");
         if let Err(why) = app.launcher().mark_game_as_stopped(game_id).await {
             warn!("Failed to mark game {game_id} as stopped: {why}");
         }
+
+        info!("Game {game_id} teardown: syncing saves");
+        sync_saves().await;
+        info!("Game {game_id} teardown: complete");
 
         Ok(())
     }

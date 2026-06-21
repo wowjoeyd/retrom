@@ -25,8 +25,16 @@ export function RefreshMetadataAction() {
           ? "Re-fetch this game's details from Steam"
           : "Re-scrape this game's details from IGDB"
       }
-      disabled={isPending}
-      onClick={() => refresh({ game, gameMetadata, platformMetadata })}
+      // NOT `disabled` while pending: a disabled <button> drops DOM focus to
+      // <body>, which moves it outside this popup's focus boundary. B would then
+      // bubble past the popup's BACK handler to the detail page's document-level
+      // back-to-grid handler, exiting the whole page instead of closing the
+      // popup. Keep the button focusable (spinner + aria-busy show progress) and
+      // just guard against re-triggering while the refresh is in flight.
+      aria-busy={isPending}
+      onClick={() => {
+        if (!isPending) refresh({ game, gameMetadata, platformMetadata });
+      }}
       handlers={{
         ACCEPT: { actionBar: { label: "Refresh", position: "right" } },
       }}

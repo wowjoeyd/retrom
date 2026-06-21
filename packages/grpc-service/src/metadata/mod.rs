@@ -51,6 +51,51 @@ use walkdir::WalkDir;
 
 use super::jobs::job_manager::{JobManager, JobOptions};
 
+/// Remove stale cached images for a game's metadata while PRESERVING its
+/// extracted theme audio tracks.
+///
+/// `GameMetadata::clean_cache()` deletes the entire `media/games/<id>` directory,
+/// which also wipes the `theme.*` playlist files — so a metadata refresh would
+/// re-extract the theme from YouTube on every run (slow + glitchy, and the theme
+/// briefly vanishes). Theme audio is server-generated soundtrack data, independent
+/// of the scraped IGDB/Steam image fields, so a refresh must leave it untouched —
+/// the same reasoning behind the narrow `update_game_playtime` RPC, which avoids
+/// this cache path entirely. Changed images still refresh on their own:
+/// `cache_media_file` overwrites a cached file whenever its remote URL changes.
+async fn clean_image_cache_preserving_theme(cache_dir: &std::path::Path) {
+    if !cache_dir.exists() {
+        return;
+    }
+
+    let preserve: std::collections::HashSet<std::path::PathBuf> =
+        find_theme_audio_files(cache_dir).into_iter().collect();
+
+    let mut entries = match tokio::fs::read_dir(cache_dir).await {
+        Ok(entries) => entries,
+        Err(why) => {
+            error!("Failed to read cache dir {cache_dir:?} to clean: {why}");
+            return;
+        }
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if preserve.contains(&path) {
+            continue;
+        }
+
+        let removed = if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+            tokio::fs::remove_dir_all(&path).await
+        } else {
+            tokio::fs::remove_file(&path).await
+        };
+
+        if let Err(why) = removed {
+            tracing::warn!("Failed to remove stale cached media {path:?}: {why}");
+        }
+    }
+}
+
 pub struct MetadataServiceHandlers {
     db_pool: Arc<Pool>,
     igdb_client: Arc<IGDBProvider>,
@@ -507,9 +552,12 @@ impl MetadataService for MetadataServiceHandlers {
             let job_manager = self.job_manager.clone();
             let cache = self.media_cache.clone();
 
-            if let Err(e) = metadata.clean_cache().await {
-                error!("Failed to clean cache for metadata: {}", e);
-                return;
+            // Clear stale cached images so changed cover/background/screenshots
+            // re-download, but PRESERVE the extracted theme audio — a blanket
+            // clean_cache() nukes the whole game cache dir (theme.* included) and
+            // forces a slow re-extraction on every refresh.
+            if let Some(cache_dir) = metadata.get_cache_dir() {
+                clean_image_cache_preserving_theme(&cache_dir).await;
             }
 
             let opts = metadata.get_cacheable_media_opts();

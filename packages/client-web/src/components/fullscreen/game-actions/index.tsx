@@ -147,7 +147,11 @@ export function GameActions(props?: {
                   <UninstallGameAction />
                 </DesktopOnly>
 
-                <DownloadMusicAction />
+                {/* restoreFocusKey returns focus to this trigger when the
+                    sub-sheet closes, so the reticle/BACK land back in this menu
+                    instead of on <body> (which would let the next BACK escape to
+                    the grid). */}
+                <DownloadMusicAction restoreFocusKey="download-music-action-open" />
 
                 <RefreshMetadataAction />
 

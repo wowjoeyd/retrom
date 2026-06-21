@@ -200,11 +200,24 @@ impl<R: Runtime> Launcher<R> {
             warn!("Game {game_id} is not running");
         }
 
+        // Tell the UI the game stopped RIGHT AWAY — before the playtime RPC below.
+        // `game_active` is already cleared (above), so emitting here hands the
+        // controller back to the library (the frontend gamepad provider clears its
+        // own running-game guard on this event) without waiting on a network call.
+        self.app_handle.emit(
+            "game-stopped",
+            GamePlayStatusUpdate {
+                game_id,
+                play_status: PlayStatus::NotPlaying.into(),
+            },
+        )?;
+
         // Record only what a play session needs — minutes played + last-played —
         // via the narrow UpdateGamePlaytime RPC. Going through update_game_metadata
         // here would make the server wipe and re-cache ALL of the game's media and
         // re-extract its theme audio on every exit, which is pure waste for a
-        // playtime bump.
+        // playtime bump. Done LAST so a slow/unreachable server can't delay the
+        // controller hand-back above.
         if let Some(child) = child {
             let session_minutes = std::time::SystemTime::now()
                 .duration_since(child.start_time)
@@ -226,28 +239,35 @@ impl<R: Runtime> Launcher<R> {
             }
         }
 
-        self.app_handle.emit(
-            "game-stopped",
-            GamePlayStatusUpdate {
-                game_id,
-                play_status: PlayStatus::NotPlaying.into(),
-            },
-        )?;
-
+        info!("Game {game_id} marked stopped");
         Ok(())
     }
 
     #[instrument(skip_all)]
     pub async fn stop_game(&self, game_id: GameId) -> crate::Result<()> {
-        let all_processes = self.child_processes.read().await;
-        let game = all_processes.get(&game_id);
+        // Clone the stop-signal sender out from under the lock, then release the
+        // child_processes read lock BEFORE sending. Holding that read lock across
+        // the channel send (an await) can deadlock against mark_game_as_stopped's
+        // write().await: a redundant/late stop whose bounded channel is already
+        // full would block the send while still holding the read lock, and the
+        // exit task — the channel's only consumer — would then wait forever for
+        // the write lock (and, since it never clears game_active, the native
+        // gamepad reader keeps suppressing input → the UI freezes, restart-only).
+        let sender = {
+            let processes = self.child_processes.read().await;
+            processes.get(&game_id).map(|game| game.send.clone())
+        };
 
         info!("Stopping game {game_id}");
 
-        if let Some(game) = game {
-            game.send.lock().await.send(()).await?;
+        if let Some(sender) = sender {
+            // One queued stop signal is all the teardown needs. If one is already
+            // pending (channel full) or the game already exited (channel closed),
+            // try_send drops it harmlessly instead of blocking — so a re-entrant
+            // stop can never wedge the exit path.
+            let _ = sender.lock().await.try_send(());
 
-            info!("Game {game_id} stopped");
+            info!("Game {game_id} stop signal sent");
         }
 
         Ok(())

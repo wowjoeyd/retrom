@@ -19,6 +19,16 @@ use tauri::{Runtime, WebviewWindow};
 /// reclaiming the foreground is now just a nicety (mainly so emulators visibly
 /// return, and for keyboard/mouse focus).
 ///
+/// For the same reason it uses `ShowWindowAsync` rather than `ShowWindow`. Plain
+/// `ShowWindow` on a window owned by another thread is *synchronous*: it
+/// `SendMessage`s WM_WINDOWPOSCHANGING/WM_SHOWWINDOW to the owning thread and
+/// blocks until that thread pumps. When the target is another process's window
+/// whose thread isn't pumping (a fullscreen emulator, or a game mid-launch /
+/// mid-teardown), that blocks the *caller* indefinitely — and this runs on the UI
+/// thread when foregrounding a launched game (see `window::foreground_game`),
+/// which is exactly the "not responding on game exit" freeze. `ShowWindowAsync`
+/// only POSTs the request, so it always returns promptly.
+///
 /// We lower the foreground-lock timeout first (no `SPIF_SENDCHANGE`, so no
 /// WM_SETTINGCHANGE broadcast) so a plain `SetForegroundWindow` has the best
 /// chance of being honored when it legitimately can be. Every call here returns
@@ -31,7 +41,7 @@ pub(crate) fn raise_hwnd(hwnd: isize) -> bool {
     use windows_sys::Win32::Foundation::HWND;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SetActiveWindow, SetFocus};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsIconic, SetForegroundWindow, ShowWindow, SystemParametersInfoW,
+        GetForegroundWindow, IsIconic, SetForegroundWindow, ShowWindowAsync, SystemParametersInfoW,
         SPI_GETFOREGROUNDLOCKTIMEOUT, SPI_SETFOREGROUNDLOCKTIMEOUT, SW_RESTORE, SW_SHOW,
     };
 
@@ -44,9 +54,9 @@ pub(crate) fn raise_hwnd(hwnd: isize) -> bool {
         }
 
         if IsIconic(hwnd) != 0 {
-            ShowWindow(hwnd, SW_RESTORE);
+            ShowWindowAsync(hwnd, SW_RESTORE);
         } else {
-            ShowWindow(hwnd, SW_SHOW);
+            ShowWindowAsync(hwnd, SW_SHOW);
         }
 
         // Lower the foreground-lock timeout so SetForegroundWindow isn't refused

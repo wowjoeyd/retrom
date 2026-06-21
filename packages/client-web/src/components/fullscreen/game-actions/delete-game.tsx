@@ -19,6 +19,7 @@ import { ScrollArea } from "@retrom/ui/components/scroll-area";
 import { CheckedState } from "@retrom/ui/components/checkbox";
 import { PanelHeader } from "../menubar/panel-chrome";
 import { PANEL_CONTENT_CLASS_RIGHT } from "../menubar/menu-sheet";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
 
 declare global {
   export interface HotkeyZones {
@@ -60,7 +61,18 @@ export function DeleteGameAction() {
         </MenuEntryButton>
       </SheetTrigger>
 
-      <SheetContent side="right" className={PANEL_CONTENT_CLASS_RIGHT}>
+      <SheetContent
+        side="right"
+        className={PANEL_CONTENT_CLASS_RIGHT}
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // Return focus to the trigger in the Actions menu so the reticle and
+          // BACK routing land back there (not on <body>, which would let the
+          // next BACK escape to the grid).
+          requestAnimationFrame(() => setFocus("delete-game-action-open"));
+        }}
+      >
         <HotkeyLayer
           zones={{ gameActions: false }}
           handlers={{
