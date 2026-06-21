@@ -4,9 +4,13 @@ import {
   useEffect,
 } from "react";
 import { HotkeyZone, useHotkeyLayerContext } from "./layers";
-import { GamepadButtonDownEvent } from "../gamepad/event";
+import {
+  GamepadAxisActiveEvent,
+  GamepadButtonDownEvent,
+} from "../gamepad/event";
 import { useInputDeviceContext } from "../input-device";
 import { useHotkeyMapping } from "./mapping";
+import { gamepadAxisToHotkey } from "./gamepad-axis";
 
 export type Hotkey = (typeof Hotkey)[number];
 export const Hotkey = [
@@ -14,6 +18,8 @@ export const Hotkey = [
   "BACK",
   "MENU",
   "OPTION",
+  "SORT",
+  "FILTER",
   "LEFT",
   "RIGHT",
   "UP",
@@ -23,7 +29,11 @@ export const Hotkey = [
 ] as const;
 
 export type HotkeyHandler = (
-  event?: KeyboardEvent | ReactKeyboardEvent | GamepadButtonDownEvent,
+  event?:
+    | KeyboardEvent
+    | ReactKeyboardEvent
+    | GamepadButtonDownEvent
+    | GamepadAxisActiveEvent,
 ) => unknown;
 
 export type HotkeyHandlerInfo = {
@@ -48,9 +58,17 @@ export function useHotkeys(opts: {
 
   const handleHotkey = useCallback(
     (
-      hotkey: Hotkey,
-      event?: KeyboardEvent | ReactKeyboardEvent | GamepadButtonDownEvent,
+      hotkey: Hotkey | undefined,
+      event?:
+        | KeyboardEvent
+        | ReactKeyboardEvent
+        | GamepadButtonDownEvent
+        | GamepadAxisActiveEvent,
     ) => {
+      if (!hotkey) {
+        return;
+      }
+
       const handlerInfo = handlers[hotkey];
       if (!handlerInfo) {
         return;
@@ -63,7 +81,10 @@ export function useHotkeys(opts: {
         return;
       }
 
-      if (event instanceof GamepadButtonDownEvent) {
+      if (
+        event instanceof GamepadButtonDownEvent ||
+        event instanceof GamepadAxisActiveEvent
+      ) {
         setInputDevice("gamepad");
       } else {
         setInputDevice("hotkeys");
@@ -103,12 +124,25 @@ export function useHotkeys(opts: {
     [enabled, handleHotkey, gamepadToHotkey],
   );
 
+  const onGamepadAxis = useCallback(
+    (event: GamepadAxisActiveEvent) => {
+      if (!enabled) {
+        return;
+      }
+
+      const hotkey = gamepadAxisToHotkey(event);
+      handleHotkey(hotkey, event);
+    },
+    [enabled, handleHotkey],
+  );
+
   useEffect(() => {
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener(
       GamepadButtonDownEvent.EVENT_NAME,
       onGamepadButton,
     );
+    document.addEventListener(GamepadAxisActiveEvent.EVENT_NAME, onGamepadAxis);
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);
@@ -116,6 +150,10 @@ export function useHotkeys(opts: {
         GamepadButtonDownEvent.EVENT_NAME,
         onGamepadButton,
       );
+      document.removeEventListener(
+        GamepadAxisActiveEvent.EVENT_NAME,
+        onGamepadAxis,
+      );
     };
-  }, [onKeyDown, onGamepadButton]);
+  }, [onKeyDown, onGamepadButton, onGamepadAxis]);
 }

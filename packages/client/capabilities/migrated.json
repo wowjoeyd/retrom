@@ -10,7 +10,7 @@
       "http://*.local:*"
     ]
   },
-  "windows": ["main", "emulator-js", "steam-login"],
+  "windows": ["main", "emulator-js", "steam-login", "quit-indicator"],
   "permissions": [
     "core:path:default",
     "core:event:default",
@@ -61,11 +61,14 @@
     "launcher:allow-play-game",
     "launcher:allow-stop-game",
     "launcher:allow-get-game-play-status",
+    "launcher:allow-set-quit-rebind-active",
     "updater:default",
     "shell:allow-open",
     "process:default",
     "system-info:allow-all-sys-info",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
     "window-state:default",
     "standalone:allow-enable-standalone-mode",
     "standalone:allow-disable-standalone-mode",

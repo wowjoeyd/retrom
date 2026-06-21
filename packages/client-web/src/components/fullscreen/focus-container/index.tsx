@@ -37,7 +37,12 @@ export function useFocusable<T extends HTMLElement>(
   const onFocusHandler: NonNullable<typeof onFocus> = useCallback(
     (layout, ...args) => {
       if (document.activeElement !== layout.node) {
-        layout.node?.focus();
+        // preventScroll: every focusable in the fullscreen UI that needs to
+        // scroll does so explicitly in its own onFocus (grid cards, partition
+        // list, group menu, action button). Letting the browser's native
+        // focus-scroll also fire causes it to fight those explicit (often
+        // animated) scrolls, producing jitter during rapid navigation.
+        layout.node?.focus({ preventScroll: true });
       }
 
       onFocus?.(layout, ...args);

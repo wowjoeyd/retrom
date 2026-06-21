@@ -1,12 +1,66 @@
-import { createContext, PropsWithChildren, useContext, useMemo } from "react";
+import {
+  createContext,
+  PropsWithChildren,
+  useCallback,
+  useContext,
+  useMemo,
+} from "react";
 import { usePlatforms } from "@/queries/usePlatforms";
 import { getFileStub, timestampToDate } from "@/lib/utils";
 import { useGames } from "@/queries/useGames";
 import { GameWithMetadata } from "@/components/game-list";
 import { Route } from "@/routes/_fullscreenLayout";
+import { useInstallationIndex } from "@/providers/installation-index";
+import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
 
 export type GroupKind = "platform" | "metadataProperty" | (string & {});
-export type SortKey = "name" | "lastPlayed";
+
+// User-selectable library sort. Each key maps to a partitioning strategy below
+// so the grid (and the alphabet quick-scroll scrubber) always has meaningful
+// section headers. Backed entirely by real Retrom fields.
+export type SortKey =
+  | "name"
+  | "lastPlayed"
+  | "dateAdded"
+  | "playTime"
+  | "releaseDate"
+  | "platform";
+
+export const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "Alphabetical" },
+  { key: "lastPlayed", label: "Last Played" },
+  { key: "dateAdded", label: "Date Added" },
+  { key: "playTime", label: "Play Time" },
+  { key: "releaseDate", label: "Release Date" },
+  { key: "platform", label: "Platform" },
+];
+
+export const DEFAULT_SORT_KEY: SortKey = "name";
+
+// User-selectable library filters. Every filter is backed by data already in
+// Retrom's local/server model — installation status (from the installation
+// index) and the game's Steam linkage (steam_app_id on the Game row). Filters
+// in the same section are OR'd together; different sections are AND'd, so e.g.
+// "Installed" + "Steam" shows installed Steam games, while "Installed" +
+// "Not Installed" (both availability) is a no-op union.
+export type FilterKey = "installed" | "notInstalled" | "steam" | "nonSteam";
+
+export type FilterSection = "Availability" | "Source";
+
+export const FILTER_OPTIONS: {
+  key: FilterKey;
+  label: string;
+  section: FilterSection;
+}[] = [
+  { key: "installed", label: "Installed", section: "Availability" },
+  { key: "notInstalled", label: "Not Installed", section: "Availability" },
+  { key: "steam", label: "Steam", section: "Source" },
+  { key: "nonSteam", label: "Local / Non-Steam", section: "Source" },
+];
+
+type PartitionContext = {
+  platformNameById?: Map<number, string>;
+};
 
 export type Group = {
   kind: GroupKind;
@@ -27,7 +81,12 @@ type GroupContext = {
 const context = createContext<GroupContext | undefined>(undefined);
 
 export function GroupContextProvider(props: PropsWithChildren) {
-  const { activeGroupId } = Route.useSearch();
+  const {
+    activeGroupId,
+    sortBy = DEFAULT_SORT_KEY,
+    filters,
+  } = Route.useSearch();
+  const { installations } = useInstallationIndex();
 
   const { data: platforms } = usePlatforms({
     request: { withMetadata: true },
@@ -59,65 +118,116 @@ export function GroupContextProvider(props: PropsWithChildren) {
       }),
   });
 
-  const allGames: Group = useMemo(
-    () => ({
+  const platformNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    platforms?.forEach((platform) =>
+      map.set(
+        platform.id,
+        platform.metadata?.name ?? getFileStub(platform.path),
+      ),
+    );
+    return map;
+  }, [platforms]);
+
+  const partitionCtx = useMemo<PartitionContext>(
+    () => ({ platformNameById }),
+    [platformNameById],
+  );
+
+  // Apply the active library filters to a list of games. Returns the input
+  // untouched when no filters are active so the unfiltered path stays cheap.
+  const filterGames = useCallback(
+    (input: GameWithMetadata[]): GameWithMetadata[] => {
+      const active = filters ?? [];
+      if (active.length === 0) return input;
+
+      const availability = active.filter(
+        (f) => f === "installed" || f === "notInstalled",
+      );
+      const source = active.filter((f) => f === "steam" || f === "nonSteam");
+
+      return input.filter((game) => {
+        if (availability.length) {
+          const isInstalled =
+            (installations[game.id] ?? InstallationStatus.NOT_INSTALLED) ===
+            InstallationStatus.INSTALLED;
+          const ok = availability.some((f) =>
+            f === "installed" ? isInstalled : !isInstalled,
+          );
+          if (!ok) return false;
+        }
+
+        if (source.length) {
+          const isSteam = game.steamAppId != null;
+          const ok = source.some((f) => (f === "steam" ? isSteam : !isSteam));
+          if (!ok) return false;
+        }
+
+        return true;
+      });
+    },
+    [filters, installations],
+  );
+
+  const allGames: Group = useMemo(() => {
+    const filtered = filterGames(games ?? []);
+    return {
       kind: "metadataProperty",
       id: -1,
       name: "All Games",
-      sortKey: "name",
-      partitionedGames: partitionGamesByKey(games ?? [], "name"),
-      allGames: games ?? [],
-    }),
-    [games],
-  );
+      sortKey: sortBy,
+      partitionedGames: partitionGamesByKey(filtered, sortBy, partitionCtx),
+      allGames: filtered,
+    };
+  }, [games, sortBy, partitionCtx, filterGames]);
 
   const recentlyPlayed: Group = useMemo(() => {
-    const partitionedGames =
-      partitionGamesByKey(
-        games
-          ?.sort((a, b) => {
-            const aLastPlayed = timestampToDate(
-              a.metadata?.lastPlayed,
-            ).getTime();
-            const bLastPlayed = timestampToDate(
-              b.metadata?.lastPlayed,
-            ).getTime();
-
-            return bLastPlayed - aLastPlayed;
-          })
-          .slice(0, 50) ?? [],
-        "lastPlayed",
-      ) ?? [];
+    // Membership is the 50 most recently played games; the chosen sort only
+    // affects how those games are ordered/partitioned (does not mutate the
+    // shared games array). Filters are applied to the pool first so the group
+    // shows the 50 most-recent games that match the active filters.
+    const ranked = filterGames([...(games ?? [])])
+      .filter((game) => game.metadata?.lastPlayed)
+      .sort(
+        (a, b) =>
+          timestampToDate(b.metadata?.lastPlayed).getTime() -
+          timestampToDate(a.metadata?.lastPlayed).getTime(),
+      )
+      .slice(0, 50);
 
     return {
       kind: "metadataProperty",
       id: -2,
       name: "Recently Played",
-      sortKey: "lastPlayed",
-      partitionedGames,
-      allGames: partitionedGames.flatMap(([, games]) => games),
+      sortKey: sortBy,
+      partitionedGames: partitionGamesByKey(ranked, sortBy, partitionCtx),
+      allGames: ranked,
     };
-  }, [games]);
+  }, [games, sortBy, partitionCtx, filterGames]);
 
   const platformGroups: Group[] = useMemo(
     () =>
       platforms
-        ?.map((platform) => ({
-          kind: "platform",
-          id: platform.id,
-          name: platform.metadata?.name ?? getFileStub(platform.path),
-          url: "/fullscreen/platforms/$platformId",
-          params: { platformId: platform.id.toString() },
-          sortKey: "name" as const,
-          allGames:
+        ?.map((platform) => {
+          const platformGames = filterGames(
             games?.filter((game) => game.platformId === platform.id) ?? [],
-          partitionedGames: partitionGamesByKey(
-            games?.filter((game) => game.platformId === platform.id) ?? [],
-            "name",
-          ),
-        }))
+          );
+
+          return {
+            kind: "platform" as const,
+            id: platform.id,
+            name: platform.metadata?.name ?? getFileStub(platform.path),
+            sortKey: sortBy,
+            allGames: platformGames,
+            partitionedGames: partitionGamesByKey(
+              platformGames,
+              sortBy,
+              partitionCtx,
+            ),
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name)) ?? [],
-    [platforms, games],
+    [platforms, games, sortBy, partitionCtx, filterGames],
   );
 
   const allGroups: Group[] = useMemo(() => {
@@ -172,114 +282,259 @@ export function useGroupContext() {
   return ctx;
 }
 
+function gameName(game: GameWithMetadata): string {
+  return game.metadata?.name ?? getFileStub(game.path);
+}
+
+function byName(a: GameWithMetadata, b: GameWithMetadata): number {
+  return gameName(a).localeCompare(gameName(b));
+}
+
+function monthLabel(date: Date): string {
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+const PLAY_TIME_BUCKETS: { label: string; minMinutes: number }[] = [
+  { label: "100+ hours", minMinutes: 6000 },
+  { label: "50–100 hours", minMinutes: 3000 },
+  { label: "10–50 hours", minMinutes: 600 },
+  { label: "1–10 hours", minMinutes: 60 },
+  { label: "Under 1 hour", minMinutes: 1 },
+];
+
 function partitionGamesByKey(
   gamesToPartition: GameWithMetadata[],
   key: SortKey,
+  ctx?: PartitionContext,
 ): Group["partitionedGames"] {
   switch (key) {
-    case "name": {
-      const charGroups = new Map<string, GameWithMetadata[]>(
-        [
-          "#",
-          "A",
-          "B",
-          "C",
-          "D",
-          "E",
-          "F",
-          "G",
-          "H",
-          "I",
-          "J",
-          "K",
-          "L",
-          "M",
-          "N",
-          "O",
-          "P",
-          "Q",
-          "R",
-          "S",
-          "T",
-          "U",
-          "V",
-          "W",
-          "X",
-          "Y",
-          "Z",
-        ].map((c) => [c, []]),
+    case "name":
+      return partitionByName(gamesToPartition);
+    case "lastPlayed":
+      return partitionByMonth(
+        gamesToPartition,
+        (game) => game.metadata?.lastPlayed,
+        "Never Played",
       );
-
-      gamesToPartition.forEach((game) => {
-        const name = game.metadata?.name ?? getFileStub(game.path);
-        let char: string;
-        if (/^[a-zA-Z]/.test(name[0])) {
-          char = name[0].toUpperCase();
-        } else {
-          char = "#";
-        }
-
-        if (!charGroups.has(char)) {
-          console.error(
-            "Incorrect character group, game may not be visible",
-            char,
-          );
-        }
-
-        charGroups.get(char)?.push(game);
-      });
-
-      for (const arr of charGroups.values()) {
-        arr.sort((a, b) => {
-          const aName = a.metadata?.name ?? getFileStub(a.path);
-          const bName = b.metadata?.name ?? getFileStub(b.path);
-
-          return aName.localeCompare(bName);
-        });
-      }
-
-      return Array.from(charGroups.entries()).sort(([k1], [k2]) =>
-        k1.localeCompare(k2),
+    case "dateAdded":
+      return partitionByMonth(
+        gamesToPartition,
+        (game) => game.createdAt,
+        "Unknown",
       );
-    }
-
-    // partition by month of last played date
-    case "lastPlayed": {
-      const monthGroups = new Map<string, GameWithMetadata[]>();
-
-      gamesToPartition.forEach((game) => {
-        const lastPlayed = game.metadata?.lastPlayed;
-        if (!lastPlayed) {
-          return;
-        }
-
-        const date = timestampToDate(lastPlayed).toLocaleDateString(undefined, {
-          month: "short",
-          year: "numeric",
-        });
-
-        if (!monthGroups.has(date)) {
-          monthGroups.set(date, []);
-        }
-
-        monthGroups.get(date)?.push(game);
-      });
-
-      for (const arr of monthGroups.values()) {
-        arr.sort((a, b) => {
-          const aLastPlayed = timestampToDate(a.metadata?.lastPlayed).getTime();
-          const bLastPlayed = timestampToDate(b.metadata?.lastPlayed).getTime();
-
-          return bLastPlayed - aLastPlayed;
-        });
-      }
-
-      return Array.from(monthGroups.entries()).sort(([k1], [k2]) => {
-        const date1 = new Date(k1);
-        const date2 = new Date(k2);
-
-        return date2.getTime() - date1.getTime();
-      });
-    }
+    case "playTime":
+      return partitionByPlayTime(gamesToPartition);
+    case "releaseDate":
+      return partitionByYear(gamesToPartition);
+    case "platform":
+      return partitionByPlatform(gamesToPartition, ctx?.platformNameById);
   }
+}
+
+function partitionByName(
+  gamesToPartition: GameWithMetadata[],
+): Group["partitionedGames"] {
+  const charGroups = new Map<string, GameWithMetadata[]>(
+    [
+      "#",
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H",
+      "I",
+      "J",
+      "K",
+      "L",
+      "M",
+      "N",
+      "O",
+      "P",
+      "Q",
+      "R",
+      "S",
+      "T",
+      "U",
+      "V",
+      "W",
+      "X",
+      "Y",
+      "Z",
+    ].map((c) => [c, []]),
+  );
+
+  gamesToPartition.forEach((game) => {
+    const name = gameName(game);
+    const char = /^[a-zA-Z]/.test(name[0]) ? name[0].toUpperCase() : "#";
+
+    if (!charGroups.has(char)) {
+      console.error("Incorrect character group, game may not be visible", char);
+    }
+
+    charGroups.get(char)?.push(game);
+  });
+
+  for (const arr of charGroups.values()) {
+    arr.sort(byName);
+  }
+
+  return Array.from(charGroups.entries()).sort(([k1], [k2]) =>
+    k1.localeCompare(k2),
+  );
+}
+
+function partitionByMonth(
+  gamesToPartition: GameWithMetadata[],
+  getTimestamp: (game: GameWithMetadata) => GameWithMetadata["createdAt"],
+  missingLabel: string,
+): Group["partitionedGames"] {
+  const buckets = new Map<string, GameWithMetadata[]>();
+  const missing: GameWithMetadata[] = [];
+
+  gamesToPartition.forEach((game) => {
+    const ts = getTimestamp(game);
+    if (!ts) {
+      missing.push(game);
+      return;
+    }
+
+    const label = monthLabel(timestampToDate(ts));
+    const arr = buckets.get(label) ?? [];
+    arr.push(game);
+    buckets.set(label, arr);
+  });
+
+  for (const arr of buckets.values()) {
+    arr.sort(
+      (a, b) =>
+        timestampToDate(getTimestamp(b)).getTime() -
+        timestampToDate(getTimestamp(a)).getTime(),
+    );
+  }
+
+  const entries = Array.from(buckets.entries()).sort(
+    ([k1], [k2]) => new Date(k2).getTime() - new Date(k1).getTime(),
+  );
+
+  if (missing.length) {
+    missing.sort(byName);
+    entries.push([missingLabel, missing]);
+  }
+
+  return entries;
+}
+
+function partitionByPlayTime(
+  gamesToPartition: GameWithMetadata[],
+): Group["partitionedGames"] {
+  const order = [...PLAY_TIME_BUCKETS.map((b) => b.label), "Never Played"];
+  const buckets = new Map<string, GameWithMetadata[]>(
+    order.map((label) => [label, []]),
+  );
+
+  gamesToPartition.forEach((game) => {
+    const minutes = game.metadata?.minutesPlayed ?? 0;
+    const bucket =
+      PLAY_TIME_BUCKETS.find((b) => minutes >= b.minMinutes)?.label ??
+      "Never Played";
+    buckets.get(bucket)?.push(game);
+  });
+
+  for (const arr of buckets.values()) {
+    arr.sort(
+      (a, b) =>
+        (b.metadata?.minutesPlayed ?? 0) - (a.metadata?.minutesPlayed ?? 0),
+    );
+  }
+
+  return order
+    .map((label): [string, GameWithMetadata[]] => [
+      label,
+      buckets.get(label) ?? [],
+    ])
+    .filter(([, arr]) => arr.length > 0);
+}
+
+function partitionByYear(
+  gamesToPartition: GameWithMetadata[],
+): Group["partitionedGames"] {
+  const buckets = new Map<string, GameWithMetadata[]>();
+  const missing: GameWithMetadata[] = [];
+
+  gamesToPartition.forEach((game) => {
+    const ts = game.metadata?.releaseDate;
+    if (!ts) {
+      missing.push(game);
+      return;
+    }
+
+    const year = String(timestampToDate(ts).getFullYear());
+    const arr = buckets.get(year) ?? [];
+    arr.push(game);
+    buckets.set(year, arr);
+  });
+
+  for (const arr of buckets.values()) {
+    arr.sort(
+      (a, b) =>
+        timestampToDate(b.metadata?.releaseDate).getTime() -
+        timestampToDate(a.metadata?.releaseDate).getTime(),
+    );
+  }
+
+  const entries = Array.from(buckets.entries()).sort(
+    ([k1], [k2]) => Number(k2) - Number(k1),
+  );
+
+  if (missing.length) {
+    missing.sort(byName);
+    entries.push(["Unknown", missing]);
+  }
+
+  return entries;
+}
+
+function partitionByPlatform(
+  gamesToPartition: GameWithMetadata[],
+  platformNameById?: Map<number, string>,
+): Group["partitionedGames"] {
+  const buckets = new Map<string, GameWithMetadata[]>();
+  const unknown: GameWithMetadata[] = [];
+
+  gamesToPartition.forEach((game) => {
+    const name =
+      game.platformId !== undefined
+        ? platformNameById?.get(game.platformId)
+        : undefined;
+
+    if (!name) {
+      unknown.push(game);
+      return;
+    }
+
+    const arr = buckets.get(name) ?? [];
+    arr.push(game);
+    buckets.set(name, arr);
+  });
+
+  for (const arr of buckets.values()) {
+    arr.sort(byName);
+  }
+
+  const entries = Array.from(buckets.entries()).sort(([k1], [k2]) =>
+    k1.localeCompare(k2),
+  );
+
+  if (unknown.length) {
+    unknown.sort(byName);
+    entries.push(["Unknown", unknown]);
+  }
+
+  return entries;
 }

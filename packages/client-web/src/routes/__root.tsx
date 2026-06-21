@@ -4,12 +4,14 @@ import { ConfigProvider } from "../providers/config";
 import { RetromClientProvider } from "../providers/retrom-client";
 import { QueryClientProvider } from "../providers/query-client";
 import { Prompts } from "../components/prompts";
+import { GuideButtonShortcut } from "../components/guide-button-shortcut";
 import { z } from "zod";
 import { InputDeviceProvider } from "@/providers/input-device";
 import { serverConfigTabSchema } from "@/components/modals/config/server";
 import { clientConfigTabSchema } from "@/components/modals/config/client";
 import { InstallationIndexProvider } from "@/providers/installation-index";
 import { InstallationProgressProvider } from "@/providers/installation-progress";
+import { QuitIndicator } from "@/components/quit-indicator";
 import { useEffect } from "react";
 
 const modalsSearchSchema = z
@@ -106,6 +108,13 @@ function RootComponent() {
     return <SteamOpenIdCallback params={params} />;
   }
 
+  // The transparent, click-through quit-to-library indicator window loads the
+  // SPA at index.html?window=quit-indicator. Render only the indicator — none of
+  // the heavy providers below — so it stays an inert, purely visual overlay.
+  if (params.get("window") === "quit-indicator") {
+    return <QuitIndicator />;
+  }
+
   return (
     <InputDeviceProvider>
       <ConfigProvider>
@@ -115,6 +124,7 @@ function RootComponent() {
               <InstallationProgressProvider>
                 <Outlet />
 
+                <GuideButtonShortcut />
                 <Prompts />
                 {/* <TanStackRouterDevtools /> */}
               </InstallationProgressProvider>

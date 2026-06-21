@@ -29,19 +29,36 @@ import { useForm } from "@retrom/ui/components/form";
 import { migrateInstallationDir } from "@retrom/plugin-installer";
 import { z } from "zod";
 import { RetromClientConfig } from "@retrom/codegen/retrom/client/client-config_pb";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@retrom/ui/components/select";
 import { RawMessage } from "@/utils/protos";
 import {
   emulatorUserDataAutoSyncEnabled,
   setEmulatorUserDataAutoSyncEnabled,
 } from "@/components/emulator-user-data-auto-sync";
+import { QuitHotkeyRebind } from "./quit-hotkey-rebind";
 
 type ConfigSchema = z.infer<typeof configSchema>;
 const configSchema = z.object({
   config: z.object({
     interface: z.object({
       fullscreenByDefault: z.boolean(),
+      // Shared with the fullscreen settings menu (see menubar/config); lives at
+      // the interface level so both menus bind to the same value.
+      quitToLibraryHotkeyEnabled: z.boolean().optional(),
+      // The rebindable quit-to-library combo (standard-gamepad button indices),
+      // also shared with the fullscreen menu. Empty = use the default combo.
+      // Non-optional (proto3 repeated has no presence) — defaults to [].
+      quitToLibraryHotkeyButtons: z.array(z.number()),
       fullscreenConfig: z.object({
         windowedFullscreenMode: z.boolean().optional(),
+        startupMovieEnabled: z.boolean().optional(),
+        doubleTapGuideOpensFullscreen: z.boolean().optional(),
         gameMusic: z
           .object({
             enabled: z.boolean().optional(),
@@ -81,6 +98,22 @@ export function GeneralConfig() {
     isEmulatorPackageSyncEnabled() &&
     isEnhancedEmulatorUserDataEnabled();
 
+  // Focus indicator is shared with the fullscreen settings menu (one value at
+  // interface level). The main form here is typed against the proto *message*
+  // (numeric enums), but the store holds the JSON form (string enums), so this
+  // enum can't live in that form — apply it directly to the store on change,
+  // the same way the emulator auto-sync toggle above is handled.
+  const focusIndicator = config?.interface?.focusIndicator ?? "BOTH";
+  const setFocusIndicator = (value: "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY") => {
+    configStore.setState((s) => {
+      s.config = {
+        ...s.config,
+        interface: { ...s.config?.interface, focusIndicator: value },
+      };
+      return s;
+    });
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAutoSyncUserData(emulatorUserDataAutoSyncEnabled());
@@ -92,11 +125,20 @@ export function GeneralConfig() {
       config: {
         interface: {
           fullscreenByDefault: config?.interface?.fullscreenByDefault ?? false,
+          quitToLibraryHotkeyEnabled:
+            config?.interface?.quitToLibraryHotkeyEnabled ?? true,
+          quitToLibraryHotkeyButtons:
+            config?.interface?.quitToLibraryHotkeyButtons ?? [],
           fullscreenConfig: {
             ...config?.interface?.fullscreenConfig,
             windowedFullscreenMode:
               config?.interface?.fullscreenConfig?.windowedFullscreenMode ??
               !checkIsDesktop(),
+            startupMovieEnabled:
+              config?.interface?.fullscreenConfig?.startupMovieEnabled ?? true,
+            doubleTapGuideOpensFullscreen:
+              config?.interface?.fullscreenConfig
+                ?.doubleTapGuideOpensFullscreen ?? false,
             gameMusic: {
               enabled: fullscreenConfig?.gameMusic?.enabled ?? true,
               volume: fullscreenConfig?.gameMusic?.volume ?? 0.3,
@@ -355,6 +397,139 @@ export function GeneralConfig() {
                       </p>
                     </div>
                   </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.startupMovieEnabled"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="startup-movie-enabled"
+                      checked={field.value ?? true}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="startup-movie-enabled">
+                        Play startup video
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        Play the cinematic intro when entering fullscreen mode.
+                        Skipped automatically on systems that can&apos;t decode
+                        it.
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.fullscreenConfig.doubleTapGuideOpensFullscreen"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="double-tap-guide-fullscreen"
+                      checked={field.value ?? false}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="double-tap-guide-fullscreen">
+                        Double-tap guide opens fullscreen
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        Steam Big Picture style: double-tap your
+                        controller&apos;s guide/home button anywhere to jump
+                        into fullscreen mode.
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          {/* Not a form field (see setFocusIndicator note) — applied to the
+              store on change, so plain controls rather than Form* wrappers. */}
+          <div className="flex flex-col gap-2">
+            <label
+              htmlFor="focus-indicator"
+              className="text-sm font-medium leading-none"
+            >
+              Focus indicator
+            </label>
+            <Select
+              value={focusIndicator}
+              onValueChange={(v) =>
+                setFocusIndicator(v as "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY")
+              }
+            >
+              <SelectTrigger id="focus-indicator">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="BOTH">Reticle + Rings</SelectItem>
+                <SelectItem value="RETICLE_ONLY">Reticle only</SelectItem>
+                <SelectItem value="RINGS_ONLY">Rings only</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground max-w-[45ch]">
+              Which cue marks the focused item when navigating fullscreen with a
+              controller or keyboard: the corner-bracket reticle, the
+              per-element ring highlight, or both. Applies immediately.
+            </p>
+          </div>
+
+          <FormField
+            control={form.control}
+            name="config.interface.quitToLibraryHotkeyEnabled"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="flex items-top gap-2">
+                    <Checkbox
+                      id="quit-to-library-hotkey"
+                      checked={field.value ?? true}
+                      onCheckedChange={(val) => field.onChange(val)}
+                    />
+                    <div className={cn("grid gap-1 leading-none")}>
+                      <label htmlFor="quit-to-library-hotkey">
+                        Quit to library hotkey
+                      </label>
+
+                      <p className="text-sm text-muted-foreground max-w-[45ch]">
+                        While a game is running, hold the combo below for ~1.5
+                        seconds to close it and return to Retrom. Useful for
+                        emulators with no in-game quit.
+                      </p>
+                    </div>
+                  </div>
+                </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="config.interface.quitToLibraryHotkeyButtons"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <QuitHotkeyRebind
+                    value={field.value ?? []}
+                    onChange={field.onChange}
+                  />
                 </FormControl>
               </FormItem>
             )}

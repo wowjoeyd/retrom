@@ -7,6 +7,15 @@ use tauri::Manager;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
+/// Bring Retrom's window to the OS foreground, like a game launching into
+/// fullscreen. Delegates to the launcher plugin's shared helper so the same
+/// implementation is used here (entering fullscreen) and when a game exits
+/// (returning to the library). See `retrom_plugin_launcher::bring_to_foreground`.
+#[tauri::command]
+fn request_foreground(window: tauri::WebviewWindow) {
+    retrom_plugin_launcher::bring_to_foreground(&window);
+}
+
 #[tokio::main]
 pub async fn main() {
     dotenvy::dotenv().ok();
@@ -74,16 +83,33 @@ pub async fn main() {
 
             registry.with(file_layer).init();
 
+            // Route panics into the log (incl. the panic location/message) so
+            // crashes are visible in retrom.log, not just on stderr.
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                let location = info
+                    .location()
+                    .map(|l| format!("{}:{}", l.file(), l.line()))
+                    .unwrap_or_else(|| "<unknown>".into());
+                tracing::error!("PANIC at {location}: {info}");
+                default_hook(info);
+            }));
+
             if config.telemetry.is_some_and(|t| t.enabled) {
                 tracing::info!("Telemetry enabled");
             } else {
                 tracing::info!("Telemetry disabled");
             }
 
-            if let Err(why) = app
-                .handle()
-                .plugin(tauri_plugin_window_state::Builder::default().build())
-            {
+            if let Err(why) = app.handle().plugin(
+                tauri_plugin_window_state::Builder::default()
+                    // The quit-to-library indicator is positioned manually over
+                    // the game's monitor each time it's shown — don't let the
+                    // window-state plugin save/restore its geometry.
+                    .with_denylist(&["quit-indicator"])
+                    .skip_initial_state("quit-indicator")
+                    .build(),
+            ) {
                 tracing::error!("Failed to initialize window state plugin: {}", why);
             }
 
@@ -123,7 +149,7 @@ pub async fn main() {
         .plugin(retrom_plugin_launcher::init().await)
         .plugin(retrom_plugin_webdav_client::init())
         .plugin(retrom_plugin_save_manager::init())
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(tauri::generate_handler![request_foreground])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

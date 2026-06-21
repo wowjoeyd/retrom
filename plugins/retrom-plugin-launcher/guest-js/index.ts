@@ -50,3 +50,13 @@ export async function stopGame(
     ),
   });
 }
+
+/**
+ * Toggle quit-to-library combo capture. While active, the native gamepad reader
+ * broadcasts the held button union on the `quit-rebind:buttons` event so the
+ * settings UI can record a new combo (including the Guide button, which the
+ * WebView2 Gamepad API never reports). No-op on platforms without the reader.
+ */
+export async function setQuitRebindActive(active: boolean) {
+  return invoke("plugin:launcher|set_quit_rebind_active", { active });
+}

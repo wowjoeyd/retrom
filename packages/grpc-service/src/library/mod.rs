@@ -14,7 +14,7 @@ use tonic::{Code, Request, Response, Result, Status};
 
 pub mod content_resolver;
 mod delete_handlers;
-mod metadata_handlers;
+pub(crate) mod metadata_handlers;
 mod update_handlers;
 
 pub struct LibraryServiceHandlers {

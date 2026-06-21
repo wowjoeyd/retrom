@@ -15,6 +15,7 @@ default = []
 flatpak = []
 
 [dependencies]
+async-trait = { workspace = true }
 prost = { workspace = true }
 tauri = { workspace = true }
 tokio = { workspace = true }
@@ -30,8 +31,28 @@ retrom-plugin-service-client = { workspace = true }
 retrom-plugin-config = { workspace = true }
 walkdir = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+# Used to legitimately take the OS foreground (entering fullscreen, and
+# returning to the library when a game exits), since Windows blocks
+# SetForegroundWindow from a background process. See src/foreground.rs.
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  # Resolve the monitor a game is on so the quit-to-library indicator can be
+  # placed over it (MonitorFromWindow / GetMonitorInfoW). See src/window.rs.
+  "Win32_Graphics_Gdi",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Input_XboxController",
+  "Win32_UI_WindowsAndMessaging",
+] }
+# Used to detect when a Steam game starts/stops by polling the keys Steam keeps
+# under HKCU\Software\Valve\Steam. See src/launch/steam.rs.
+winreg = "0.55"
+
 [build-dependencies]
 tauri-plugin = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["tauri-plugin"]
+ignored = ["tauri-plugin", "windows-sys"]

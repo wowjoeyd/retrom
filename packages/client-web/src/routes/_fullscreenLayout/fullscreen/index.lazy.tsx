@@ -1,138 +1,76 @@
-import { useGroupContext } from "@/providers/fullscreen/group-context";
-import { GridGameList } from "@/components/fullscreen/grid-game-list";
-import { CatchBoundary, createLazyFileRoute } from "@tanstack/react-router";
+import {
+  GridGameList,
+  gameMusicPlayer,
+  cancelPendingFocusMusic,
+} from "@/components/fullscreen/grid-game-list";
+import { createLazyFileRoute } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { ScrollArea, ScrollBar } from "@retrom/ui/components/scroll-area";
 import { GroupMenu } from "@/components/fullscreen/group-menu";
 import { ActionBar } from "@/components/fullscreen/action-bar";
-import { Background, Scene } from "@/components/fullscreen/scene";
 import {
-  FocusContainer,
-  useFocusable,
-} from "@/components/fullscreen/focus-container";
-import { cn } from "@retrom/ui/lib/utils";
-import { Button } from "@retrom/ui/components/button";
-import { HotkeyLayer } from "@/providers/hotkeys/layers";
-import { useMemo } from "react";
+  AlphabetScrollOverlay,
+  useAlphabetQuickScroll,
+  setQuickScrollActivateHandler,
+} from "@/components/fullscreen/alphabet-scroll-overlay";
+import { SortSheet } from "@/components/fullscreen/sort-sheet";
+import { FilterSheet } from "@/components/fullscreen/filter-sheet";
+import { GridGameContextMenu } from "@/components/fullscreen/game-context-menu";
+import { useActionBar } from "@/providers/fullscreen/action-bar-context";
 
 export const Route = createLazyFileRoute("/_fullscreenLayout/fullscreen/")({
   component: FullscreenComponent,
 });
 
 function FullscreenComponent() {
-  return (
-    <div className="h-full grid grid-flow-row grid-rows-[1fr_auto]">
-      <div className="relative flex gap-4 w-full overflow-hidden">
-        <PartitionList />
+  useAlphabetQuickScroll();
 
-        <div className="absolute inset-0 z-[-1]">
-          <CatchBoundary
-            getResetKey={() => "resetScene"}
-            onCatch={(error, info) => {
-              console.warn("Caught error at boundary: ", error, info);
-            }}
-            errorComponent={() => (
-              <div className="w-full h-full bg-gradient-to-t to-secondary/30 from-accent/10"></div>
-            )}
-          >
-            <Scene>
-              <Background />
-            </Scene>
-          </CatchBoundary>
-        </div>
+  // When a held scrub enters section-jump mode, silence any playing soundtrack
+  // and dismiss the now-playing banner; music resumes once focus settles on a
+  // card after release.
+  useEffect(() => {
+    setQuickScrollActivateHandler(() => {
+      cancelPendingFocusMusic();
+      gameMusicPlayer.stop(200);
+    });
+    return () => setQuickScrollActivateHandler(null);
+  }, []);
+
+  useActionBar([
+    { hotkey: "BACK", label: "Back" },
+    { hotkey: "ACCEPT", label: "Open" },
+    { hotkey: "OPTION", label: "Options" },
+    { hotkey: "FILTER", label: "Filter" },
+    { hotkey: "SORT", label: "Sort By" },
+    { hotkey: "PAGE_LEFT", label: "Prev" },
+    { hotkey: "PAGE_RIGHT", label: "Next" },
+    { hotkey: "MENU", label: "Menu" },
+  ]);
+
+  return (
+    <div className="h-full grid grid-flow-row grid-rows-[auto_1fr_auto]">
+      {/* Steam Big Picture-style category tabs near the top. */}
+      <GroupMenu className="w-full border-b bg-background/60" />
+
+      <div className="relative flex w-full overflow-hidden">
         <ScrollArea className="max-h-full grow">
           <GridGameList />
 
           <ScrollBar orientation="vertical" className="z-[100]" />
         </ScrollArea>
+
+        <AlphabetScrollOverlay />
       </div>
 
-      <ActionBar className="w-full overflow-hidden max-w-screen">
-        <GroupMenu className="w-full" />
-      </ActionBar>
+      <SortSheet />
+      <FilterSheet />
+      <GridGameContextMenu />
+
+      {/* Bottom chrome: just the controller / keyboard action hints in normal
+          layout flow (the grid's 1fr row ends above it, so cards never render
+          underneath). Theme-music status now lives inside the focused game card
+          itself (see CardAudioTray), not in any full-width dock down here. */}
+      <ActionBar />
     </div>
-  );
-}
-
-function PartitionList() {
-  const { activeGroup, allGroups } = useGroupContext();
-
-  return allGroups.map((group) =>
-    group.id === activeGroup?.id ? (
-      <ScrollArea
-        key={group.id}
-        className={cn("max-h-full flex w-fit flex-col pr-2")}
-      >
-        <FocusContainer
-          opts={{
-            focusKey: `group-${group.id}-partition-list`,
-          }}
-          className="flex flex-col gap-3 py-10 px-2 w-full"
-        >
-          {activeGroup?.partitionedGames?.map(([key], idx) => (
-            <span
-              key={key}
-              style={{ animationDelay: `${idx * 50}ms` }}
-              className="animate-in ease-out fade-in fill-mode-both"
-            >
-              <PartitionItem partitionKey={key} />
-            </span>
-          ))}
-        </FocusContainer>
-
-        <ScrollBar orientation="vertical" className="opacity-0" />
-      </ScrollArea>
-    ) : null,
-  );
-}
-
-function PartitionItem(props: { partitionKey: string }) {
-  const { activeGroup } = useGroupContext();
-  const { partitionKey } = props;
-  const games = useMemo(() => {
-    const group = activeGroup?.partitionedGames?.find(
-      ([k]) => k === partitionKey,
-    );
-
-    return group ? group[1] : [];
-  }, [activeGroup?.partitionedGames, partitionKey]);
-
-  const { ref } = useFocusable<HTMLButtonElement>({
-    focusKey: `char-list-${activeGroup?.id}-${partitionKey}`,
-    focusable: games.length > 0,
-
-    onFocus: ({ node }) => {
-      node.focus();
-      node.scrollIntoView({ block: "center" });
-    },
-  });
-
-  return (
-    <HotkeyLayer
-      handlers={{
-        ACCEPT: {
-          handler: () => ref.current?.click(),
-        },
-      }}
-    >
-      <Button
-        ref={ref}
-        variant="inline"
-        disabled={!games.length}
-        onClick={() => {
-          document
-            .getElementById(`game-list-header-${partitionKey}`)
-            ?.scrollIntoView({ block: "start" });
-        }}
-        className={cn(
-          "w-full h-min flex items-center justify-center",
-          "text-foreground font-bold opacity-50",
-          "transition-all ease-in-out duration-200 p-2.5",
-          "focus-hover:opacity-100 focus-hover:bg-foreground/10",
-          "disabled:opacity-15 leading-none",
-        )}
-      >
-        {partitionKey}
-      </Button>
-    </HotkeyLayer>
   );
 }

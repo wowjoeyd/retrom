@@ -9,6 +9,7 @@ import { useInputDeviceContext } from "@/providers/input-device";
 import { ComponentProps, forwardRef, useImperativeHandle } from "react";
 import { useFocusable, UseFocusableConfig } from "../focus-container";
 import { useHotkeyMapping } from "@/providers/hotkeys/mapping";
+import { getControllerIconSrc } from "./icon-map";
 
 export const HotkeyButton = forwardRef<
   HTMLButtonElement,
@@ -69,6 +70,21 @@ export function HotkeyIcon(
   const [inputDevice] = useInputDeviceContext();
 
   const usingGamepad = inputDevice === "gamepad";
+
+  const iconSrc =
+    usingGamepad && gamepad?.controllerType
+      ? getControllerIconSrc(hotkey, gamepad.controllerType)
+      : undefined;
+
+  if (iconSrc) {
+    return (
+      <img
+        src={iconSrc}
+        alt={hotkey}
+        className={cn("size-7 object-contain shrink-0", className)}
+      />
+    );
+  }
 
   const hotkeyRender =
     usingGamepad && gamepad?.controllerType

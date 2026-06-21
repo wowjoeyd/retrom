@@ -21,6 +21,10 @@ message GameMetadata {
   google.protobuf.Timestamp release_date = 14;
   google.protobuf.Timestamp last_played = 15;
   optional int32 minutes_played = 16;
+  // Normalized display title of the downloaded theme track (the source video's
+  // title, not the on-disk "theme.opus" filename). Backfilled from the embedded
+  // Opus TITLE tag for themes that predate this column.
+  optional string theme_audio_title = 17;
 }
 
 message NewGameMetadata {
@@ -40,6 +44,7 @@ message NewGameMetadata {
   optional google.protobuf.Timestamp release_date = 14;
   optional google.protobuf.Timestamp last_played = 15;
   optional int32 minutes_played = 16;
+  optional string theme_audio_title = 17;
 }
 
 message UpdatedGameMetadata {
@@ -59,6 +64,7 @@ message UpdatedGameMetadata {
   optional google.protobuf.Timestamp release_date = 14;
   optional google.protobuf.Timestamp last_played = 15;
   optional int32 minutes_played = 16;
+  optional string theme_audio_title = 17;
 }
 
 message PlatformMetadata {

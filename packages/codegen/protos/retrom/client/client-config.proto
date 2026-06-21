@@ -10,6 +10,15 @@ message InterfaceConfig {
     BACKGROUND = 1;
   }
 
+  // Which focus cue(s) the fullscreen UI shows when navigating: the
+  // corner-bracket reticle, the per-element ring highlight, or both. BOTH (the
+  // proto3 default) preserves the existing look.
+  enum FocusIndicator {
+    BOTH = 0;
+    RETICLE_ONLY = 1;
+    RINGS_ONLY = 2;
+  }
+
   message GridListConfig {
     int32 columns = 1;
     int32 gap = 2;
@@ -19,10 +28,39 @@ message InterfaceConfig {
   message FullscreenConfig {
     GridListConfig grid_list = 1;
     optional bool windowed_fullscreen_mode = 2;
+    // Whether to play the cinematic startup video when entering fullscreen
+    // mode. Absent is treated as enabled; the movie is also skipped at runtime
+    // when the system can't decode its (HEVC/h265) codec.
+    optional bool startup_movie_enabled = 3;
+    // Steam Big Picture style: when enabled, double-tapping the controller's
+    // guide/home button (Xbox ☒ guide, etc.) opens fullscreen mode from
+    // anywhere. Absent is treated as disabled.
+    optional bool double_tap_guide_opens_fullscreen = 4;
   }
 
   bool fullscreen_by_default = 1;
   FullscreenConfig fullscreen_config = 2;
+
+  // Controller "quit to library" hotkey: while a game is running, holding a
+  // deliberate button combo (default LB + RB + Menu for ~1.5s) kills the game
+  // and returns to Big Picture. Lives here at the shared interface level (NOT
+  // under fullscreen_config) so the fullscreen and standard settings menus bind
+  // to the same value. Absent is treated as enabled (default on).
+  optional bool quit_to_library_hotkey_enabled = 3;
+
+  // The button combo for the quit-to-library hotkey, as W3C standard-gamepad
+  // button indices (e.g. 4 = LB, 5 = RB, 9 = Menu). Rebindable from either
+  // settings menu, which both write this one shared value; the native gamepad
+  // reader detects exactly these buttons at runtime. Empty/unset means "use the
+  // built-in default" (LB + RB + Menu), so existing configs keep working.
+  repeated uint32 quit_to_library_hotkey_buttons = 4;
+
+  // Which focus cue(s) to show in the fullscreen UI. Lives at the interface
+  // level (NOT under fullscreen_config) so the fullscreen and standard settings
+  // menus bind to the same value. Optional (explicit presence) so it stays
+  // optional in the generated message type; absent is treated as BOTH, which
+  // keeps the current behavior.
+  optional FocusIndicator focus_indicator = 5;
 }
 
 message RetromClientConfig {

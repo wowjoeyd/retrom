@@ -34,6 +34,14 @@ impl<R: Runtime> Steam<R> {
         }
     }
 
+    /// Resolve the on-disk install directory for an installed Steam app, used to
+    /// identify the game's running process for precise exit detection.
+    #[instrument(skip(self))]
+    pub fn get_install_dir(&self, app_id: u32) -> Option<std::path::PathBuf> {
+        let (app, library) = self.steam_dir.find_app(app_id).ok()??;
+        Some(library.resolve_app_dir(&app))
+    }
+
     pub async fn install_game(&self, app_id: u32) -> crate::Result<()> {
         let opener = self.app_handle.opener();
         opener.open_url(format!("steam://install/{app_id}"), None::<&str>)?;

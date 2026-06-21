@@ -17,20 +17,26 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { Background } from "./-components/background";
-import { Description } from "./-components/description";
-import { ExtraInfo } from "./-components/extra-info";
-import { Name } from "./-components/name";
-import { SimilarGames } from "./-components/similar-games";
-import { useInstallationStatus } from "@/queries/useInstallationStatus";
-import { InstallationStatus } from "@retrom/codegen/retrom/client/installation_pb";
+import { SoundtrackConsole } from "./-components/soundtrack-console";
+import { AchievementsChip } from "./-components/achievements-chip";
+import {
+  DetailTabs,
+  DETAIL_TAB_KEYS,
+  type TabKey,
+} from "./-components/detail-tabs";
 import { useGameMetadata } from "@/queries/useGameMetadata";
-import { useEffect } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { setFocus } from "@noriginmedia/norigin-spatial-navigation";
+import { useInputDeviceContext } from "@/providers/input-device";
 import { createUrl, usePublicUrl } from "@/utils/urls";
 import {
   gameMusicPlayer,
   isAudioUrl,
   useGameMusic,
 } from "@/components/fullscreen/grid-game-list";
+import { useHotkeys } from "@/providers/hotkeys";
+import { useActionBar } from "@/providers/fullscreen/action-bar-context";
+import { ActionBar } from "@/components/fullscreen/action-bar";
 
 export const Route = createLazyFileRoute(
   "/_fullscreenLayout/fullscreen/games/$gameId",
@@ -107,6 +113,10 @@ function GameComponent() {
         fade,
         metaData.name,
         audioCandidates,
+        // Tag ownership with this game so the soundtrack mini-player reflects
+        // "Now Playing" (and enables pause + the live visualizer) even when the
+        // detail page is reached directly rather than via a grid hover.
+        gameIdNumber,
       );
     }
     return () => {
@@ -124,120 +134,354 @@ function GameComponent() {
   ]);
 
   return (
-    <GameDetailProvider gameId={gameIdNumber} errorRedirectUrl="/fullscreen">
+    <GameDetailProvider
+      gameId={gameIdNumber}
+      errorRedirectUrl="/fullscreen"
+      loadingComponent={<LoadingDetail />}
+      deferEmulatorData
+    >
       <Inner />
     </GameDetailProvider>
   );
 }
 
+function LoadingDetail() {
+  const navigate = useNavigate();
+
+  const backHandler = () =>
+    navigate({ to: "/fullscreen", search: (prev) => prev, resetScroll: false });
+
+  useHotkeys({ handlers: { BACK: { handler: backHandler } } });
+
+  return (
+    <HotkeyLayer
+      id="game-page-loading"
+      handlers={{ BACK: { handler: backHandler } }}
+    >
+      <div className="h-full flex flex-col">
+        <ScrollArea className="flex-1 min-h-0 w-full">
+          <div className="flex-grow flex justify-center items-center w-full pb-32">
+            <div className="flex flex-col w-full h-full relative">
+              <div
+                className={cn(
+                  "relative min-h-full w-full",
+                  "grid grid-rows-[1fr_auto_auto_auto]",
+                  "*:col-start-1 *:col-end-1",
+                )}
+              >
+                <div className="relative h-[75dvh] row-start-1 row-end-3 -z-[1] overflow-hidden bg-background">
+                  <div className="absolute inset-0 bg-gradient-to-t from-background to-20% to-background/0" />
+                </div>
+
+                <div className="row-start-2 row-end-4 flex justify-center gap-1">
+                  <div className="h-20 w-52 bg-secondary/30 animate-pulse" />
+                  <div className="h-20 w-12 bg-secondary/30 animate-pulse" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+        <ActionBar />
+      </div>
+    </HotkeyLayer>
+  );
+}
+
+// Primary action: a bold purple-gradient PLAY/INSTALL — the brightest element
+// on screen. The bound ACCEPT prompt lives in the bottom action bar (A = Select),
+// so no inline glyph is baked into the button.
 const buttonStyles = cn(
-  buttonVariants({ variant: "secondary", size: "lg" }),
-  "font-bold w-auto text-5xl uppercase px-8 py-4 h-full rounded-none",
-  "ring-ring focus-visible:ring-2 focus-visible:ring-offset-0",
-  "opacity-80 focus-hover:opacity-100 transition-all",
+  buttonVariants({ variant: "accent", size: "lg" }),
+  "relative h-16 w-auto rounded-xl px-8 text-2xl font-black uppercase tracking-wide text-white",
+  "bg-[linear-gradient(135deg,var(--color-accent-text),var(--color-accent))]",
+  "shadow-[0_0_34px_-6px_var(--color-accent)]",
+  "transition-all focus-hover:-translate-y-0.5 focus-hover:brightness-110 focus-hover:shadow-[var(--fs-focus-glow)]",
   '[&_div[role="progressbar"]]:w-[6ch] [&_div[role="progressbar"]]:bg-primary-foreground',
   '[&_div[role="progressbar"]_>_*]:bg-accent',
 );
 
 function Inner() {
-  const { gameMetadata, game } = useGameDetail();
+  const { gameMetadata, game, extraMetadata } = useGameDetail();
   const navigate = useNavigate();
+  const publicUrl = usePublicUrl();
+  const scrollWrapRef = useRef<HTMLDivElement>(null);
+
+  const [activeTab, setActiveTab] = useState<TabKey>("info");
+  // Actions panel open state is lifted so the page-level Ⓨ (SORT) hotkey can
+  // open it from anywhere, while the trigger button still opens it on ACCEPT.
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  const goBack = () =>
+    navigate({ to: "/fullscreen", search: (prev) => prev, resetScroll: false });
+
+  const goToAchievements = () => {
+    setActiveTab("achievements");
+    requestAnimationFrame(() => setFocus("detail-tab-content"));
+  };
+
+  // LB/RB cycle tabs from anywhere on the page (the tab headers themselves are
+  // not spatially focusable). Registered on the page HotkeyLayer so an open
+  // sheet/dialog (portaled, with focus trapped inside it) never receives these.
+  // If focus is already inside the tab content, pull it into the newly-active
+  // content (the old content unmounts, so focus would otherwise be lost);
+  // otherwise leave focus on the hero so the user can switch tabs and then press
+  // Down to enter the content.
+  const cycleTab = (dir: 1 | -1) => {
+    // Capture whether focus is inside the tab content BEFORE swapping tabs.
+    // setActiveTab unmounts the active tab synchronously, which removes the
+    // focused element (e.g. a screenshot thumbnail) and bounces DOM focus back
+    // to <body>. If we read document.activeElement *after* the swap (in the
+    // rAF), the region no longer contains it, the synchronous setFocus never
+    // fires, and focus is only restored ~300ms later by norigin's debounced
+    // autoRestoreFocus -- so the reticle lands in the new tab late and the
+    // switch feels laggy. Reading it up front keeps the restore synchronous.
+    const region = document.getElementById("detail-tab-content-region");
+    const contentWasFocused = !!region?.contains(document.activeElement);
+
+    setActiveTab((current) => {
+      const i = DETAIL_TAB_KEYS.indexOf(current);
+      return DETAIL_TAB_KEYS[
+        (i + dir + DETAIL_TAB_KEYS.length) % DETAIL_TAB_KEYS.length
+      ];
+    });
+    if (contentWasFocused) {
+      // The new tab's focusables mount during React's commit (before this rAF),
+      // so setFocus resolves to the new content's first focusable immediately.
+      requestAnimationFrame(() => setFocus("detail-tab-content"));
+    }
+  };
+
+  // LB/RB tab hints now live inline with the tab rail (see DetailTabs), so the
+  // bottom bar carries only the global/detail actions.
+  useActionBar([
+    { hotkey: "MENU", label: "Menu" },
+    { hotkey: "SORT", label: "Actions" },
+    { hotkey: "ACCEPT", label: "Select" },
+    { hotkey: "BACK", label: "Back" },
+  ]);
+
+  // Document-level BACK listener so the handler fires even before any DOM
+  // element inside this page has native focus (e.g. during lazy-load or before
+  // the initialFocus useEffect commits native focus to ActionButton).
+  // The HotkeyLayer below still handles BACK when an inner element is focused
+  // and stops propagation first; this is the safety-net path.
+  useHotkeys({ handlers: { BACK: { handler: goBack } } });
+
+  // Controller scroll: when focus lands on a control below the fold, reveal it
+  // within the ScrollArea viewport. block:"nearest" + behavior:"instant" is a
+  // no-op when the control is already visible, so the initial Play focus never
+  // scrolls (preserves the no-flash entry) and there are no smooth-scroll jumps.
+  useEffect(() => {
+    const viewport = scrollWrapRef.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (!viewport) return;
+
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || !viewport.contains(target)) return;
+      // The hero is the top of the page. When focus lands on any hero control
+      // (e.g. coming back up from deep in the Media tab), reveal the full hero
+      // art/title by scrolling all the way to the top instead of pinning the
+      // focused button to the viewport's top edge. Deferred to the next frame so
+      // it wins over the control's own onFocus scrollIntoView.
+      const hero = document.getElementById("detail-hero");
+      if (hero?.contains(target)) {
+        requestAnimationFrame(() =>
+          viewport.scrollTo({ top: 0, behavior: "auto" }),
+        );
+        return;
+      }
+      target.scrollIntoView({ block: "nearest", behavior: "instant" });
+    };
+
+    viewport.addEventListener("focusin", onFocusIn);
+    return () => viewport.removeEventListener("focusin", onFocusIn);
+  }, []);
 
   const name = gameMetadata?.name || getFileStub(game.path);
-  const url = gameMetadata?.backgroundUrl || gameMetadata?.coverUrl;
+
+  const coverUrl = (() => {
+    const local = extraMetadata?.mediaPaths?.coverUrl;
+    if (local && publicUrl) {
+      return createUrl({ path: local, base: publicUrl })?.href;
+    }
+    return gameMetadata?.coverUrl;
+  })();
 
   return (
     <HotkeyLayer
       id="game-page"
       handlers={{
-        BACK: {
-          handler: () => navigate({ to: "/fullscreen", resetScroll: false }),
-        },
+        BACK: { handler: goBack },
+        SORT: { handler: () => setActionsOpen(true) },
+        PAGE_LEFT: { handler: () => cycleTab(-1) },
+        PAGE_RIGHT: { handler: () => cycleTab(1) },
       }}
     >
-      <ScrollArea className="h-full w-full">
-        <FocusContainer
-          opts={{
-            focusKey: "game-details",
-            forceFocus: true,
-          }}
-          className="flex-grow flex justify-center items-center w-full animate-in fade-in pb-32"
-        >
-          <div className={cn("flex flex-col w-full h-full relative")}>
-            <div
-              className={cn(
-                "relative min-h-full w-full",
-                "grid grid-rows-[1fr_auto_auto_auto]",
-                "*:col-start-1 *:col-end-1",
+      <div ref={scrollWrapRef} className="flex h-full flex-col">
+        <ScrollArea className="min-h-0 w-full flex-1">
+          <FocusContainer
+            opts={{ focusKey: "game-details", forceFocus: true }}
+            className="relative block w-full"
+          >
+            {/* Full-bleed cinematic hero art. Stays art-forward — no contained
+                panel — with a graceful blurred-cover fallback beneath the scene
+                for games that have no dedicated background art. */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[72dvh] overflow-hidden">
+              {coverUrl && (
+                <img
+                  src={coverUrl}
+                  aria-hidden
+                  className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl"
+                />
               )}
-            >
-              <div className="relative h-[75dvh] row-start-1 row-end-3 -z-[1] overflow-hidden">
-                <CatchBoundary
-                  getResetKey={() => "resetBg"}
-                  onCatch={(error) => console.error(error)}
-                  errorComponent={() => (
-                    <div className="absolute inset-0 grid place-items-center">
-                      <img src={url} className=""></img>
+              <CatchBoundary
+                getResetKey={() => "resetBg"}
+                onCatch={(error) => console.error(error)}
+                errorComponent={() =>
+                  coverUrl ? (
+                    <div className="absolute inset-0">
+                      <img
+                        src={coverUrl}
+                        className="h-full w-full object-cover opacity-60"
+                      />
                     </div>
-                  )}
-                >
-                  <Scene>
-                    <Background />
-                    <Name name={name} />
-                  </Scene>
-                </CatchBoundary>
+                  ) : null
+                }
+              >
+                <Scene>
+                  <CatchBoundary
+                    getResetKey={() => `background-${game.id}`}
+                    onCatch={(error) => console.error(error)}
+                    errorComponent={() => null}
+                  >
+                    <Suspense fallback={null}>
+                      <Background />
+                    </Suspense>
+                  </CatchBoundary>
+                </Scene>
+              </CatchBoundary>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-background to-20% to-background/0" />
-              </div>
+              {/* Bottom-up scrim guarantees the title/controls stay legible on
+                  any art, bright or dark. */}
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/85 to-background/10" />
+              <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-background/20 to-transparent" />
+            </div>
 
-              <div className="row-start-2 row-end-4 flex justify-center gap-1">
-                <div className="w-min">
-                  <ActionButton />
+            <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-[max(2rem,4vw)] pb-28 pt-[34dvh]">
+              {/* Hero lower band: left cluster (title + actions) and the right
+                  cluster (soundtrack + achievements) reflow and never overlap. */}
+              <div
+                id="detail-hero"
+                className="flex flex-wrap items-end justify-between gap-x-10 gap-y-8"
+              >
+                <div className="flex min-w-0 max-w-3xl flex-1 flex-col gap-6">
+                  <h1
+                    className={cn(
+                      "-ml-1 line-clamp-2 text-balance font-black uppercase tracking-tight text-white",
+                      "text-[clamp(2.75rem,7vw,5.5rem)] leading-[0.92]",
+                      "drop-shadow-[0_3px_24px_rgba(0,0,0,0.85)]",
+                    )}
+                  >
+                    {name}
+                  </h1>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ActionButton />
+                    <GameActions
+                      open={actionsOpen}
+                      onOpenChange={setActionsOpen}
+                    />
+                  </div>
                 </div>
 
-                {!game.thirdParty && <GameActions />}
+                <div className="flex shrink-0 flex-col items-end gap-4">
+                  <SoundtrackConsole />
+                  <AchievementsChip onActivate={goToAchievements} />
+                </div>
               </div>
 
-              <div className="row-start-4 my-8 flex flex-col gap-12 w-max max-w-[85ch] mx-auto items-stretch">
-                <ExtraInfo />
-                <Description description={gameMetadata?.description || ""} />
-                <SimilarGames />
-              </div>
+              <DetailTabs active={activeTab} onChange={setActiveTab} />
             </div>
-          </div>
-        </FocusContainer>
-      </ScrollArea>
+          </FocusContainer>
+        </ScrollArea>
+        <ActionBar />
+      </div>
     </HotkeyLayer>
   );
 }
 
 function ActionButton() {
   const { game } = useGameDetail();
-  const installationStatus = useInstallationStatus(game.id);
+  const [inputDevice] = useInputDeviceContext();
+  // hasFocused: prevents re-running the initial-focus setup after it succeeds.
+  const hasFocused = useRef(false);
+  // isFirstFocus: skips scrollIntoView on the very first norigin onFocus so
+  // the query-resolution scroll (which fires ~200 ms after mount) isn't visible
+  // as a "page refresh". Subsequent navigation-triggered focuses still scroll.
+  const isFirstFocus = useRef(true);
 
   const { ref } = useFocusable<HTMLButtonElement>({
-    initialFocus: true,
     focusKey: "fullscreen-action-button",
     onFocus: ({ node }) => {
       node?.focus({ preventScroll: true });
-      node.scrollIntoView({ block: "end" });
+      if (!isFirstFocus.current) {
+        node.scrollIntoView({ block: "end" });
+      }
+      isFirstFocus.current = false;
     },
   });
+
+  // The play button may mount as disabled (play-status query pending). Browsers
+  // silently drop .focus() on disabled elements, so we watch for the disabled
+  // attribute to clear and then set norigin focus once the node is interactive.
+  // We defer via requestAnimationFrame so the call lands after React has fully
+  // committed its current batch and norigin has re-registered any focusables.
+  useEffect(() => {
+    if (hasFocused.current) return;
+    if (!["gamepad", "hotkeys"].includes(inputDevice)) return;
+
+    const node = ref.current;
+    if (!node) return;
+
+    let rafId: number;
+
+    const doFocus = () => {
+      if (hasFocused.current) return;
+      hasFocused.current = true;
+      setFocus("fullscreen-action-button");
+    };
+
+    if (!node.disabled) {
+      rafId = requestAnimationFrame(doFocus);
+      return () => cancelAnimationFrame(rafId);
+    }
+
+    const observer = new MutationObserver(() => {
+      if (!node.disabled) {
+        observer.disconnect();
+        rafId = requestAnimationFrame(doFocus);
+      }
+    });
+    observer.observe(node, { attributes: true, attributeFilter: ["disabled"] });
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(rafId);
+    };
+    // ref is stable (norigin ref object); omitted from deps intentionally
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputDevice]);
 
   return (
     <HotkeyLayer
       id="fullscreen-action-button"
       handlers={{ ACCEPT: { handler: () => ref.current?.click() } }}
     >
-      <ActionButtonImpl
-        ref={ref}
-        game={game}
-        className={cn(
-          buttonStyles,
-          installationStatus !== InstallationStatus.INSTALLING &&
-            "focus-visible:bg-accent",
-        )}
-      />
+      <div className="w-min">
+        <ActionButtonImpl ref={ref} game={game} className={buttonStyles} />
+      </div>
     </HotkeyLayer>
   );
 }

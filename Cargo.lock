@@ -9406,6 +9406,7 @@ dependencies = [
 name = "retrom-plugin-launcher"
 version = "0.8.4"
 dependencies = [
+ "async-trait",
  "prost 0.14.3",
  "retrom-codegen",
  "retrom-plugin-config",
@@ -9421,6 +9422,8 @@ dependencies = [
  "tonic 0.14.5",
  "tracing",
  "walkdir",
+ "windows-sys 0.59.0",
+ "winreg 0.55.0",
 ]
 
 [[package]]

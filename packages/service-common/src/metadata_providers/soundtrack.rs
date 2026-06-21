@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::fs;
 use tokio::process::Command;
-use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, warn};
 
@@ -66,7 +66,9 @@ async fn get_youtube_cookies_path() -> Option<PathBuf> {
         return Some(p);
     }
     // Fallback to environment variable.
-    std::env::var("RETROM_YOUTUBE_COOKIES").ok().map(PathBuf::from)
+    std::env::var("RETROM_YOUTUBE_COOKIES")
+        .ok()
+        .map(PathBuf::from)
 }
 
 // ── Persistent soundtrack URL cache ──────────────────────────────────────────
@@ -142,23 +144,28 @@ async fn cache_store(key: &str, url: Option<String>) {
         if let Some(cache) = guard.as_mut() {
             cache.insert(
                 key.to_string(),
-                CachedSoundtrackEntry { url: url.clone(), cached_at_secs: now_secs },
+                CachedSoundtrackEntry {
+                    url: url.clone(),
+                    cached_at_secs: now_secs,
+                },
             );
         }
         // Only snapshot for disk write when we have a positive result.
         // Negative results (None) are kept in-memory for within-session deduplication
         // but must not be persisted — a future run (with cookies, better regex, etc.)
         // should always retry games that previously had no match.
-        if url.is_some() { guard.clone() } else { None }
+        if url.is_some() {
+            guard.clone()
+        } else {
+            None
+        }
     };
 
     if let Some(cache) = snapshot {
         let path = soundtrack_cache_path();
         // Only write positive entries to the on-disk cache.
-        let positive_only: SoundtrackUrlCache = cache
-            .into_iter()
-            .filter(|(_, e)| e.url.is_some())
-            .collect();
+        let positive_only: SoundtrackUrlCache =
+            cache.into_iter().filter(|(_, e)| e.url.is_some()).collect();
         if let Ok(json) = serde_json::to_string(&positive_only) {
             let _ = fs::write(&path, json).await;
         }
@@ -197,7 +204,11 @@ async fn build_cookie_header() -> Option<String> {
     let path = get_youtube_cookies_path().await?;
     let text = fs::read_to_string(&path).await.ok()?;
     let header = parse_netscape_cookies(&text);
-    if header.is_empty() { None } else { Some(header) }
+    if header.is_empty() {
+        None
+    } else {
+        Some(header)
+    }
 }
 
 /// Check whether ffmpeg is already available (PATH or our bin dir) WITHOUT downloading.
@@ -214,9 +225,17 @@ async fn find_ffmpeg_if_present() -> Option<PathBuf> {
         }
     }
     let dirs = RetromDirs::new();
-    let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     let p = dirs.data_dir().join("bin").join(exe);
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 // Minimum effective score a candidate must reach to be returned from
@@ -455,7 +474,9 @@ fn candidates_from_yt_initial_data(
     let mut candidates = Vec::new();
 
     let sections = match data
-        .pointer("/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents")
+        .pointer(
+            "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
+        )
         .and_then(|v| v.as_array())
     {
         Some(s) => s,
@@ -540,17 +561,11 @@ fn parse_youtube_candidates(body: &str, game_name: &str) -> (Vec<YoutubeCandidat
 
     // Title: allow up to 900 lazy chars between "title":{ and "runs":[{"text":" so that
     // the accessibility block (typically ~150-250 chars) is bridged transparently.
-    let title_re = Regex::new(
-        r#""title":\{(?s:.{0,900}?)"runs":\[\{"text":"([^"]{1,300})""#,
-    )
-    .ok();
+    let title_re = Regex::new(r#""title":\{(?s:.{0,900}?)"runs":\[\{"text":"([^"]{1,300})""#).ok();
 
     // Duration: allow up to 600 lazy chars between "lengthText":{ and "simpleText":" for
     // the same reason (accessibility wrapper added by YouTube in 2024).
-    let dur_re = Regex::new(
-        r#""lengthText":\{(?s:.{0,600}?)"simpleText":"([0-9][0-9:]+)""#,
-    )
-    .ok();
+    let dur_re = Regex::new(r#""lengthText":\{(?s:.{0,600}?)"simpleText":"([0-9][0-9:]+)""#).ok();
 
     let body_len = body.len();
 
@@ -841,7 +856,9 @@ pub async fn search_soundtrack_candidates(game_name: &str) -> Vec<SoundtrackCand
 
 pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
     if !game_themes_enabled() {
-        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search");
+        debug!(
+            "game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search"
+        );
         return None;
     }
 
@@ -1014,46 +1031,98 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
     result
 }
 
-/// Returns an existing extracted theme audio file (e.g. theme.opus or theme.webm) inside
-/// the per-game cache dir, if present. This is used to:
-/// - skip redundant extraction
-/// - locate the actual file (whatever container yt-dlp produced) when building MediaPaths
-///   responses so the client can play it via native <video> without requiring the server
-///   host to have ffmpeg installed.
-///
-/// We prefer known good audio containers (for old extractions that produced .opus via
-/// ffmpeg, or current bestaudio downloads). As a fallback we accept *any* file literally
-/// named "theme.*" so that exotic exts chosen by yt-dlp are still discovered.
+// Audio container extensions we recognize for theme tracks, in preference order.
+const THEME_AUDIO_EXTS: [&str; 8] = ["opus", "webm", "m4a", "ogg", "mp3", "flac", "wav", "aac"];
+
+/// Theme tracks are stored per-game as `theme.<ext>` (slot 1, the primary track)
+/// and `theme-2.<ext>`, `theme-3.<ext>`, … for additional playlist entries. This
+/// returns the 1-based slot for a path whose stem matches that scheme, else None.
+fn theme_slot(path: &Path) -> Option<u32> {
+    let stem = path.file_stem()?.to_str()?;
+    if stem == "theme" {
+        Some(1)
+    } else {
+        stem.strip_prefix("theme-")?
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n >= 2)
+    }
+}
+
+/// All extracted theme audio tracks for a game, ordered by playlist slot (the
+/// primary `theme.*` first, then `theme-2`, `theme-3`, …). Within a slot the most
+/// preferred container is chosen. Handles whatever exotic ext yt-dlp produced.
+pub fn find_theme_audio_files(cache_dir: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<(u32, usize, PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(slot) = theme_slot(&path) else {
+                continue;
+            };
+            let ext_rank = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .and_then(|e| THEME_AUDIO_EXTS.iter().position(|x| *x == e));
+            let Some(ext_rank) = ext_rank else {
+                continue;
+            };
+            found.push((slot, ext_rank, path));
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    // Keep one file per slot (best container).
+    let mut seen = HashSet::new();
+    found
+        .into_iter()
+        .filter(|(slot, _, _)| seen.insert(*slot))
+        .map(|(_, _, path)| path)
+        .collect()
+}
+
+/// The primary (lowest-slot) theme audio file, if any. Backward-compatible entry
+/// point used widely to detect/serve "the" theme.
 pub fn find_theme_audio_file(cache_dir: &Path) -> Option<PathBuf> {
-    let preferred = [
-        "theme.opus",
-        "theme.webm",
-        "theme.m4a",
-        "theme.ogg",
-        "theme.mp3",
-        "theme.flac",
-        "theme.wav",
-    ];
-    for name in preferred {
-        let p = cache_dir.join(name);
+    find_theme_audio_files(cache_dir).into_iter().next()
+}
+
+/// Locate the file for a specific track slot basename (e.g. "theme" or
+/// "theme-2"), regardless of which container ext was produced.
+fn find_theme_file_for_basename(cache_dir: &Path, basename: &str) -> Option<PathBuf> {
+    for ext in THEME_AUDIO_EXTS {
+        let p = cache_dir.join(format!("{basename}.{ext}"));
         if p.exists() {
             return Some(p);
         }
     }
-
-    // Any file starting with "theme." in the game cache dir (covers whatever yt-dlp wrote
-    // for bestaudio, including cases with unusual extensions).
     if let Ok(entries) = std::fs::read_dir(cache_dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
-                if file_name.starts_with("theme.") {
-                    return Some(p);
-                }
+            if p.file_stem().and_then(|s| s.to_str()) == Some(basename) {
+                return Some(p);
             }
         }
     }
     None
+}
+
+/// The basename for the next free playlist slot: "theme" when the primary slot is
+/// empty, else "theme-N" for the lowest free N ≥ 2. Lets downloads append tracks
+/// instead of replacing the existing one.
+pub fn next_theme_basename(cache_dir: &Path) -> String {
+    let used: HashSet<u32> = find_theme_audio_files(cache_dir)
+        .iter()
+        .filter_map(|p| theme_slot(p))
+        .collect();
+    if !used.contains(&1) {
+        return "theme".to_string();
+    }
+    let mut n = 2u32;
+    while used.contains(&n) {
+        n += 1;
+    }
+    format!("theme-{n}")
 }
 
 /// Given a YT video ID and a cache dir for the game (from GameMetadata::get_cache_dir),
@@ -1076,33 +1145,35 @@ pub fn find_theme_audio_file(cache_dir: &Path) -> Option<PathBuf> {
 pub async fn try_extract_theme_audio(
     video_id: &str,
     cache_dir: PathBuf,
+    output_basename: &str,
     force: bool,
     skip_preflight_probe: bool,
 ) -> Option<PathBuf> {
     if !game_themes_enabled() {
-        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction");
+        debug!(
+            "game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction"
+        );
         return None;
     }
 
     let yt_dlp_path = ensure_yt_dlp().await?;
 
     if !force {
-        if let Some(existing) = find_theme_audio_file(&cache_dir) {
+        if let Some(existing) = find_theme_file_for_basename(&cache_dir, output_basename) {
             return Some(existing);
         }
-    } else if find_theme_audio_file(&cache_dir).is_some() {
-        // When forcing overwrite, clean up any existing theme.* files first so we re-download fresh.
+    } else if find_theme_file_for_basename(&cache_dir, output_basename).is_some() {
+        // When forcing overwrite, clean up only THIS slot's existing files first
+        // so we re-download fresh without disturbing other playlist tracks.
         debug!(
-            "force overwrite requested for theme audio {} - removing existing files",
+            "force overwrite requested for theme audio {} ({output_basename}) - removing existing slot files",
             video_id
         );
         if let Ok(entries) = std::fs::read_dir(&cache_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
-                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with("theme.") {
-                        let _ = tokio::fs::remove_file(&p).await;
-                    }
+                if p.file_stem().and_then(|n| n.to_str()) == Some(output_basename) {
+                    let _ = tokio::fs::remove_file(&p).await;
                 }
             }
         }
@@ -1136,7 +1207,7 @@ pub async fn try_extract_theme_audio(
 
     // Use %(ext)s so yt-dlp writes the actual format it chose (no forced remux).
     let output_template = cache_dir
-        .join("theme.%(ext)s")
+        .join(format!("{output_basename}.%(ext)s"))
         .to_string_lossy()
         .to_string();
 
@@ -1182,7 +1253,7 @@ pub async fn try_extract_theme_audio(
     };
 
     if output.status.success() {
-        if let Some(p) = find_theme_audio_file(&cache_dir) {
+        if let Some(p) = find_theme_file_for_basename(&cache_dir, output_basename) {
             debug!(
                 "Successfully extracted theme audio for {} -> {:?}",
                 video_id, p
@@ -1190,7 +1261,7 @@ pub async fn try_extract_theme_audio(
             Some(p)
         } else {
             warn!(
-                "yt-dlp reported success for {} but no theme.* file appeared in cache dir",
+                "yt-dlp reported success for {} but no {output_basename}.* file appeared in cache dir",
                 video_id
             );
             None
@@ -1198,9 +1269,9 @@ pub async fn try_extract_theme_audio(
     } else {
         // Even on non-zero exit, yt-dlp sometimes writes a usable file (warnings, partial success).
         // Check anyway before declaring total failure.
-        if let Some(p) = find_theme_audio_file(&cache_dir) {
+        if let Some(p) = find_theme_file_for_basename(&cache_dir, output_basename) {
             debug!(
-                "yt-dlp exited non-zero for {} but a theme.* file appeared anyway -> {:?}",
+                "yt-dlp exited non-zero for {} but a {output_basename}.* file appeared anyway -> {:?}",
                 video_id, p
             );
             Some(p)
@@ -1413,7 +1484,11 @@ pub async fn ensure_ffmpeg() -> Option<PathBuf> {
 
     let dirs = RetromDirs::new();
     let bin_dir = dirs.data_dir().join("bin");
-    let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     let exe_path = bin_dir.join(exe_name);
 
     let lock = FFMPEG_DOWNLOAD_LOCK.get_or_init(|| Mutex::new(()));
@@ -1426,13 +1501,14 @@ pub async fn ensure_ffmpeg() -> Option<PathBuf> {
 
     let (asset_name, write_name) = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => ("ffmpeg-win32-x64", "ffmpeg.exe"),
-        ("linux",   "x86_64") => ("ffmpeg-linux-x64", "ffmpeg"),
-        ("macos",   "x86_64") => ("ffmpeg-darwin-x64", "ffmpeg"),
-        ("macos",  "aarch64") => ("ffmpeg-darwin-arm64", "ffmpeg"),
+        ("linux", "x86_64") => ("ffmpeg-linux-x64", "ffmpeg"),
+        ("macos", "x86_64") => ("ffmpeg-darwin-x64", "ffmpeg"),
+        ("macos", "aarch64") => ("ffmpeg-darwin-arm64", "ffmpeg"),
         _ => {
             warn!(
                 "No ffmpeg auto-download for {}/{}. Install ffmpeg to enable audio compression.",
-                std::env::consts::OS, std::env::consts::ARCH
+                std::env::consts::OS,
+                std::env::consts::ARCH
             );
             return None;
         }
@@ -1519,17 +1595,140 @@ pub async fn ensure_ffmpeg() -> Option<PathBuf> {
     Some(out_path)
 }
 
+/// Cheap metadata-only probe for a video's title using the yt-dlp binary (no media
+/// is downloaded). Mirrors `probe_video_duration_secs`. Used to capture the real
+/// source track title at theme-download time so it can be embedded into the opus
+/// file and persisted, instead of the UI only ever seeing "theme.opus".
+pub async fn probe_video_title(video_id: &str) -> Option<String> {
+    let yt_dlp_path = ensure_yt_dlp().await?;
+
+    let yt_url = format!("https://www.youtube.com/watch?v={}", video_id);
+
+    let output = Command::new(&yt_dlp_path)
+        .args([
+            "--no-download",
+            "--no-playlist",
+            "--print",
+            "%(title)s",
+            "--user-agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            &yt_url,
+        ])
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if title.is_empty() || title.eq_ignore_ascii_case("na") {
+        None
+    } else {
+        Some(title)
+    }
+}
+
+/// Normalize a raw source track title for display/storage: strip a trailing audio
+/// file extension (junk for filename-derived names), drop the YouTube " - Topic"
+/// channel suffix, trim, and collapse internal whitespace. Returns None if the
+/// result is empty so callers can fall back to the embedded tag / "Theme".
+pub fn normalize_track_title(raw: &str) -> Option<String> {
+    let mut s = raw.trim().to_string();
+
+    for ext in [
+        ".opus", ".webm", ".m4a", ".ogg", ".mp3", ".flac", ".wav", ".aac",
+    ] {
+        if s.to_ascii_lowercase().ends_with(ext) {
+            s.truncate(s.len() - ext.len());
+            break;
+        }
+    }
+
+    if let Some(stripped) = s.strip_suffix(" - Topic") {
+        s = stripped.to_string();
+    }
+
+    let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let collapsed = collapsed.trim();
+    if collapsed.is_empty() {
+        None
+    } else {
+        Some(collapsed.to_string())
+    }
+}
+
+/// Read the Vorbis-comment TITLE tag embedded in an Ogg Opus file (the tag we now
+/// write at compress time via `-metadata title=`). Used on the read path to
+/// backfill the stored title for older themes that predate the DB column, so the
+/// UI shows a real name instead of "theme.opus" for existing files too.
+///
+/// Parses the `OpusTags` comment header packet directly (a vendor string followed
+/// by a length-prefixed list of `KEY=VALUE` comments) by scanning the first 64 KiB
+/// — enough to cover the comment header, which immediately follows the ID header.
+/// All slicing is bounds-checked, so a malformed/truncated file just yields None.
+pub fn read_opus_title(path: &Path) -> Option<String> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buf = vec![0u8; 64 * 1024];
+    let n = file.read(&mut buf).ok()?;
+    let buf = &buf[..n];
+
+    let magic = b"OpusTags";
+    let mut pos = buf.windows(magic.len()).position(|w| w == magic)? + magic.len();
+
+    let read_u32 = |p: usize| -> Option<u32> {
+        buf.get(p..p + 4)
+            .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    };
+
+    // Skip the vendor string.
+    let vendor_len = read_u32(pos)? as usize;
+    pos += 4 + vendor_len;
+
+    // Iterate the user comment list.
+    let count = read_u32(pos)? as usize;
+    pos += 4;
+    for _ in 0..count.min(256) {
+        let len = read_u32(pos)? as usize;
+        pos += 4;
+        let comment = buf.get(pos..pos + len)?;
+        pos += len;
+        if let Ok(s) = std::str::from_utf8(comment) {
+            if let Some(eq) = s.find('=') {
+                let (key, value) = s.split_at(eq);
+                if key.eq_ignore_ascii_case("title") {
+                    let value = value[1..].trim();
+                    if !value.is_empty() {
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Compress a downloaded theme audio file to opus at 64 kbps using ffmpeg.
 /// Replaces the original file on success; returns the final file path either way.
 /// No-ops if ffmpeg is unavailable (returns the original path) or if the file is
-/// already opus-encoded.
-pub async fn compress_theme_audio(audio_path: &Path, cache_dir: &Path) -> PathBuf {
+/// already opus-encoded. When `title` is provided it is embedded as the Opus/
+/// Vorbis TITLE tag so the source track name survives on disk.
+pub async fn compress_theme_audio(
+    audio_path: &Path,
+    cache_dir: &Path,
+    output_basename: &str,
+    title: Option<&str>,
+) -> PathBuf {
     // Already opus — nothing to do.
     if audio_path.extension().and_then(|e| e.to_str()) == Some("opus") {
         return audio_path.to_path_buf();
     }
 
-    let compressed = cache_dir.join("theme.opus");
+    let compressed = cache_dir.join(format!("{output_basename}.opus"));
 
     // Already compressed on a previous run.
     if compressed.exists() {
@@ -1563,17 +1762,21 @@ pub async fn compress_theme_audio(audio_path: &Path, cache_dir: &Path) -> PathBu
         compressed
     );
 
-    let result = Command::new(&ffmpeg_path)
-        .args([
-            "-i", in_str,
-            "-c:a", "libopus",
-            "-b:a", "64k",
-            "-vn",   // strip video track
-            "-y",    // overwrite output if present
-            out_str,
-        ])
-        .output()
-        .await;
+    let mut cmd = Command::new(&ffmpeg_path);
+    cmd.args([
+        "-i", in_str, "-c:a", "libopus", "-b:a", "64k", "-vn", // strip video track
+    ]);
+    // Embed the source track title as the Opus/Vorbis TITLE tag so the name is
+    // preserved on disk (and recoverable later via read_opus_title).
+    if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
+        cmd.args(["-metadata", &format!("title={title}")]);
+    }
+    cmd.args([
+        "-y", // overwrite output if present
+        out_str,
+    ]);
+
+    let result = cmd.output().await;
 
     match result {
         Ok(o) if o.status.success() && compressed.exists() => {
@@ -1587,7 +1790,10 @@ pub async fn compress_theme_audio(audio_path: &Path, cache_dir: &Path) -> PathBu
             warn!(
                 "ffmpeg compression failed for {:?}: {}",
                 audio_path,
-                String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("(no output)")
+                String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .last()
+                    .unwrap_or("(no output)")
             );
             audio_path.to_path_buf()
         }

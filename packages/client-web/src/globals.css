@@ -4,6 +4,18 @@
 @custom-variant focus-hover (&:is(:focus,:hover));
 
 @layer base {
+  :root {
+    --fs-focus-ring-width: 3px;
+    /* The fullscreen focus highlight, as a soft accent glow rather than a hard
+       ring: a crisp luminous edge for definition, then two blurred layers for
+       the glow + halo. Applied via `shadow-[var(--fs-focus-glow)]` on focus.
+       Set to `none` (see body.fs-rings-hidden) for the "reticle only" mode. */
+    --fs-focus-glow:
+      0 0 0 1.5px color-mix(in srgb, var(--color-accent-text) 75%, transparent),
+      0 0 15px 1px color-mix(in srgb, var(--color-accent-text) 50%, transparent),
+      0 0 36px 6px color-mix(in srgb, var(--color-accent) 32%, transparent);
+  }
+
   * {
     box-sizing: border-box;
     scroll-behavior: smooth;
@@ -25,12 +37,29 @@
     cursor: pointer;
   }
 
+  /* Fullscreen controller mode hides the mouse until it's physically moved.
+     !important and the universal selector override per-element cursors (e.g.
+     the button cursor:pointer above) so nothing leaks a visible cursor. */
+  body.fs-cursor-hidden,
+  body.fs-cursor-hidden * {
+    cursor: none !important;
+  }
+
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
     border-color: var(--color-border, currentColor);
+  }
+
+  /* "Reticle only" focus mode: collapse the per-element focus glow (and any
+     remaining ring width) so the reticle is the sole cue. Toggled by the
+     FullscreenReticle component, which is only mounted in fullscreen, so the
+     windowed UI keeps its highlight. */
+  body.fs-rings-hidden {
+    --fs-focus-ring-width: 0px;
+    --fs-focus-glow: none;
   }
 }
 
@@ -58,5 +87,89 @@
 
   .app-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
+  }
+
+  /* Mini-player equalizer bars. Transform-only (scaleY) so the animation never
+     triggers layout/reflow; pauses entirely under reduced-motion. */
+  @keyframes fs-eq {
+    0%,
+    100% {
+      transform: scaleY(0.3);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
+  .fs-eq-bar {
+    transform-origin: bottom;
+    animation: fs-eq 900ms ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fs-eq-bar {
+      animation: none;
+      transform: scaleY(0.55);
+    }
+  }
+
+  /* Reticle focus visual: four corner brackets that frame the focused element.
+     Each corner is a fixed-size box translated to a corner of the focused rect.
+     The position (transform) is NOT transitioned — it tracks the element 1:1
+     every frame, exactly like the per-element ring highlights, so it never lags
+     or trails behind a moving/growing/scrolling target. Only opacity (show/hide)
+     and border-color (danger) animate, and only transform changes per frame, so
+     it stays cheap on HTPC/handheld. */
+  .fs-reticle {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    pointer-events: none;
+  }
+
+  .fs-reticle > i {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border: 3px solid var(--color-ring);
+    opacity: 0;
+    will-change: transform;
+    transition:
+      opacity 180ms ease,
+      border-color 140ms ease;
+  }
+
+  .fs-reticle[data-visible="true"] > i {
+    opacity: 1;
+  }
+
+  .fs-reticle > i:nth-child(1) {
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .fs-reticle > i:nth-child(2) {
+    border-left: 0;
+    border-bottom: 0;
+  }
+  .fs-reticle > i:nth-child(3) {
+    border-right: 0;
+    border-top: 0;
+  }
+  .fs-reticle > i:nth-child(4) {
+    border-left: 0;
+    border-top: 0;
+  }
+
+  .fs-reticle[data-variant="danger"] > i {
+    border-color: var(--color-destructive-text);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fs-reticle > i {
+      transition: opacity 180ms ease;
+    }
   }
 }

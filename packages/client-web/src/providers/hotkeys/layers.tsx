@@ -18,6 +18,7 @@ import {
 import { useInputDeviceContext } from "../input-device";
 import { cn } from "@retrom/ui/lib/utils";
 import { useHotkeyMapping } from "./mapping";
+import { gamepadAxisToHotkey } from "./gamepad-axis";
 
 declare global {
   export interface HotkeyZones {
@@ -178,9 +179,17 @@ export function HotkeyLayer(props: HotkeyLayerProps) {
 
   const handleHotkey = useCallback(
     (
-      hotkey: Hotkey,
-      event: KeyboardEvent | ReactKeyboardEvent | GamepadButtonDownEvent,
+      hotkey: Hotkey | undefined,
+      event:
+        | KeyboardEvent
+        | ReactKeyboardEvent
+        | GamepadButtonDownEvent
+        | GamepadAxisActiveEvent,
     ) => {
+      if (!hotkey) {
+        return;
+      }
+
       const handlerInfo = getHandler(hotkey);
 
       const { handler, zone } = handlerInfo ?? {};
@@ -226,14 +235,18 @@ export function HotkeyLayer(props: HotkeyLayerProps) {
     [handleHotkey, hotkeyMap],
   );
 
-  const handleGamepadButton = useCallback(
+  const handleGamepadInput = useCallback(
     (event: GamepadButtonDownEvent | GamepadAxisActiveEvent) => {
       if (event instanceof GamepadButtonDownEvent) {
         const button = event.detail.button;
 
         const hotkey = gamepadMap[button];
         handleHotkey(hotkey, event);
+        return;
       }
+
+      const hotkey = gamepadAxisToHotkey(event);
+      handleHotkey(hotkey, event);
     },
     [handleHotkey, gamepadMap],
   );
@@ -247,15 +260,15 @@ export function HotkeyLayer(props: HotkeyLayerProps) {
     const node = ref.current;
 
     gamepadEvents.forEach(({ EVENT_NAME }) => {
-      node.addEventListener(EVENT_NAME, handleGamepadButton);
+      node.addEventListener(EVENT_NAME, handleGamepadInput);
     });
 
     return () => {
       gamepadEvents.forEach(({ EVENT_NAME }) => {
-        node.removeEventListener(EVENT_NAME, handleGamepadButton);
+        node.removeEventListener(EVENT_NAME, handleGamepadInput);
       });
     };
-  }, [handleGamepadButton]);
+  }, [handleGamepadInput]);
 
   const layer: HotkeyLayerState = useMemo(
     () => ({

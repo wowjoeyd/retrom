@@ -1,4 +1,9 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import {
+  CatchBoundary,
+  createFileRoute,
+  Outlet,
+  useMatch,
+} from "@tanstack/react-router";
 import { useRef, useEffect } from "react";
 import { FullscreenMenubar } from "../components/fullscreen/menubar";
 import { cn } from "@retrom/ui/lib/utils";
@@ -9,18 +14,32 @@ import {
   init,
   navigateByDirection,
   setKeyMap,
+  setFocus,
+  getCurrentFocusKey,
 } from "@noriginmedia/norigin-spatial-navigation";
 import { useHotkeys } from "@/providers/hotkeys";
 import { checkIsDesktop } from "@/lib/env";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { FocusedHotkeyLayerProvider } from "@/providers/hotkeys/layers";
 import { configStore } from "@/providers/config";
 import { ModalActionProvider } from "@/providers/modal-action";
 import { ResolveCloudSaveConflictModal } from "@/components/modals/resolve-cloud-save-conflict";
 import { InstallOnPlayModal } from "@/components/modals/install-on-play";
-import { GameMusicNowPlaying } from "../components/fullscreen/grid-game-list";
-import { gameMusicPlayer } from "../components/fullscreen/grid-game-list";
+import {
+  gameMusicPlayer,
+  cancelPendingFocusMusic,
+  useGameMusicStatus,
+} from "../components/fullscreen/grid-game-list";
+import { consumeQuickScrollNav } from "../components/fullscreen/alphabet-scroll-overlay";
+import { Background, Scene } from "../components/fullscreen/scene";
+import { ActionBarProvider } from "@/providers/fullscreen/action-bar-context";
+import { StartupMovie } from "../components/fullscreen/startup-movie";
+import { FullscreenCursorManager } from "../components/fullscreen/cursor-manager";
+import { FullscreenReticle } from "../components/fullscreen/reticle";
 
 declare global {
   export interface HotkeyZones {
@@ -30,6 +49,21 @@ declare global {
 
 const searchSchema = z.object({
   activeGroupId: z.number().catch(-1),
+  restoreGridFocus: z.boolean().optional().catch(undefined),
+  sortBy: z
+    .enum([
+      "name",
+      "lastPlayed",
+      "dateAdded",
+      "playTime",
+      "releaseDate",
+      "platform",
+    ])
+    .catch("name"),
+  filters: z
+    .array(z.enum(["installed", "notInstalled", "steam", "nonSteam"]))
+    .optional()
+    .catch(undefined),
 });
 
 export const Route = createFileRoute("/_fullscreenLayout")({
@@ -43,9 +77,31 @@ export const Route = createFileRoute("/_fullscreenLayout")({
      * On desktop, default to fullscreen window mode unless configured otherwise.
      * On web, default to windowed mode unless explicitly set to fullscreen.
      */
-    if (checkIsDesktop() && windowedFullscreenMode !== true) {
-      await getCurrentWindow().setFullscreen(true);
-    } else if (!checkIsDesktop() && windowedFullscreenMode === false) {
+    if (checkIsDesktop()) {
+      const win = getCurrentWindow();
+
+      // Make sure the window is visible and un-minimized BEFORE sizing it.
+      // unminimize() issues ShowWindow(SW_RESTORE), which would otherwise undo
+      // the fullscreen geometry if called afterwards (the window ends up a
+      // restored size offset on screen).
+      try {
+        await win.unminimize();
+        await win.show();
+      } catch (e) {
+        console.error(e);
+      }
+
+      if (windowedFullscreenMode !== true) {
+        await win.setFullscreen(true);
+      }
+
+      // Bring Retrom to the foreground like a launched game — WITHOUT pinning it
+      // always-on-top, so other windows can still be brought in front normally.
+      // Windows blocks a background process from stealing focus via
+      // SetForegroundWindow, so this goes through a native command that uses the
+      // AttachThreadInput trick to legitimately take the foreground.
+      await invoke("request_foreground").catch(console.error);
+    } else if (windowedFullscreenMode === false) {
       await window.document.documentElement
         .requestFullscreen()
         .catch(console.error);
@@ -72,15 +128,25 @@ export const Route = createFileRoute("/_fullscreenLayout")({
 
 function FullscreenLayout() {
   const container = useRef<HTMLDivElement>(null);
+  const isDetailPage = useMatch({
+    from: "/_fullscreenLayout/fullscreen/games/$gameId",
+    shouldThrow: false,
+  });
 
   useHotkeys({
     handlers: {
       UP: {
-        handler: () => navigateByDirection("up", {}),
+        handler: (e) => {
+          if (consumeQuickScrollNav("UP", e)) return;
+          navigateByDirection("up", {});
+        },
         zone: "root-navigation",
       },
       DOWN: {
-        handler: () => navigateByDirection("down", {}),
+        handler: (e) => {
+          if (consumeQuickScrollNav("DOWN", e)) return;
+          navigateByDirection("down", {});
+        },
         zone: "root-navigation",
       },
       LEFT: {
@@ -99,7 +165,96 @@ function FullscreenLayout() {
   // theme music from details/hover does not continue into windowed mode.
   useEffect(() => {
     return () => {
+      cancelPendingFocusMusic();
       gameMusicPlayer.stop(300);
+    };
+  }, []);
+
+  // React to games starting/stopping (any launch type) so the fullscreen
+  // experience behaves like Steam Big Picture. We do NOT minimize/hide Retrom —
+  // doing so suspends the webview (audio context, rAF-driven gamepad polling)
+  // and drops DOM focus, which broke input and music on return. Instead we let
+  // the launched game take the foreground over our (still-live) window, then:
+  //   - flip the shared "running" flag, which gates theme music off while a game
+  //     is running and lets the detail page replay it on return; and
+  //   - on return, re-assert fullscreen, raise Retrom, and crucially restore
+  //     DOM/spatial focus so the controller is captured again (the game stole
+  //     the OS foreground, leaving our webview unfocused).
+  useEffect(() => {
+    if (!checkIsDesktop()) return;
+
+    const win = getCurrentWindow();
+    const webview = getCurrentWebviewWindow();
+    const unlisten: UnlistenFn[] = [];
+
+    // Whenever our window genuinely regains focus (programmatically below, or via
+    // the user alt-tabbing / clicking), re-assert spatial focus so the controller
+    // has an anchor again — navigateByDirection needs a focused element and
+    // ACCEPT only fires when its element's layer holds focus.
+    const reassertSpatialFocus = () => {
+      const key = getCurrentFocusKey();
+      if (key) setFocus(key);
+    };
+    window.addEventListener("focus", reassertSpatialFocus);
+
+    // Whether we paused a *playing* theme for this launch, so we only resume on
+    // exit if we actually paused. A no-theme game (nothing playing) is left
+    // untouched on both launch and exit — pausing it would otherwise flip the
+    // soundtrack console to a "Paused" state for a game that has no theme.
+    let pausedThemeForGame = false;
+
+    void (async () => {
+      unlisten.push(
+        await webview.listen("game-running", () => {
+          // Only pause when a theme is genuinely playing. Pause (don't stop) so
+          // it resumes from where it left off when the game exits, instead of
+          // restarting.
+          if (useGameMusicStatus.getState().status === "playing") {
+            gameMusicPlayer.pauseTheme();
+            pausedThemeForGame = true;
+          }
+        }),
+      );
+
+      unlisten.push(
+        await webview.listen("game-stopped", () => {
+          void (async () => {
+            try {
+              const { windowedFullscreenMode } =
+                configStore.getState()?.config?.interface?.fullscreenConfig ??
+                {};
+
+              if (
+                windowedFullscreenMode !== true &&
+                !(await win.isFullscreen())
+              ) {
+                await win.setFullscreen(true);
+              }
+            } catch (e) {
+              console.error(e);
+            }
+
+            // Resume only if we paused a playing theme on launch (also resumes
+            // audio ctx). A no-theme game was never paused, so it keeps its
+            // "no theme" state and never shows a transient pause/resume.
+            if (pausedThemeForGame) {
+              gameMusicPlayer.resumeTheme();
+              pausedThemeForGame = false;
+            }
+
+            // Reclaiming the OS foreground is handled in Rust (it retries on a
+            // spaced schedule to beat the closing game). When the window regains
+            // focus, the `focus` listener above re-asserts spatial focus; do it
+            // once more shortly after as a fallback in case that event is missed.
+            setTimeout(reassertSpatialFocus, 500);
+          })();
+        }),
+      );
+    })();
+
+    return () => {
+      window.removeEventListener("focus", reassertSpatialFocus);
+      unlisten.forEach((fn) => fn());
     };
   }, []);
 
@@ -108,21 +263,51 @@ function FullscreenLayout() {
       <FocusedHotkeyLayerProvider>
         <GamepadProvider>
           <GroupContextProvider>
-            <div
-              ref={container}
-              className={cn("h-[100dvh] w-screen relative", "flex flex-col")}
-            >
-              <FullscreenMenubar className="w-full border-b z-[50] bg-background" />
+            <ActionBarProvider>
+              <div
+                ref={container}
+                className={cn("h-[100dvh] w-screen relative", "flex flex-col")}
+              >
+                {/* Persistent animated background — lives at layout level so the
+                    WebGL canvas never unmounts across grid/detail route transitions,
+                    eliminating the shader startup delay on Back to grid.
+                    Hidden (but kept alive) on the detail page since it has its own scene. */}
+                <div
+                  className={cn(
+                    "absolute inset-0 -z-[1] pointer-events-none",
+                    isDetailPage && "opacity-0",
+                  )}
+                >
+                  <CatchBoundary
+                    getResetKey={() => "resetSceneLayout"}
+                    onCatch={(error) =>
+                      console.warn("Layout background scene error:", error)
+                    }
+                    errorComponent={() => null}
+                  >
+                    <Scene>
+                      <Background />
+                    </Scene>
+                  </CatchBoundary>
+                </div>
 
-              <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
-                <Outlet />
+                <FullscreenMenubar className="w-full border-b z-[50] bg-background" />
+
+                <div className="flex flex-col h-full max-h-full overflow-hidden w-full *:overflow-y-auto">
+                  <Outlet />
+                </div>
               </div>
 
-              <GameMusicNowPlaying />
-            </div>
-
-            <ResolveCloudSaveConflictModal />
-            <InstallOnPlayModal />
+              <ResolveCloudSaveConflictModal />
+              <InstallOnPlayModal />
+              <StartupMovie />
+              <FullscreenCursorManager />
+              {/* Global focus reticle — frames the spatially-focused element
+                  across the grid, panels, guide/context menus, and detail page.
+                  Mounted here (not per-route) so it's the one consistent cue and
+                  never affects the windowed UI. */}
+              <FullscreenReticle />
+            </ActionBarProvider>
           </GroupContextProvider>
         </GamepadProvider>
       </FocusedHotkeyLayerProvider>

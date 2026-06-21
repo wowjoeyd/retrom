@@ -34,12 +34,15 @@ export function InputDeviceProvider(props: { children: React.ReactNode }) {
     // GamepadProvider dispatches on document.activeElement; if that element is
     // outside all HotkeyLayer spans (body, portal, dialog overlay, etc.) the
     // event never reaches a layer and setInputDevice("gamepad") is never called.
-    function onGamepadButton() {
+    function onGamepadInput() {
       setInputDevice("gamepad");
     }
-    document.addEventListener("gamepad-button-down", onGamepadButton);
-    return () =>
-      document.removeEventListener("gamepad-button-down", onGamepadButton);
+    document.addEventListener("gamepad-button-down", onGamepadInput);
+    document.addEventListener("gamepad-axes", onGamepadInput);
+    return () => {
+      document.removeEventListener("gamepad-button-down", onGamepadInput);
+      document.removeEventListener("gamepad-axes", onGamepadInput);
+    };
   }, []);
 
   const value = useMemo(
