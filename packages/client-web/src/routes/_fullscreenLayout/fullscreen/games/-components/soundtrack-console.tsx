@@ -46,13 +46,14 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
-// Compact "now playing" faceplate for the right hero cluster — a dedicated mini
-// player: status, a live visualizer, the (scrolling) track name, a progress
-// bar, and transport controls. "Now Playing" derives ONLY from real playback
-// ownership and theme presence ONLY from the persisted themeAudioUrl, so a
-// transient/loading state never promotes a no-theme game (the no-theme → now-
-// playing regression guard). The Download/Replace flow lives in the Actions
-// panel, not here.
+// Borderless "now playing" cluster for the right side of the hero — the
+// counterpart to the title + Launch/Actions block on the left. No card: it sits
+// directly on the hero scrim/art the way the title does (status, a live
+// visualizer, the scrolling track name, a progress bar, and transport). "Now
+// Playing" derives ONLY from real playback ownership and theme presence ONLY
+// from the persisted themeAudioUrl, so a transient/loading state never promotes
+// a no-theme game (the no-theme → now-playing regression guard). The
+// Download/Replace flow lives in the Actions panel, not here.
 export function SoundtrackConsole() {
   const { game, gameMetadata, extraMetadata } = useGameDetail();
   const publicUrl = usePublicUrl();
@@ -139,14 +140,11 @@ export function SoundtrackConsole() {
           : "No Theme";
 
   return (
-    <section
-      className={cn(
-        "relative w-64 overflow-hidden rounded-xl border px-4 py-3 backdrop-blur-md transition-colors",
-        state === "playing"
-          ? "border-accent/50 bg-background/50 shadow-[0_0_24px_-8px_var(--color-accent)]"
-          : "border-border/60 bg-background/40",
-      )}
-    >
+    // Borderless: no fill/border/glow. A constrained column on the right of the
+    // hero, mirroring the left title block; the label sits left and the live
+    // status right, the transport centers under the visualizer, and the shared
+    // text-shadow keeps it legible directly on the art, like the title.
+    <section className="w-60 max-w-full text-right [text-shadow:0_1px_8px_rgba(0,0,0,0.55)]">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[0.6rem] font-bold uppercase tracking-[0.22em] text-muted-foreground">
           Soundtrack
@@ -368,9 +366,14 @@ function Marquee(props: { text: string; className?: string }) {
     if (!container || !inner) return;
 
     inner.style.transform = "translateX(0)";
-    if (reduceMotion) return;
 
     const overflow = inner.scrollWidth - container.clientWidth;
+    // When it fits, rest flush-right so the title aligns with the rest of the
+    // right-side cluster. When it overflows we anchor left and scroll from the
+    // start, so the user always reads the beginning of a long name first.
+    container.style.justifyContent = overflow <= 4 ? "flex-end" : "flex-start";
+
+    if (reduceMotion) return;
     if (overflow <= 4) return; // fits — no scroll needed
 
     const distance = overflow + 8;
@@ -395,8 +398,11 @@ function Marquee(props: { text: string; className?: string }) {
   }, [text, reduceMotion]);
 
   return (
-    <div ref={containerRef} className={cn("overflow-hidden", className)}>
-      <span ref={innerRef} className="inline-block whitespace-nowrap">
+    <div
+      ref={containerRef}
+      className={cn("flex justify-end overflow-hidden", className)}
+    >
+      <span ref={innerRef} className="inline-block shrink-0 whitespace-nowrap">
         {text}
       </span>
     </div>
@@ -425,7 +431,7 @@ function Transport(props: {
   };
 
   return (
-    <div className="mt-3 flex items-center justify-center gap-3">
+    <div className="mt-3 flex items-center justify-center gap-2">
       <SkipButton
         side="prev"
         onActivate={onPrev}
@@ -443,11 +449,9 @@ function Transport(props: {
   );
 }
 
-const TRANSPORT_BOX = cn(
-  "grid size-11 place-items-center rounded-lg border outline-none transition-all",
-  "focus-hover:shadow-[var(--fs-focus-glow)]",
-);
-
+// Ghost play-pause: a thin accent ring, transparent center — deliberately
+// lighter than the solid purple Launch button so it never competes for the
+// page's single bold accent. Fills in only on focus/hover.
 function PlayPauseButton(props: { playing: boolean; onActivate: () => void }) {
   const { playing, onActivate } = props;
 
@@ -475,21 +479,23 @@ function PlayPauseButton(props: { playing: boolean; onActivate: () => void }) {
         onClick={onActivate}
         aria-label={playing ? "Pause theme" : "Play theme"}
         className={cn(
-          TRANSPORT_BOX,
-          "border-accent/60 bg-accent/15 text-accent-text",
-          "focus-hover:bg-accent focus-hover:text-accent-foreground",
+          "grid size-10 place-items-center rounded-full border outline-none transition-all",
+          "border-accent/70 bg-transparent text-accent-text",
+          "focus-hover:border-accent focus-hover:bg-accent/20 focus-hover:shadow-[var(--fs-focus-glow)]",
         )}
       >
         {playing ? (
-          <Pause size={18} className="fill-current" />
+          <Pause size={16} className="fill-current" />
         ) : (
-          <Play size={18} className="translate-x-[1px] fill-current" />
+          <Play size={16} className="translate-x-[1px] fill-current" />
         )}
       </button>
     </HotkeyLayer>
   );
 }
 
+// Minimal prev/next: bare dimmed icons (no box), dimmer still and non-focusable
+// when there's only one track to move between.
 function SkipButton(props: {
   side: "prev" | "next";
   onActivate: () => void;
@@ -504,10 +510,7 @@ function SkipButton(props: {
     return (
       <span
         aria-hidden
-        className={cn(
-          TRANSPORT_BOX,
-          "border-border/40 text-muted-foreground/30",
-        )}
+        className="grid size-9 place-items-center text-muted-foreground/25"
       >
         <Icon size={16} />
       </span>
@@ -545,9 +548,8 @@ function FocusableSkip(props: {
         onClick={onActivate}
         aria-label={label}
         className={cn(
-          TRANSPORT_BOX,
-          "border-border/60 bg-background/40 text-foreground/70",
-          "focus-hover:bg-muted/60 focus-hover:text-foreground",
+          "grid size-9 place-items-center rounded-full text-muted-foreground/70 outline-none transition-all",
+          "focus-hover:bg-foreground/10 focus-hover:text-foreground focus-hover:shadow-[var(--fs-focus-glow)]",
         )}
       >
         <Icon size={16} />
