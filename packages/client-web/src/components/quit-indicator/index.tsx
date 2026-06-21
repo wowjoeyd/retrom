@@ -34,7 +34,8 @@ export function QuitIndicator() {
   // Bumped on each new hold so the ring/pill animations restart cleanly via key.
   const [holdId, setHoldId] = useState(0);
   const [reduceMotion] = useState(
-    () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+    () =>
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
   );
 
   // The host window is transparent; clear the inherited app background so only
@@ -88,7 +89,10 @@ export function QuitIndicator() {
   // Inside the ring, show the last combo button that has dedicated art (combos
   // usually end on an action/menu button); fall back to the first glyph.
   const centerGlyph =
-    [...buttons].reverse().map(quitButtonGlyph).find((g) => g.src) ??
+    [...buttons]
+      .reverse()
+      .map(quitButtonGlyph)
+      .find((g) => g.src) ??
     quitButtonGlyph(buttons[0] ?? DEFAULT_QUIT_COMBO[2]);
 
   // Ring fill: animate from empty to full over the hold duration; on confirm (or
@@ -208,7 +212,11 @@ export function QuitIndicator() {
             return (
               <span
                 key={`${button}-${i}`}
-                style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
               >
                 {i > 0 && <Plus />}
                 {glyph.src ? (

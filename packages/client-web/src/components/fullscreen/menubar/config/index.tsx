@@ -440,10 +440,7 @@ function ConfigForm() {
                   id: "config-focus-indicator",
                 }}
               >
-                <ConfigSelectItem
-                  id="config-focus-indicator-BOTH"
-                  value="BOTH"
-                >
+                <ConfigSelectItem id="config-focus-indicator-BOTH" value="BOTH">
                   Reticle + Rings
                 </ConfigSelectItem>
                 <ConfigSelectItem

@@ -104,9 +104,7 @@ export function GeneralConfig() {
   // enum can't live in that form — apply it directly to the store on change,
   // the same way the emulator auto-sync toggle above is handled.
   const focusIndicator = config?.interface?.focusIndicator ?? "BOTH";
-  const setFocusIndicator = (
-    value: "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY",
-  ) => {
+  const setFocusIndicator = (value: "BOTH" | "RETICLE_ONLY" | "RINGS_ONLY") => {
     configStore.setState((s) => {
       s.config = {
         ...s.config,
@@ -488,8 +486,8 @@ export function GeneralConfig() {
             </Select>
             <p className="text-sm text-muted-foreground max-w-[45ch]">
               Which cue marks the focused item when navigating fullscreen with a
-              controller or keyboard: the corner-bracket reticle, the per-element
-              ring highlight, or both. Applies immediately.
+              controller or keyboard: the corner-bracket reticle, the
+              per-element ring highlight, or both. Applies immediately.
             </p>
           </div>
 

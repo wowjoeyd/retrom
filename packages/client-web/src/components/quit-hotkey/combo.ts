@@ -69,6 +69,8 @@ export function quitComboLabel(buttons: readonly number[]): string {
 }
 
 /** The bound combo, falling back to the default when unset/empty. */
-export function resolveQuitCombo(buttons: readonly number[] | undefined): number[] {
+export function resolveQuitCombo(
+  buttons: readonly number[] | undefined,
+): number[] {
   return buttons && buttons.length > 0 ? [...buttons] : [...DEFAULT_QUIT_COMBO];
 }

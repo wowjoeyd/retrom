@@ -429,17 +429,19 @@ impl MetadataService for MetadataServiceHandlers {
                 }
 
                 let primary = theme_urls[0].clone();
-                let entry = media_paths.entry(meta.game_id).or_insert_with(|| MediaPaths {
-                    cover_url: None,
-                    background_url: None,
-                    icon_url: None,
-                    video_urls: vec![],
-                    screenshot_urls: vec![],
-                    artwork_urls: vec![],
-                    theme_audio_url: None,
-                    theme_audio_urls: vec![],
-                    theme_audio_titles: vec![],
-                });
+                let entry = media_paths
+                    .entry(meta.game_id)
+                    .or_insert_with(|| MediaPaths {
+                        cover_url: None,
+                        background_url: None,
+                        icon_url: None,
+                        video_urls: vec![],
+                        screenshot_urls: vec![],
+                        artwork_urls: vec![],
+                        theme_audio_url: None,
+                        theme_audio_urls: vec![],
+                        theme_audio_titles: vec![],
+                    });
                 entry.theme_audio_url = Some(primary);
                 entry.theme_audio_urls = theme_urls;
                 entry.theme_audio_titles = theme_titles;
@@ -1504,8 +1506,14 @@ impl MetadataService for MetadataServiceHandlers {
                     }
 
                     // Download and compress theme audio (auto = the primary track).
-                    match try_extract_theme_audio(&video_id, cache_dir.clone(), "theme", true, false)
-                        .await
+                    match try_extract_theme_audio(
+                        &video_id,
+                        cache_dir.clone(),
+                        "theme",
+                        true,
+                        false,
+                    )
+                    .await
                     {
                         Some(path) => {
                             let title = probe_video_title(&video_id)

@@ -69,8 +69,9 @@ export function FullscreenReticle() {
     // highlights via :focus / :focus-within, so the reticle always agrees with
     // the highlight.
     const getTarget = (): HTMLElement | null => {
-      const focused =
-        document.querySelector<HTMLElement>('[data-focused="true"]');
+      const focused = document.querySelector<HTMLElement>(
+        '[data-focused="true"]',
+      );
       if (focused?.isConnected) return focused;
       const active = document.activeElement as HTMLElement | null;
       if (active && active !== document.body && active.isConnected) {

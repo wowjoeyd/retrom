@@ -7,9 +7,7 @@ use std::{
     },
 };
 
-use retrom_codegen::retrom::{
-    GamePlayStatusUpdate, PlayStatus, UpdateGamePlaytimeRequest,
-};
+use retrom_codegen::retrom::{GamePlayStatusUpdate, PlayStatus, UpdateGamePlaytimeRequest};
 use retrom_plugin_service_client::RetromPluginServiceClientExt;
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Emitter, Manager, Runtime};
@@ -191,7 +189,8 @@ impl<R: Runtime> Launcher<R> {
         let mut processes = self.child_processes.write().await;
         let child = processes.remove(&game_id);
         // Only clear the "game running" flag once nothing else is still running.
-        self.game_active.store(!processes.is_empty(), Ordering::SeqCst);
+        self.game_active
+            .store(!processes.is_empty(), Ordering::SeqCst);
         drop(processes);
 
         info!("Marking game {game_id} as stopped");

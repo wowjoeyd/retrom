@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::fs;
 use tokio::process::Command;
-use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{debug, warn};
 
@@ -66,7 +66,9 @@ async fn get_youtube_cookies_path() -> Option<PathBuf> {
         return Some(p);
     }
     // Fallback to environment variable.
-    std::env::var("RETROM_YOUTUBE_COOKIES").ok().map(PathBuf::from)
+    std::env::var("RETROM_YOUTUBE_COOKIES")
+        .ok()
+        .map(PathBuf::from)
 }
 
 // ── Persistent soundtrack URL cache ──────────────────────────────────────────
@@ -142,23 +144,28 @@ async fn cache_store(key: &str, url: Option<String>) {
         if let Some(cache) = guard.as_mut() {
             cache.insert(
                 key.to_string(),
-                CachedSoundtrackEntry { url: url.clone(), cached_at_secs: now_secs },
+                CachedSoundtrackEntry {
+                    url: url.clone(),
+                    cached_at_secs: now_secs,
+                },
             );
         }
         // Only snapshot for disk write when we have a positive result.
         // Negative results (None) are kept in-memory for within-session deduplication
         // but must not be persisted — a future run (with cookies, better regex, etc.)
         // should always retry games that previously had no match.
-        if url.is_some() { guard.clone() } else { None }
+        if url.is_some() {
+            guard.clone()
+        } else {
+            None
+        }
     };
 
     if let Some(cache) = snapshot {
         let path = soundtrack_cache_path();
         // Only write positive entries to the on-disk cache.
-        let positive_only: SoundtrackUrlCache = cache
-            .into_iter()
-            .filter(|(_, e)| e.url.is_some())
-            .collect();
+        let positive_only: SoundtrackUrlCache =
+            cache.into_iter().filter(|(_, e)| e.url.is_some()).collect();
         if let Ok(json) = serde_json::to_string(&positive_only) {
             let _ = fs::write(&path, json).await;
         }
@@ -197,7 +204,11 @@ async fn build_cookie_header() -> Option<String> {
     let path = get_youtube_cookies_path().await?;
     let text = fs::read_to_string(&path).await.ok()?;
     let header = parse_netscape_cookies(&text);
-    if header.is_empty() { None } else { Some(header) }
+    if header.is_empty() {
+        None
+    } else {
+        Some(header)
+    }
 }
 
 /// Check whether ffmpeg is already available (PATH or our bin dir) WITHOUT downloading.
@@ -214,9 +225,17 @@ async fn find_ffmpeg_if_present() -> Option<PathBuf> {
         }
     }
     let dirs = RetromDirs::new();
-    let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     let p = dirs.data_dir().join("bin").join(exe);
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 // Minimum effective score a candidate must reach to be returned from
@@ -455,7 +474,9 @@ fn candidates_from_yt_initial_data(
     let mut candidates = Vec::new();
 
     let sections = match data
-        .pointer("/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents")
+        .pointer(
+            "/contents/twoColumnSearchResultsRenderer/primaryContents/sectionListRenderer/contents",
+        )
         .and_then(|v| v.as_array())
     {
         Some(s) => s,
@@ -540,17 +561,11 @@ fn parse_youtube_candidates(body: &str, game_name: &str) -> (Vec<YoutubeCandidat
 
     // Title: allow up to 900 lazy chars between "title":{ and "runs":[{"text":" so that
     // the accessibility block (typically ~150-250 chars) is bridged transparently.
-    let title_re = Regex::new(
-        r#""title":\{(?s:.{0,900}?)"runs":\[\{"text":"([^"]{1,300})""#,
-    )
-    .ok();
+    let title_re = Regex::new(r#""title":\{(?s:.{0,900}?)"runs":\[\{"text":"([^"]{1,300})""#).ok();
 
     // Duration: allow up to 600 lazy chars between "lengthText":{ and "simpleText":" for
     // the same reason (accessibility wrapper added by YouTube in 2024).
-    let dur_re = Regex::new(
-        r#""lengthText":\{(?s:.{0,600}?)"simpleText":"([0-9][0-9:]+)""#,
-    )
-    .ok();
+    let dur_re = Regex::new(r#""lengthText":\{(?s:.{0,600}?)"simpleText":"([0-9][0-9:]+)""#).ok();
 
     let body_len = body.len();
 
@@ -841,7 +856,9 @@ pub async fn search_soundtrack_candidates(game_name: &str) -> Vec<SoundtrackCand
 
 pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
     if !game_themes_enabled() {
-        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search");
+        debug!(
+            "game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping soundtrack search"
+        );
         return None;
     }
 
@@ -1015,9 +1032,7 @@ pub async fn find_soundtrack_url(game_name: &str) -> Option<String> {
 }
 
 // Audio container extensions we recognize for theme tracks, in preference order.
-const THEME_AUDIO_EXTS: [&str; 8] = [
-    "opus", "webm", "m4a", "ogg", "mp3", "flac", "wav", "aac",
-];
+const THEME_AUDIO_EXTS: [&str; 8] = ["opus", "webm", "m4a", "ogg", "mp3", "flac", "wav", "aac"];
 
 /// Theme tracks are stored per-game as `theme.<ext>` (slot 1, the primary track)
 /// and `theme-2.<ext>`, `theme-3.<ext>`, … for additional playlist entries. This
@@ -1135,7 +1150,9 @@ pub async fn try_extract_theme_audio(
     skip_preflight_probe: bool,
 ) -> Option<PathBuf> {
     if !game_themes_enabled() {
-        debug!("game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction");
+        debug!(
+            "game themes disabled (RETROM_GAME_THEMES_ENABLED=false); skipping theme extraction"
+        );
         return None;
     }
 
@@ -1467,7 +1484,11 @@ pub async fn ensure_ffmpeg() -> Option<PathBuf> {
 
     let dirs = RetromDirs::new();
     let bin_dir = dirs.data_dir().join("bin");
-    let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     let exe_path = bin_dir.join(exe_name);
 
     let lock = FFMPEG_DOWNLOAD_LOCK.get_or_init(|| Mutex::new(()));
@@ -1480,13 +1501,14 @@ pub async fn ensure_ffmpeg() -> Option<PathBuf> {
 
     let (asset_name, write_name) = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => ("ffmpeg-win32-x64", "ffmpeg.exe"),
-        ("linux",   "x86_64") => ("ffmpeg-linux-x64", "ffmpeg"),
-        ("macos",   "x86_64") => ("ffmpeg-darwin-x64", "ffmpeg"),
-        ("macos",  "aarch64") => ("ffmpeg-darwin-arm64", "ffmpeg"),
+        ("linux", "x86_64") => ("ffmpeg-linux-x64", "ffmpeg"),
+        ("macos", "x86_64") => ("ffmpeg-darwin-x64", "ffmpeg"),
+        ("macos", "aarch64") => ("ffmpeg-darwin-arm64", "ffmpeg"),
         _ => {
             warn!(
                 "No ffmpeg auto-download for {}/{}. Install ffmpeg to enable audio compression.",
-                std::env::consts::OS, std::env::consts::ARCH
+                std::env::consts::OS,
+                std::env::consts::ARCH
             );
             return None;
         }
@@ -1742,10 +1764,7 @@ pub async fn compress_theme_audio(
 
     let mut cmd = Command::new(&ffmpeg_path);
     cmd.args([
-        "-i", in_str,
-        "-c:a", "libopus",
-        "-b:a", "64k",
-        "-vn", // strip video track
+        "-i", in_str, "-c:a", "libopus", "-b:a", "64k", "-vn", // strip video track
     ]);
     // Embed the source track title as the Opus/Vorbis TITLE tag so the name is
     // preserved on disk (and recoverable later via read_opus_title).
@@ -1771,7 +1790,10 @@ pub async fn compress_theme_audio(
             warn!(
                 "ffmpeg compression failed for {:?}: {}",
                 audio_path,
-                String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("(no output)")
+                String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .last()
+                    .unwrap_or("(no output)")
             );
             audio_path.to_path_buf()
         }

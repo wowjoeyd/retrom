@@ -66,7 +66,8 @@ export function useComboCapture(
     setHeld([]);
     setProgress(0);
     setGamepadUiSuppressed(false);
-    if (checkIsDesktop()) void setQuitRebindActive(false).catch(() => undefined);
+    if (checkIsDesktop())
+      void setQuitRebindActive(false).catch(() => undefined);
   }, []);
 
   const cancel = useCallback(() => {
@@ -84,7 +85,9 @@ export function useComboCapture(
           title: "That button can't be used",
           description: `The ${reserved
             .map((b) => quitButtonGlyph(b).label)
-            .join(", ")} button is reserved by the system. Pick a different combo.`,
+            .join(
+              ", ",
+            )} button is reserved by the system. Pick a different combo.`,
           variant: "destructive",
         });
         setPhase("idle");

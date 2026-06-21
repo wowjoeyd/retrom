@@ -184,8 +184,7 @@ fn pids_under_dir(dir: &std::path::Path) -> Vec<u32> {
         loop {
             let pid = entry.th32ProcessID;
             if pid != 0 {
-                let handle =
-                    unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+                let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
                 if !handle.is_null() {
                     let mut buf = [0u16; 4096];
                     let mut len = buf.len() as u32;

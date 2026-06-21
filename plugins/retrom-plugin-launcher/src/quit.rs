@@ -261,7 +261,13 @@ fn show_indicator<R: Runtime>(app: &AppHandle<R>) {
     unsafe {
         let (x, y, w, h, flags) = match rect {
             Some((x, y, w, h)) => (x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW),
-            None => (0, 0, 0, 0, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE),
+            None => (
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE,
+            ),
         };
 
         SetWindowPos(ind_hwnd as HWND, HWND_TOPMOST, x, y, w, h, flags);

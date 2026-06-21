@@ -308,12 +308,7 @@ export function GamepadProvider(props: PropsWithChildren) {
         }
       }
     }
-  }, [
-    beginRepeatInput,
-    inputCache,
-    maybeDispatchRepeatInput,
-    stopRepeatInput,
-  ]);
+  }, [beginRepeatInput, inputCache, maybeDispatchRepeatInput, stopRepeatInput]);
 
   const onConnect = useCallback(
     (e: GamepadEvent) => {

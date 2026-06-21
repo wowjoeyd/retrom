@@ -286,7 +286,11 @@ pub fn spawn<R: Runtime>(
     std::thread::spawn(move || run(app, game_active, rebind_active));
 }
 
-fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>, rebind_active: Arc<AtomicBool>) {
+fn run<R: Runtime>(
+    app: AppHandle<R>,
+    game_active: Arc<AtomicBool>,
+    rebind_active: Arc<AtomicBool>,
+) {
     // The main window may not exist yet at plugin-setup time, so wait for it.
     let mut main_hwnd = 0isize;
     for _ in 0..100 {
@@ -361,7 +365,12 @@ fn run<R: Runtime>(app: AppHandle<R>, game_active: Arc<AtomicBool>, rebind_activ
         if rebinding {
             let union = held_buttons_union(get_state);
             if union != prev_rebind_union {
-                let _ = app.emit(REBIND_EVENT, RebindButtons { buttons: union.clone() });
+                let _ = app.emit(
+                    REBIND_EVENT,
+                    RebindButtons {
+                        buttons: union.clone(),
+                    },
+                );
                 prev_rebind_union = union;
             }
         } else if prev_rebinding {

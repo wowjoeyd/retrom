@@ -29,7 +29,10 @@ export function QuitHotkeyRebind(props: {
 
       <div className="flex flex-wrap items-center gap-3">
         {capturing ? (
-          <ComboCapturePreview held={capture.held} progress={capture.progress} />
+          <ComboCapturePreview
+            held={capture.held}
+            progress={capture.progress}
+          />
         ) : (
           <ComboGlyphs buttons={resolved} />
         )}

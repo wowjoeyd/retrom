@@ -96,7 +96,9 @@ export function GridGameContextMenu() {
   const [open, setOpen] = useState(false);
   const [gameId, setGameId] = useState<number | null>(null);
   const [view, setView] = useState<View>("menu");
-  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(
+    null,
+  );
   const savedFocusKey = useRef<string | undefined>(undefined);
   const contentRef = useRef<HTMLDivElement>(null);
   const { activeGroup } = useGroupContext();

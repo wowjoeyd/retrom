@@ -1569,10 +1569,7 @@ export function GridGameList() {
             // the card directly above. Keeping all cards as direct children of
             // the single group container restores continuous grid geometry, so
             // vertical nav lands on the card nearest the current column.
-            <div
-              key={key}
-              className={cn(!games.length ? "hidden" : "block")}
-            >
+            <div key={key} className={cn(!games.length ? "hidden" : "block")}>
               <div
                 className={cn(
                   "grid gap-4 place-items-center mb-4 px-4",
