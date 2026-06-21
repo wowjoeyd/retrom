@@ -26,28 +26,63 @@ export function AchievementsTab() {
     );
   }
 
-  if (data.status === "error") {
+  if (data.status === "needs-attention") {
     return (
-      <CenteredState focusKey="detail-achievements-error">
+      <CenteredState focusKey="detail-achievements-attention">
         <AlertCircle size={32} className="text-destructive-text opacity-80" />
-        <p className="text-sm text-muted-foreground">{data.message}</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-base font-semibold text-foreground/80">
+            Achievements need attention
+          </p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {data.message}
+          </p>
+        </div>
       </CenteredState>
     );
   }
 
-  if (data.status === "not-connected") {
+  if (data.status === "not-configured") {
     return (
-      <CenteredState focusKey="detail-achievements-empty">
+      <CenteredState focusKey="detail-achievements-not-configured">
         <Trophy size={36} className="opacity-30" />
         <div className="flex flex-col gap-1">
           <p className="text-base font-semibold text-foreground/80">
-            RetroAchievements not connected
+            Achievements account not connected
           </p>
           <p className="max-w-md text-sm text-muted-foreground">
-            Connect a RetroAchievements account to track mastery, points, and
-            unlocks for this game.
+            Add your account credentials under Settings → Achievements to track
+            unlocks, points, and rarity for this game.
           </p>
         </div>
+      </CenteredState>
+    );
+  }
+
+  if (data.status === "not-identified") {
+    return (
+      <CenteredState focusKey="detail-achievements-not-identified">
+        <Trophy size={36} className="opacity-30" />
+        <div className="flex flex-col gap-1">
+          <p className="text-base font-semibold text-foreground/80">
+            Game not identified
+          </p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Retrom couldn&apos;t match this game to RetroAchievements from its
+            file. You can map it manually from the settings.
+          </p>
+        </div>
+      </CenteredState>
+    );
+  }
+
+  if (data.status === "not-supported") {
+    return (
+      <CenteredState focusKey="detail-achievements-not-supported">
+        <Trophy size={36} className="opacity-30" />
+        <p className="text-sm text-muted-foreground">
+          No achievements available for this game.
+        </p>
       </CenteredState>
     );
   }
@@ -80,7 +115,8 @@ export function AchievementsTab() {
 }
 
 function CompletionHeader(props: { summary: AchievementSummary }) {
-  const { unlocked, total, pointsEarned, pointsTotal } = props.summary;
+  const { unlocked, total, pointsEarned, pointsTotal, hasPoints } =
+    props.summary;
   const pct = total > 0 ? Math.round((unlocked / total) * 100) : 0;
 
   return (
@@ -100,9 +136,11 @@ function CompletionHeader(props: { summary: AchievementSummary }) {
         <p className="text-lg font-semibold text-foreground">
           {unlocked} of {total} unlocked
         </p>
-        <p className="text-sm text-muted-foreground">
-          {pointsEarned} of {pointsTotal} points earned
-        </p>
+        {hasPoints && (
+          <p className="text-sm text-muted-foreground">
+            {pointsEarned} of {pointsTotal} points earned
+          </p>
+        )}
       </div>
     </div>
   );
@@ -110,7 +148,7 @@ function CompletionHeader(props: { summary: AchievementSummary }) {
 
 function AchievementRow(props: { achievement: Achievement }) {
   const { achievement } = props;
-  const { id, title, description, points, unlocked, iconUrl } = achievement;
+  const { id, title, description, unlocked, iconUrl } = achievement;
 
   const { ref } = useFocusable<HTMLDivElement>({
     focusKey: `detail-achievement-${id}`,
@@ -158,11 +196,35 @@ function AchievementRow(props: { achievement: Achievement }) {
         </span>
       </div>
 
+      <AchievementMetric achievement={achievement} />
+    </div>
+  );
+}
+
+// RetroAchievements awards points; Steam awards none but exposes global rarity.
+// Show whichever the provider supplied — points take precedence.
+function AchievementMetric(props: { achievement: Achievement }) {
+  const { points, rarityPercent } = props.achievement;
+
+  if (points != null && points > 0) {
+    return (
       <span className="ml-auto shrink-0 text-sm font-semibold text-amber-400">
         {points} pts
       </span>
-    </div>
-  );
+    );
+  }
+
+  if (rarityPercent != null) {
+    const rarity =
+      rarityPercent < 10 ? rarityPercent.toFixed(1) : Math.round(rarityPercent);
+    return (
+      <span className="ml-auto shrink-0 text-right text-xs text-muted-foreground">
+        {rarity}%<span className="block opacity-70">of players</span>
+      </span>
+    );
+  }
+
+  return null;
 }
 
 // A single focusable so the controller has somewhere to land when entering the

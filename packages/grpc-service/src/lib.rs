@@ -29,6 +29,7 @@ use retrom_codegen::{
     },
 };
 use retrom_service_common::{
+    achievements::{steam::SteamAchievementProvider, AchievementProvider, AchievementsService},
     config::ServerConfigManager,
     media_cache::MediaCache,
     metadata_providers::{igdb::provider::IGDBProvider, steam::provider::SteamWebApiProvider},
@@ -104,6 +105,16 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
     let _retrom_dirs = RetromDirs::new();
     let media_cache = Arc::new(MediaCache::new(config_manager.clone()));
 
+    // Unified achievements: one provider per source (Steam now; RetroAchievements
+    // slots in later) behind a single fetch/cache service.
+    let achievement_providers: Vec<Arc<dyn AchievementProvider>> = vec![Arc::new(
+        SteamAchievementProvider::new(steam_web_api_client.clone(), config_manager.clone()),
+    )];
+    let achievements_service = Arc::new(AchievementsService::new(
+        achievement_providers,
+        media_cache.clone(),
+    ));
+
     let job_manager = Arc::new(JobManager::new());
 
     let reflection_service = tonic_reflection::server::Builder::configure()
@@ -140,6 +151,7 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         media_cache.clone(),
         job_manager.clone(),
         config_manager.clone(),
+        achievements_service.clone(),
     ));
 
     // Proactively ensure yt-dlp binary is downloaded for the soundtrack theme audio extraction feature.

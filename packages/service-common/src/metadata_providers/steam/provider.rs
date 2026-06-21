@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc, time::Duration};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 
 use chrono::{DateTime, NaiveDate};
 use retrom_codegen::{
@@ -286,6 +286,117 @@ impl SteamWebApiProvider {
                 e.status()
                     .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
             })
+    }
+
+    /// Achievement definitions (display name, description, badge URLs) for an
+    /// app. Returns an empty vec for games that simply have no achievement set
+    /// (Steam returns `game: {}` with no `availableGameStats`).
+    #[instrument(skip(self, api_key))]
+    pub async fn get_schema_achievements(
+        &self,
+        app_id: u32,
+        api_key: &str,
+    ) -> Result<Vec<models::SchemaAchievement>, reqwest::StatusCode> {
+        let path = self.base_url.to_string() + "/ISteamUserStats/GetSchemaForGame/v2/";
+        let mut url = reqwest::Url::from_str(&path).expect("Invalid Base URL");
+        url.query_pairs_mut()
+            .append_pair("key", api_key)
+            .append_pair("appid", &app_id.to_string())
+            .append_pair("l", "english");
+
+        let req = reqwest::Request::new(reqwest::Method::GET, url);
+        let res = self.make_request(req).await?;
+
+        let parsed = res
+            .json::<models::GetSchemaForGameResponse>()
+            .await
+            .map_err(|e| {
+                e.status()
+                    .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR)
+            })?;
+
+        Ok(parsed
+            .game
+            .and_then(|g| g.available_game_stats)
+            .map(|s| s.achievements)
+            .unwrap_or_default())
+    }
+
+    /// The user's per-achievement unlock state for an app. The returned
+    /// `PlayerStats` carries `success`/`error` so callers can distinguish a
+    /// private profile (needs attention) from a game with no stats (empty).
+    #[instrument(skip(self, api_key))]
+    pub async fn get_player_achievements(
+        &self,
+        app_id: u32,
+        api_key: &str,
+        steam_id: &str,
+    ) -> Result<models::PlayerStats, reqwest::StatusCode> {
+        let path = self.base_url.to_string() + "/ISteamUserStats/GetPlayerAchievements/v1/";
+        let mut url = reqwest::Url::from_str(&path).expect("Invalid Base URL");
+        url.query_pairs_mut()
+            .append_pair("key", api_key)
+            .append_pair("steamid", steam_id)
+            .append_pair("appid", &app_id.to_string())
+            .append_pair("l", "english");
+
+        let req = reqwest::Request::new(reqwest::Method::GET, url);
+        let res = self.make_request(req).await?;
+        let status = res.status();
+
+        // A private profile (or no-stats app) comes back either as a non-2xx
+        // status or a 200 with `success: false` + an `error` string. Synthesise
+        // the former into the latter so the caller has a single shape to read.
+        Ok(res
+            .json::<models::GetPlayerAchievementsResponse>()
+            .await
+            .map(|r| r.playerstats)
+            .unwrap_or_else(|_| models::PlayerStats {
+                success: false,
+                error: Some(format!("Steam returned status {status}")),
+                achievements: None,
+            }))
+    }
+
+    /// Global unlock percentages (rarity) for an app, keyed by achievement api
+    /// name. Best-effort: no API key required, and any failure yields an empty
+    /// map rather than failing the whole fetch.
+    #[instrument(skip(self))]
+    pub async fn get_global_achievement_percentages(&self, app_id: u32) -> HashMap<String, f64> {
+        let path = self.base_url.to_string()
+            + "/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/";
+        let mut url = reqwest::Url::from_str(&path).expect("Invalid Base URL");
+        url.query_pairs_mut()
+            .append_pair("gameid", &app_id.to_string())
+            .append_pair("format", "json");
+
+        let req = reqwest::Request::new(reqwest::Method::GET, url);
+        let res = match self.make_request(req).await {
+            Ok(res) => res,
+            Err(why) => {
+                tracing::debug!("Global achievement percentages request failed: {why}");
+                return HashMap::new();
+            }
+        };
+
+        match res
+            .json::<models::GetGlobalAchievementPercentagesResponse>()
+            .await
+        {
+            Ok(parsed) => parsed
+                .achievement_percentages
+                .map(|p| {
+                    p.achievements
+                        .into_iter()
+                        .map(|a| (a.name, a.percent))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Err(why) => {
+                tracing::debug!("Failed to parse global achievement percentages: {why}");
+                HashMap::new()
+            }
+        }
     }
 
     async fn make_request(

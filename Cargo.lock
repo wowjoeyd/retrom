@@ -9581,6 +9581,7 @@ dependencies = [
 name = "retrom-service-common"
 version = "0.8.4"
 dependencies = [
+ "async-trait",
  "bigdecimal",
  "chrono",
  "config",

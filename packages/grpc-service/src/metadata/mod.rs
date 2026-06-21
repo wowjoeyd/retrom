@@ -13,8 +13,10 @@ use retrom_codegen::{
         AutoDownloadGameSoundtrackRequest, AutoDownloadGameSoundtrackResponse,
         DeleteGameSoundtrackTrackRequest, DeleteGameSoundtrackTrackResponse,
         DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, DownloadGameSoundtrackRequest,
-        DownloadGameSoundtrackResponse, Game, GameGenre, GameGenreMap, GetGameMetadataRequest,
-        GetGameMetadataResponse, GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
+        DownloadGameSoundtrackResponse, Game, GameAchievement, GameAchievementSet,
+        GameAchievementsStatus, GameGenre, GameGenreMap, GetGameAchievementsRequest,
+        GetGameAchievementsResponse, GetGameMetadataRequest, GetGameMetadataResponse,
+        GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
         GetIgdbPlatformSearchResultsRequest, GetIgdbPlatformSearchResultsResponse,
         GetIgdbSearchRequest, GetIgdbSearchResponse, GetLocalMetadataStatusRequest,
         GetLocalMetadataStatusResponse, GetPlatformMetadataRequest, GetPlatformMetadataResponse,
@@ -29,6 +31,9 @@ use retrom_codegen::{
 };
 use retrom_db::{schema, Pool};
 use retrom_service_common::{
+    achievements::{
+        AchievementsService, AchievementsStatus, ProviderAchievement, ProviderAchievementSet,
+    },
     media_cache::{cacheable_media::CacheableMetadata, get_public_url, MediaCache},
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
@@ -97,6 +102,36 @@ async fn clean_image_cache_preserving_theme(cache_dir: &std::path::Path) {
     }
 }
 
+/// Map the internal achievement set (with relative media badge paths) to the
+/// wire type. `unlocked_at` is stored internally as unix seconds.
+fn proto_achievement_set(set: ProviderAchievementSet) -> GameAchievementSet {
+    GameAchievementSet {
+        provider: set.provider,
+        unlocked: set.unlocked,
+        total: set.total,
+        points_earned: set.points_earned,
+        points_total: set.points_total,
+        achievements: set
+            .achievements
+            .into_iter()
+            .map(proto_achievement)
+            .collect(),
+    }
+}
+
+fn proto_achievement(a: ProviderAchievement) -> GameAchievement {
+    GameAchievement {
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        unlocked: a.unlocked,
+        points: a.points,
+        rarity_percent: a.rarity_percent,
+        icon_url: a.icon_url,
+        unlocked_at: a.unlocked_at.map(|seconds| Timestamp { seconds, nanos: 0 }),
+    }
+}
+
 pub struct MetadataServiceHandlers {
     db_pool: Arc<Pool>,
     igdb_client: Arc<IGDBProvider>,
@@ -104,6 +139,7 @@ pub struct MetadataServiceHandlers {
     media_cache: Arc<MediaCache>,
     job_manager: Arc<JobManager>,
     config_manager: Arc<retrom_service_common::config::ServerConfigManager>,
+    achievements_service: Arc<AchievementsService>,
 }
 
 impl MetadataServiceHandlers {
@@ -114,6 +150,7 @@ impl MetadataServiceHandlers {
         media_cache: Arc<MediaCache>,
         job_manager: Arc<JobManager>,
         config_manager: Arc<retrom_service_common::config::ServerConfigManager>,
+        achievements_service: Arc<AchievementsService>,
     ) -> Self {
         Self {
             db_pool,
@@ -122,6 +159,7 @@ impl MetadataServiceHandlers {
             media_cache,
             job_manager,
             config_manager,
+            achievements_service,
         }
     }
 }
@@ -1147,6 +1185,46 @@ impl MetadataService for MetadataServiceHandlers {
         });
 
         Ok(Response::new(SyncSteamMetadataResponse {}))
+    }
+
+    async fn get_game_achievements(
+        &self,
+        request: Request<GetGameAchievementsRequest>,
+    ) -> Result<Response<GetGameAchievementsResponse>, Status> {
+        let request = request.into_inner();
+        let game_id = request.game_id;
+        let force_refresh = request.force_refresh.unwrap_or(false);
+
+        let mut conn = self
+            .db_pool
+            .get()
+            .await
+            .map_err(|why| Status::internal(why.to_string()))?;
+
+        let game = schema::games::table
+            .find(game_id)
+            .first::<retrom::Game>(&mut conn)
+            .await
+            .map_err(|_| Status::not_found("game not found"))?;
+
+        drop(conn);
+
+        let result = self.achievements_service.get(&game, force_refresh).await;
+
+        let status = match result.status {
+            AchievementsStatus::NotSupported => GameAchievementsStatus::NotSupported,
+            AchievementsStatus::NotConfigured => GameAchievementsStatus::NotConfigured,
+            AchievementsStatus::NotIdentified => GameAchievementsStatus::NotIdentified,
+            AchievementsStatus::NeedsAttention => GameAchievementsStatus::NeedsAttention,
+            AchievementsStatus::Empty => GameAchievementsStatus::Empty,
+            AchievementsStatus::Populated => GameAchievementsStatus::Populated,
+        };
+
+        Ok(Response::new(GetGameAchievementsResponse {
+            status: status as i32,
+            set: result.set.map(proto_achievement_set),
+            message: result.message,
+        }))
     }
 
     async fn get_local_metadata_status(

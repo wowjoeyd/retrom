@@ -14,6 +14,7 @@ import { useServerConfig } from "@/queries/useServerConfig";
 import { LoaderCircle } from "lucide-react";
 import { IgdbConfig } from "./igdb-config";
 import { SteamConfig } from "./steam-config";
+import { AchievementsConfig } from "./achievements-config";
 import { SavesConfig } from "./saves-config";
 import { LibrariesConfig } from "./libraries-config";
 import { EmulatorPackageRootsConfig } from "./emulator-package-roots-config";
@@ -35,6 +36,7 @@ export const serverConfigTabSchema = z
     "emulatorPackages",
     "igdb",
     "steam",
+    "retroAchievements",
     "saves",
     "telemetry",
     "metadata",
@@ -61,6 +63,7 @@ const tabItems: Record<ServerTabs, { value: ServerTabs; name: string }> = {
   metadata: { value: "metadata", name: "Metadata" },
   igdb: { value: "igdb", name: "IGDB" },
   steam: { value: "steam", name: "Steam" },
+  retroAchievements: { value: "retroAchievements", name: "Achievements" },
   saves: { value: "saves", name: "Cloud Saves" },
   telemetry: { value: "telemetry", name: "Telemetry" },
 };
@@ -150,6 +153,7 @@ export function ServerConfigTab() {
           <MetadataConfig currentConfig={data.config} />
           <IgdbConfig currentConfig={data.config} />
           <SteamConfig currentConfig={data.config} />
+          <AchievementsConfig />
           <SavesConfig currentConfig={data.config} />
           <TelemetryConfig />
         </Tabs>

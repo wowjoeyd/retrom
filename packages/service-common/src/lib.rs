@@ -1,3 +1,4 @@
+pub mod achievements;
 pub mod config;
 pub mod emulator_catalog;
 pub mod emulator_catalog_install;

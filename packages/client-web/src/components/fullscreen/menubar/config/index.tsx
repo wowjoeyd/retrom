@@ -35,6 +35,7 @@ import { Settings } from "lucide-react";
 import { PanelHeader, PanelSection } from "../panel-chrome";
 import { PANEL_CONTENT_CLASS } from "../menu-sheet";
 import { QuitHotkeyRebind } from "./quit-hotkey-rebind";
+import { AchievementsAccountsFields } from "@/components/modals/config/server/achievements-config";
 
 type FormSchema = z.infer<typeof formSchema>;
 const formSchema = z.object({
@@ -238,6 +239,15 @@ export function Config(props: ComponentProps<typeof SheetTrigger>) {
                   <ConfigForm />
                 </form>
               </Form>
+
+              {/* Server-config "Achievements accounts" — shared with the standard
+                  settings (same server config). Kept outside the client-config
+                  form above (nested <form>s are invalid) with its own Save. */}
+              <div className="p-3">
+                <PanelSection title="Achievements accounts">
+                  <AchievementsAccountsFields />
+                </PanelSection>
+              </div>
             </ScrollArea>
           </FocusContainer>
 
