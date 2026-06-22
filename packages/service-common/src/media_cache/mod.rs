@@ -387,6 +387,7 @@ mod integration_tests {
             release_date: None,
             last_played: None,
             minutes_played: Some(0),
+            theme_audio_title: None,
         };
 
         let cache_dir = game_metadata.get_cache_dir().unwrap();
@@ -486,6 +487,7 @@ mod integration_tests {
             release_date: None,
             last_played: None,
             minutes_played: Some(0),
+            theme_audio_title: None,
         };
 
         let cache_dir = game_metadata.get_cache_dir().unwrap();
