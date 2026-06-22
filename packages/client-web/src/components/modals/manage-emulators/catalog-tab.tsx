@@ -302,22 +302,21 @@ function InstallCatalogDialog(props: {
     [roots],
   );
 
-  const runWriteTest = useCallback(async () => {
-    setWriteTestResult(null);
-    const res = await checkWritable({ directoryIndex });
-    setWriteTestResult({
-      writable: res.writable,
-      errorMessage: res.errorMessage,
-    });
-  }, [checkWritable, directoryIndex]);
-
   const handleInstall = useCallback(async () => {
     if (!clientId) {
       return;
     }
 
-    if (!writeTestResult?.writable) {
-      await runWriteTest();
+    // Single step: verify the target directory is writable, then install. The
+    // write check is part of pressing Install — no separate "test write" click.
+    setWriteTestResult(null);
+    const writeCheck = await checkWritable({ directoryIndex });
+    setWriteTestResult({
+      writable: writeCheck.writable,
+      errorMessage: writeCheck.errorMessage,
+    });
+
+    if (!writeCheck.writable) {
       return;
     }
 
@@ -331,14 +330,13 @@ function InstallCatalogDialog(props: {
 
     onOpenChange(false);
   }, [
+    checkWritable,
     clientId,
     directoryIndex,
     entry,
     install,
     onOpenChange,
-    runWriteTest,
     subpath,
-    writeTestResult?.writable,
   ]);
 
   const noRoots = roots.length === 0;
@@ -447,21 +445,17 @@ function InstallCatalogDialog(props: {
             Cancel
           </Button>
           <Button
-            variant="secondary"
-            disabled={noRoots || checkingWritable}
-            onClick={() => void runWriteTest()}
-          >
-            {checkingWritable ? (
-              <LoaderCircleIcon className="animate-spin" />
-            ) : null}
-            Test write access
-          </Button>
-          <Button
-            disabled={noRoots || installing || !clientId}
+            disabled={noRoots || checkingWritable || installing || !clientId}
             onClick={() => void handleInstall()}
           >
-            {installing ? <LoaderCircleIcon className="animate-spin" /> : null}
-            Install
+            {checkingWritable || installing ? (
+              <LoaderCircleIcon className="animate-spin" />
+            ) : null}
+            {checkingWritable
+              ? "Checking…"
+              : installing
+                ? "Installing…"
+                : "Install"}
           </Button>
         </DialogFooter>
       </DialogContent>

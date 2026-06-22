@@ -117,15 +117,6 @@ export function CustomEmulatorTab() {
     }
   }, []);
 
-  const runWriteTest = useCallback(async () => {
-    setWriteTestResult(null);
-    const res = await checkWritable({ directoryIndex });
-    setWriteTestResult({
-      writable: res.writable,
-      errorMessage: res.errorMessage,
-    });
-  }, [checkWritable, directoryIndex]);
-
   const handleInstall = useCallback(async () => {
     if (!clientId) {
       return;
@@ -144,8 +135,16 @@ export function CustomEmulatorTab() {
       return;
     }
 
-    if (!writeTestResult?.writable) {
-      await runWriteTest();
+    // Single step: verify the target directory is writable, then install. The
+    // write check is part of pressing Install — no separate "test write" click.
+    setWriteTestResult(null);
+    const writeCheck = await checkWritable({ directoryIndex });
+    setWriteTestResult({
+      writable: writeCheck.writable,
+      errorMessage: writeCheck.errorMessage,
+    });
+
+    if (!writeCheck.writable) {
       return;
     }
 
@@ -182,11 +181,10 @@ export function CustomEmulatorTab() {
     extensions,
     install,
     platformFolderNames,
-    runWriteTest,
+    checkWritable,
     saveToCatalog,
     subpath,
     subpathTouched,
-    writeTestResult?.writable,
   ]);
 
   const noRoots = roots.length === 0;
@@ -475,21 +473,17 @@ export function CustomEmulatorTab() {
 
       <div className="flex flex-wrap gap-2">
         <Button
-          variant="secondary"
-          disabled={noRoots || checkingWritable}
-          onClick={() => void runWriteTest()}
-        >
-          {checkingWritable ? (
-            <LoaderCircleIcon className="animate-spin" />
-          ) : null}
-          Test write access
-        </Button>
-        <Button
-          disabled={!canSubmit || installing}
+          disabled={!canSubmit || checkingWritable || installing}
           onClick={() => void handleInstall()}
         >
-          {installing ? <LoaderCircleIcon className="animate-spin" /> : null}
-          Install custom emulator
+          {checkingWritable || installing ? (
+            <LoaderCircleIcon className="animate-spin" />
+          ) : null}
+          {checkingWritable
+            ? "Checking…"
+            : installing
+              ? "Installing…"
+              : "Install custom emulator"}
         </Button>
       </div>
     </div>
