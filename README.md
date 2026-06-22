@@ -57,6 +57,8 @@ This fork is based on [Retrom](https://github.com/JMBeresford/retrom), an excell
 - Some changes developed in this fork may eventually be proposed upstream as pull requests, if they become stable and align with upstream's direction. Until then, they should be treated as experimental and fork-specific.
 - Credit and appreciation go to [JMBeresford](https://github.com/JMBeresford) and all upstream contributors.
 
+For a concise attribution statement and a high-level summary of what this fork changes, see [FORK_NOTICE.md](./FORK_NOTICE.md).
+
 ---
 
 ## Overview
@@ -89,15 +91,15 @@ These features come from the upstream Retrom project:
 
 The following features have been added in this fork and do not exist in upstream Retrom:
 
+- **Fullscreen "Big Picture" / theater mode** — a controller-first fullscreen experience: a redesigned library grid (quick-scroll scrubber, sort/filter sheets, context menus), redesigned game-detail and media-viewer pages, slide-out menus, an optional startup movie, a global focus reticle for controller navigation, and gamepad/XInput input that stays alive across game launch and return
+- **Game launch lifecycle & quit-to-library** — return-to-library on game exit, a rebindable quit-to-library hotkey with a hold-to-quit indicator, process-tree kill, OS foreground handoff, and Steam lifecycle tracking
+- **Unified achievements (Steam + RetroAchievements)** — a source-agnostic achievements tab and hero chip, backed by a Steam provider (schema, player unlocks, rarity by appid) and a RetroAchievements provider (content-hash game resolution with a manual override fallback); read-only display that re-polls when a game exits
 - **Managed emulator package catalog** — browse a built-in catalog of emulators, install/update/delete packages directly from the server, with support for multi-OS install targets and custom catalog overlays
 - **Emulator install-on-play** — automatically prompt to install or link a managed emulator package before launching a game when no suitable profile is available
 - **Emulator user-data sync** — sync emulator saves, states, configuration, NAND, and firmware between client and server, with semantic path inference, preserve-path overrides, per-emulator startup auto-sync, and conflict-resolution UI
-- **User-managed game theme music** — search for, import, assign, and locally store theme music per game; play back in fullscreen/theater mode with batch and missing-music workflows
+- **User-managed game theme music** — search for, import, assign, and locally store theme music per game; a multi-track soundtrack with a mini-player, live visualizer, and playlist transport; playback in the standard client (via a theme tab) and automatically in fullscreen/theater mode, with batch and missing-music workflows
 - **Steam sign-in and metadata sync** — sign into a Steam account, resolve vanity URLs, and sync Steam metadata (playtime, screenshots, achievements) into the library
-- **Game theme playback in fullscreen/theater mode** — themes play automatically when browsing games in fullscreen
-- **Game theme playback in a dedicated theme tab** — themes are accessible in the standard client UI through a theme tab
 - **User-added custom game metadata** — users can attach custom artwork, videos, music, and related media to games
-- **Improved fullscreen music and input handling** — fullscreen grid and game page music controls, improved controller and touch input robustness
 - **General bug fixes** — various bugs discovered during active daily use have been corrected
 
 ---
@@ -106,9 +108,10 @@ The following features have been added in this fork and do not exist in upstream
 
 The following describes areas currently being explored or likely future work in this fork. **This is not a roadmap or a commitment** — priorities may shift, features may be redesigned, and this list will change as the fork evolves.
 
-- **Theater/fullscreen mode redesign** — deeper fullscreen/theater behavior: emulator launches that preserve windowing state, richer now-playing overlays, and more fullscreen-native navigation
-- **Achievement tracking / library features** — tracking achievements for non-Steam games
+- **Remote Play / streaming** — console-like streaming: browse the unified library on a client, start a stream, and have Retrom orchestrate host selection, sync, and launch, explored on top of Sunshine/Moonlight (tracked in [issue #3](https://github.com/wowjoeyd/retrom/issues/3))
+- **Unified metadata tag model** — replacing the current genre-based "Similar Games" heuristic with a unified tag model (tags, features, and accessibility data from Steam and IGDB) powering similarity, filtering, and the info tab (tracked in [issue #4](https://github.com/wowjoeyd/retrom/issues/4))
 - **Native client-side ROM adding** — adding ROMs directly from the client, including automatic server folder creation and moving game data into place
+- **Theater/fullscreen polish** — continued refinement of fullscreen/theater behavior, richer now-playing overlays, and more fullscreen-native navigation
 - **Additional emulator-cloud, metadata, media, launcher, sync, and library-management features** — as they become useful during active use
 
 This may change substantially as the fork evolves.
