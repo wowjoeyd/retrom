@@ -163,16 +163,16 @@ export function InstallOnPlayModal() {
           </div>
         ) : showPostStep ? (
           <p className="max-w-[45ch] text-sm text-muted-foreground">
-            Raw files installed. For curated emulators like RPCS3 or Switch forks
-            that require an &ldquo;internal install&rdquo; (e.g. PKG/NSP into the
-            emulator&apos;s virtual FS), launch the emulator now to complete it
-            inside the app. The installed state will be captured in the emulator
-            package and synced to other PCs.
+            Raw files installed. For curated emulators like RPCS3 or Switch
+            forks that require an &ldquo;internal install&rdquo; (e.g. PKG/NSP
+            into the emulator&apos;s virtual FS), launch the emulator now to
+            complete it inside the app. The installed state will be captured in
+            the emulator package and synced to other PCs.
           </p>
         ) : (
           <p className="max-w-[45ch] text-sm text-muted-foreground">
-            Files will be copied from your library to this device. You can play as
-            soon as installation finishes.
+            Files will be copied from your library to this device. You can play
+            as soon as installation finishes.
           </p>
         )}
 
