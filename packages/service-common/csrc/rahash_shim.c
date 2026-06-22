@@ -13,6 +13,12 @@ int retrom_rc_hash_file(const char* path, char* out, int max) {
   char hash[33];
   int count = 0;
 
+  /* Register rc_hash's built-in disc reader. Without this, rc_cd_open_track has
+   * "no hook registered" and ALL disc hashing (PS1/PS2/PSP/Saturn/Sega CD/
+   * PCE-CD/GameCube — .cue/.iso/.bin) fails. The file reader auto-initialises,
+   * but the cd reader does not. Idempotent, so calling per invocation is fine. */
+  rc_hash_init_default_cdreader();
+
   rc_hash_initialize_iterator(&iterator, path, NULL, 0);
   while (count < max && rc_hash_iterate(hash, &iterator)) {
     memcpy(out + (size_t)count * 33, hash, 33);
