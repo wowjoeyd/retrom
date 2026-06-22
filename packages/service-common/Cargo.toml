@@ -44,3 +44,8 @@ flate2 = { workspace = true }
 
 [build-dependencies]
 cc = "1"
+
+[package.metadata.cargo-machete]
+# cc is used only in build.rs (compiles the vendored rcheevos rc_hash sources),
+# which cargo-machete does not scan — so it false-positives cc as unused.
+ignored = ["cc"]
