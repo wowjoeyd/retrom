@@ -37,19 +37,28 @@ pub fn safe_extract_archive(
 }
 
 fn validate_extract_path(base: &Path, entry_path: &Path) -> Result<PathBuf, ExtractError> {
-    let dest = base.join(entry_path);
-    let normalized_base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
-    let normalized_dest = if dest.exists() {
-        dest.canonicalize().unwrap_or(dest.clone())
-    } else {
-        dest.clone()
-    };
-
-    if !normalized_dest.starts_with(&normalized_base) {
+    // Reject any entry that could escape the destination directory using a
+    // logical component scan rather than canonicalize().
+    //
+    // The previous implementation canonicalized `base` and compared it against
+    // `base.join(entry_path)` with starts_with(). On Windows, canonicalize()
+    // returns a `\\?\`-verbatim path, but the joined destination — which does
+    // not exist yet during a fresh extract, so it is never canonicalized — does
+    // not carry that prefix. The verbatim/non-verbatim mismatch made
+    // starts_with() fail for *every* entry, so all zip/tar installs aborted on
+    // their first entry with a bogus "zip slip" error. A component scan is
+    // filesystem-independent, portable, and matches what the tar path already
+    // did inline.
+    if entry_path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
         return Err(ExtractError::ZipSlip(entry_path.to_path_buf()));
     }
 
-    Ok(dest)
+    Ok(base.join(entry_path))
 }
 
 fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<(), ExtractError> {
@@ -116,15 +125,6 @@ fn extract_tar_stream<R: Read>(reader: R, dest_dir: &Path) -> Result<(), Extract
             .map_err(|why| ExtractError::Tar(why.to_string()))?
             .to_path_buf();
 
-        if entry_path.components().any(|c| {
-            matches!(
-                c,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        }) {
-            return Err(ExtractError::ZipSlip(entry_path));
-        }
-
         let out_path = validate_extract_path(dest_dir, &entry_path)?;
         entry
             .unpack(&out_path)
@@ -188,4 +188,53 @@ pub fn apply_strip_components(dir: &Path, components: u32) -> Result<(), Extract
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_extract_path, ExtractError};
+    use std::path::Path;
+
+    #[test]
+    fn allows_normal_nested_entry() {
+        // Regression: a fresh extract destination never exists yet, which used to
+        // trip the canonicalize/starts_with check on Windows and block every
+        // entry (e.g. the leading "Lua/" directory of an emulator archive).
+        let base = Path::new("/tmp/extract");
+        let resolved =
+            validate_extract_path(base, Path::new("Lua/script.lua")).expect("normal path allowed");
+        assert_eq!(resolved, base.join("Lua/script.lua"));
+    }
+
+    #[test]
+    fn allows_bare_directory_entry() {
+        let base = Path::new("/tmp/extract");
+        let resolved = validate_extract_path(base, Path::new("Lua")).expect("directory allowed");
+        assert_eq!(resolved, base.join("Lua"));
+    }
+
+    #[test]
+    fn rejects_parent_dir_traversal() {
+        let base = Path::new("/tmp/extract");
+        let result = validate_extract_path(base, Path::new("../escape.txt"));
+        assert!(matches!(result, Err(ExtractError::ZipSlip(_))));
+    }
+
+    #[test]
+    fn rejects_nested_parent_dir_traversal() {
+        let base = Path::new("/tmp/extract");
+        let result = validate_extract_path(base, Path::new("a/b/../../../escape.txt"));
+        assert!(matches!(result, Err(ExtractError::ZipSlip(_))));
+    }
+
+    #[test]
+    fn rejects_absolute_path() {
+        let base = Path::new("/tmp/extract");
+        #[cfg(unix)]
+        let absolute = Path::new("/etc/passwd");
+        #[cfg(windows)]
+        let absolute = Path::new(r"C:\Windows\system32");
+        let result = validate_extract_path(base, absolute);
+        assert!(matches!(result, Err(ExtractError::ZipSlip(_))));
+    }
 }
