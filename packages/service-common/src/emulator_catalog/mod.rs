@@ -10,6 +10,7 @@ use tracing::warn;
 pub use platform_resolve::resolve_platform_ids_for_catalog_entry;
 
 const BUILTIN_CATALOG: &[(&str, &str)] = &[
+    ("ares", include_str!("entries/ares-windows-x64.json")),
     ("azahar", include_str!("entries/azahar-windows-x64.json")),
     ("bizhawk", include_str!("entries/bizhawk-windows-x64.json")),
     ("cemu", include_str!("entries/cemu-windows-x64.json")),
@@ -23,9 +24,13 @@ const BUILTIN_CATALOG: &[(&str, &str)] = &[
     ("citron", include_str!("entries/citron-windows-x64.json")),
     ("flycast", include_str!("entries/flycast-windows-x64.json")),
     ("melonds", include_str!("entries/melonds-windows-x64.json")),
+    ("mesen", include_str!("entries/mesen-windows-x64.json")),
     ("mgba", include_str!("entries/mgba-windows-x64.json")),
     ("ppsspp", include_str!("entries/ppsspp-windows-x64.json")),
+    ("rmg", include_str!("entries/rmg-windows-x64.json")),
     ("ryubing", include_str!("entries/ryubing-windows-x64.json")),
+    ("snes9x", include_str!("entries/snes9x-windows-x64.json")),
+    ("vita3k", include_str!("entries/vita3k-windows-x64.json")),
     ("xemu", include_str!("entries/xemu-windows-x64.json")),
 ];
 

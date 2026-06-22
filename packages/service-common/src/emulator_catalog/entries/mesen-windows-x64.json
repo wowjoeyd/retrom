@@ -1,0 +1,93 @@
+{
+  "catalog_id": "mesen",
+  "display_name": "Mesen",
+  "description": "Multi-system emulator for NES, SNES, Game Boy, GBA, PC Engine, Master System, Game Gear and WonderSwan",
+  "supported_platform_folder_names": [
+    "nes",
+    "snes",
+    "sfc",
+    "gb",
+    "gbc",
+    "gba",
+    "pcengine",
+    "tg16",
+    "turbografx16",
+    "mastersystem",
+    "sms",
+    "gamegear",
+    "gg",
+    "wonderswan",
+    "ws"
+  ],
+  "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": [
+      "nes",
+      "fds",
+      "unif",
+      "sfc",
+      "smc",
+      "gb",
+      "gbc",
+      "gba",
+      "pce",
+      "sgx",
+      "sms",
+      "gg",
+      "sg",
+      "ws",
+      "wsc"
+    ],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "SourMesen/Mesen2",
+        "asset_pattern": "Mesen_.*_Windows\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "Mesen.exe",
+        "preserve_paths": []
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "SourMesen/Mesen2",
+        "asset_pattern": "Mesen_.*_macOS_x64_Intel\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "Mesen.app/Contents/MacOS/Mesen",
+        "preserve_paths": []
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "SourMesen/Mesen2",
+        "asset_pattern": "Mesen_.*_Linux_x64\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "Mesen",
+        "preserve_paths": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "catalog_id": "vita3k",
+  "display_name": "Vita3K",
+  "description": "Experimental PlayStation Vita emulator",
+  "supported_platform_folder_names": ["psvita", "vita"],
+  "operating_systems": ["WINDOWS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "legal_notice": "Vita3K is experimental. Compatibility and stability vary widely between titles.",
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["vpk", "zip"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "Vita3K/Vita3K",
+        "asset_pattern": "windows-latest\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "Vita3K.exe",
+        "preserve_paths": []
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "Vita3K/Vita3K",
+        "asset_pattern": "Vita3K-x86_64\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "Vita3K*.AppImage",
+        "preserve_paths": []
+      }
+    }
+  ]
+}

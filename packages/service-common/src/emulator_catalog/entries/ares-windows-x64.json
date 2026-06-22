@@ -1,0 +1,97 @@
+{
+  "catalog_id": "ares",
+  "display_name": "ares",
+  "description": "Accurate multi-system emulator (N64, Sega Saturn, Genesis, Master System, PC Engine, SNES, NES, and more)",
+  "supported_platform_folder_names": [
+    "n64",
+    "saturn",
+    "ss",
+    "genesis",
+    "megadrive",
+    "segacd",
+    "mastersystem",
+    "sms",
+    "gamegear",
+    "gg",
+    "pcengine",
+    "tg16",
+    "turbografx16",
+    "nes",
+    "snes",
+    "sfc",
+    "gb",
+    "gbc",
+    "gba",
+    "neogeo",
+    "ngp",
+    "ngpc",
+    "wonderswan",
+    "ws",
+    "msx",
+    "colecovision"
+  ],
+  "operating_systems": ["WINDOWS", "MACOS"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": [
+      "n64",
+      "z64",
+      "v64",
+      "cue",
+      "chd",
+      "iso",
+      "md",
+      "gen",
+      "smd",
+      "sms",
+      "gg",
+      "pce",
+      "sfc",
+      "smc",
+      "nes",
+      "fds",
+      "gb",
+      "gbc",
+      "gba",
+      "ws",
+      "wsc",
+      "ngp",
+      "ngc"
+    ],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "ares-emulator/ares",
+        "asset_pattern": "ares-windows-x64\\.zip$",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "ares.exe",
+        "preserve_paths": []
+      }
+    },
+    {
+      "operating_system": "MACOS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "ares-emulator/ares",
+        "asset_pattern": "ares-macos-universal\\.zip$",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_relative_path": "ares.app/Contents/MacOS/ares",
+        "preserve_paths": []
+      }
+    }
+  ]
+}

@@ -1,60 +1,60 @@
 {
-  "catalog_id": "xemu",
-  "display_name": "xemu",
-  "description": "Original Xbox emulator",
-  "supported_platform_folder_names": ["xbox"],
+  "catalog_id": "snes9x",
+  "display_name": "Snes9x",
+  "description": "Super Nintendo / Super Famicom emulator",
+  "supported_platform_folder_names": ["snes", "sfc"],
   "operating_systems": ["WINDOWS", "MACOS", "LINUX_X86_64"],
   "installable": true,
   "deprecated": false,
   "default_profile": {
     "name": "Default",
-    "supported_extensions": ["iso", "xbe"],
-    "custom_args": ["-dvd_path", "{file}"]
+    "supported_extensions": ["sfc", "smc", "swc", "fig", "bs", "st"],
+    "custom_args": ["{file}"]
   },
   "targets": [
     {
       "operating_system": "WINDOWS",
       "upstream": {
         "type": "github_release",
-        "repo": "xemu-project/xemu",
-        "asset_pattern": "xemu-[0-9.]+-windows-x86_64\\.zip",
+        "repo": "snes9xgit/snes9x",
+        "asset_pattern": "snes9x-.*-win32-x64\\.zip",
         "manifest_version_from": "tag"
       },
       "install": {
         "archive_type": "zip",
         "strip_components": 0,
-        "executable_relative_path": "xemu.exe",
-        "preserve_paths": ["eeprom.bin", "hdd/"]
+        "executable_glob": "snes9x*.exe",
+        "preserve_paths": []
       }
     },
     {
       "operating_system": "MACOS",
       "upstream": {
         "type": "github_release",
-        "repo": "xemu-project/xemu",
-        "asset_pattern": "xemu-[0-9.]+-macos-universal\\.zip",
+        "repo": "snes9xgit/snes9x",
+        "asset_pattern": "Snes9x-.*-Mac\\.zip",
         "manifest_version_from": "tag"
       },
       "install": {
         "archive_type": "zip",
         "strip_components": 0,
-        "executable_relative_path": "xemu.app/Contents/MacOS/xemu",
-        "preserve_paths": ["eeprom.bin", "hdd/"]
+        "executable_relative_path": "Snes9x.app/Contents/MacOS/Snes9x",
+        "preserve_paths": []
       }
     },
     {
       "operating_system": "LINUX_X86_64",
       "upstream": {
         "type": "github_release",
-        "repo": "xemu-project/xemu",
-        "asset_pattern": "xemu-[0-9.]+-x86_64\\.AppImage",
+        "repo": "snes9xgit/snes9x",
+        "asset_pattern": "Snes9x-.*-x86_64\\.AppImage",
         "manifest_version_from": "tag"
       },
       "install": {
         "archive_type": "appimage",
         "strip_components": 0,
-        "executable_glob": "xemu*.AppImage",
-        "preserve_paths": ["eeprom.bin", "hdd/"]
+        "executable_glob": "Snes9x*.AppImage",
+        "preserve_paths": []
       }
     }
   ]

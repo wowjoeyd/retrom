@@ -1,0 +1,46 @@
+{
+  "catalog_id": "rmg",
+  "display_name": "Rosalie's Mupen GUI",
+  "description": "Nintendo 64 emulator (Mupen64Plus front-end)",
+  "supported_platform_folder_names": ["n64"],
+  "operating_systems": ["WINDOWS", "LINUX_X86_64"],
+  "installable": true,
+  "deprecated": false,
+  "default_profile": {
+    "name": "Default",
+    "supported_extensions": ["n64", "z64", "v64", "ndd"],
+    "custom_args": ["{file}"]
+  },
+  "targets": [
+    {
+      "operating_system": "WINDOWS",
+      "upstream": {
+        "type": "github_release",
+        "repo": "Rosalie241/RMG",
+        "asset_pattern": "RMG-Portable-Windows64-.*\\.zip",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "zip",
+        "strip_components": 0,
+        "executable_glob": "RMG.exe",
+        "preserve_paths": []
+      }
+    },
+    {
+      "operating_system": "LINUX_X86_64",
+      "upstream": {
+        "type": "github_release",
+        "repo": "Rosalie241/RMG",
+        "asset_pattern": "RMG-Portable-Linux64-.*\\.AppImage",
+        "manifest_version_from": "tag"
+      },
+      "install": {
+        "archive_type": "appimage",
+        "strip_components": 0,
+        "executable_glob": "RMG*.AppImage",
+        "preserve_paths": []
+      }
+    }
+  ]
+}
