@@ -20,7 +20,9 @@
       "outputs": ["{projectRoot}/generated/**/*"]
     },
     "vite:build": {
-      "dependsOn": ["generate"]
+      "dependsOn": ["generate"],
+      "//": "Cache disabled so consumers always get a dist/ compiled from the current generated/ sources. generated/ is gitignored, so nx's file map can't hash it as an input and would otherwise restore a stale dist after a proto change (mirrors tsc:typecheck cache:false).",
+      "cache": false
     },
     "build": {
       "dependsOn": ["vite:build"]
