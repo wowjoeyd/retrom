@@ -6,7 +6,7 @@
 //! GetSchemaForGame (definitions), GetPlayerAchievements (the user's unlocks),
 //! and GetGlobalAchievementPercentagesForApp (rarity).
 
-use std::{cmp::Ordering, sync::Arc};
+use std::{cmp::Ordering, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use retrom_codegen::retrom::Game;
@@ -40,7 +40,7 @@ impl AchievementProvider for SteamAchievementProvider {
         game.steam_app_id.is_some_and(|id| id > 0)
     }
 
-    async fn fetch(&self, game: &Game) -> AchievementsOutcome {
+    async fn fetch(&self, game: &Game, _rom_path: Option<&Path>) -> AchievementsOutcome {
         let Some(app_id) = game.steam_app_id.filter(|id| *id > 0).map(|id| id as u32) else {
             return AchievementsOutcome::NotConfigured;
         };

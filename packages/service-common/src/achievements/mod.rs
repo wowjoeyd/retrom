@@ -7,7 +7,10 @@
 //! and serves everything through a single code path. Steam and RA both
 //! implement the trait; GOG/Epic can slot in later by adding another impl.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use retrom_codegen::retrom::Game;
@@ -18,6 +21,7 @@ use crate::{
     retrom_dirs::RetromDirs,
 };
 
+pub mod retroachievements;
 pub mod steam;
 
 /// How long a successfully fetched achievement set is served from disk before a
@@ -106,15 +110,17 @@ pub trait AchievementProvider: Send + Sync {
     async fn applies_to(&self, game: &Game) -> bool;
 
     /// Fetch the achievement set + the user's progress. Only called for games
-    /// this provider [`applies_to`](Self::applies_to).
-    async fn fetch(&self, game: &Game) -> AchievementsOutcome;
+    /// this provider [`applies_to`](Self::applies_to). `rom_path` is the game's
+    /// resolved primary ROM file on disk (used by RetroAchievements for content
+    /// hashing); providers that don't need it ignore it.
+    async fn fetch(&self, game: &Game, rom_path: Option<&Path>) -> AchievementsOutcome;
 }
 
 /// On-disk cache envelope (per game, under `media/games/<id>/achievements.json`).
 #[derive(Serialize, Deserialize, Debug)]
 struct CachedAchievements {
     fetched_at: i64,
-    /// "populated" | "empty" — only successful fetches are cached.
+    /// "populated" | "empty" | "not_identified" — resolved (non-transient) states.
     status: String,
     set: Option<ProviderAchievementSet>,
 }
@@ -141,7 +147,14 @@ impl AchievementsService {
     }
 
     /// Resolve a game's achievements: cache → provider → cache + badge caching.
-    pub async fn get(&self, game: &Game, force_refresh: bool) -> AchievementsResult {
+    /// `rom_path` is the game's primary ROM file on disk (resolved by the caller
+    /// from the DB), needed by content-hashing providers like RetroAchievements.
+    pub async fn get(
+        &self,
+        game: &Game,
+        rom_path: Option<&Path>,
+        force_refresh: bool,
+    ) -> AchievementsResult {
         let provider = {
             let mut found = None;
             for p in &self.providers {
@@ -167,7 +180,7 @@ impl AchievementsService {
             }
         }
 
-        match provider.fetch(game).await {
+        match provider.fetch(game, rom_path).await {
             AchievementsOutcome::Populated(mut set) => {
                 self.cache_badges(game.id, provider.id(), &mut set).await;
                 self.write_cache(game.id, "populated", Some(&set)).await;
@@ -185,15 +198,20 @@ impl AchievementsService {
                     message: None,
                 }
             }
+            // Cached so we don't re-hash the ROM (and re-hit the identification
+            // endpoint) on every detail-open; a manual match uses force_refresh.
+            AchievementsOutcome::NotIdentified => {
+                self.write_cache(game.id, "not_identified", None).await;
+                AchievementsResult {
+                    status: AchievementsStatus::NotIdentified,
+                    set: None,
+                    message: None,
+                }
+            }
             // Transient/credential states are not cached — they should resolve
             // as soon as the user fixes the cause, without waiting out a TTL.
             AchievementsOutcome::NotConfigured => AchievementsResult {
                 status: AchievementsStatus::NotConfigured,
-                set: None,
-                message: None,
-            },
-            AchievementsOutcome::NotIdentified => AchievementsResult {
-                status: AchievementsStatus::NotIdentified,
                 set: None,
                 message: None,
             },
@@ -224,6 +242,11 @@ impl AchievementsService {
             }),
             "empty" => Some(AchievementsResult {
                 status: AchievementsStatus::Empty,
+                set: None,
+                message: None,
+            }),
+            "not_identified" => Some(AchievementsResult {
+                status: AchievementsStatus::NotIdentified,
                 set: None,
                 message: None,
             }),

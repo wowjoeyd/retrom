@@ -29,6 +29,10 @@ service MetadataService {
   // provider applies to the game, fetches the set + the user's progress, caches
   // it, and serves it through this single RPC.
   rpc GetGameAchievements(GetGameAchievementsRequest) returns (GetGameAchievementsResponse);
+  // Manually map a game to a RetroAchievements game id when content hashing did
+  // not resolve a match. The override is durable and skips hashing entirely on
+  // subsequent fetches. A retroachievements_game_id of 0 clears the override.
+  rpc SetGameAchievementsManualMatch(SetGameAchievementsManualMatchRequest) returns (SetGameAchievementsManualMatchResponse);
 
   rpc SearchGameSoundtrack(SearchGameSoundtrackRequest) returns (SearchGameSoundtrackResponse);
   rpc DownloadGameSoundtrack(DownloadGameSoundtrackRequest) returns (DownloadGameSoundtrackResponse);
@@ -221,6 +225,17 @@ message GetGameAchievementsResponse {
   optional GameAchievementSet set = 2;
   // Human-readable detail for NEEDS_ATTENTION / error states.
   optional string message = 3;
+}
+
+message SetGameAchievementsManualMatchRequest {
+  int32 game_id = 1;
+  // The RetroAchievements game id to bind to this game. 0 clears the override.
+  int32 retroachievements_game_id = 2;
+}
+
+message SetGameAchievementsManualMatchResponse {
+  // The freshly re-resolved achievements for the game after applying the override.
+  GetGameAchievementsResponse achievements = 1;
 }
 
 message GetLocalMetadataStatusRequest {}

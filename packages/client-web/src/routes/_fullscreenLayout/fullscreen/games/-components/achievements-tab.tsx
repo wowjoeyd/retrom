@@ -1,12 +1,15 @@
-import { ReactNode, RefObject } from "react";
+import { ReactNode, RefObject, useState } from "react";
 import { AlertCircle, Check, LoaderCircle, Lock, Trophy } from "lucide-react";
 import { cn } from "@retrom/ui/lib/utils";
+import { Button } from "@retrom/ui/components/button";
+import { Input } from "@retrom/ui/components/input";
 import {
   FocusableElement,
   FocusContainer,
   useFocusable,
 } from "@/components/fullscreen/focus-container";
 import { useGameDetail } from "@/providers/game-details";
+import { useSetAchievementsManualMatch } from "@/mutations/useSetAchievementsManualMatch";
 import {
   Achievement,
   AchievementSummary,
@@ -63,14 +66,18 @@ export function AchievementsTab() {
     return (
       <CenteredState focusKey="detail-achievements-not-identified">
         <Trophy size={36} className="opacity-30" />
-        <div className="flex flex-col gap-1">
-          <p className="text-base font-semibold text-foreground/80">
-            Game not identified
-          </p>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Retrom couldn&apos;t match this game to RetroAchievements from its
-            file. You can map it manually from the settings.
-          </p>
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-base font-semibold text-foreground/80">
+              Game not identified
+            </p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Retrom couldn&apos;t match this game to RetroAchievements from its
+              file. Enter its RetroAchievements game ID below to map it
+              manually.
+            </p>
+          </div>
+          <ManualMatchForm gameId={game.id} />
         </div>
       </CenteredState>
     );
@@ -225,6 +232,51 @@ function AchievementMetric(props: { achievement: Achievement }) {
   }
 
   return null;
+}
+
+// Manual RetroAchievements game-id override for games whose ROM hash didn't
+// resolve. Submitting fetches by the given id and refreshes the tab.
+function ManualMatchForm(props: { gameId: number }) {
+  const [value, setValue] = useState("");
+  const { mutate, isPending } = useSetAchievementsManualMatch(props.gameId);
+
+  const id = Number.parseInt(value, 10);
+  const valid = Number.isFinite(id) && id > 0;
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) mutate(id);
+      }}
+      className="flex items-center gap-2"
+    >
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        placeholder="RA game ID"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-36"
+      />
+      <Button type="submit" disabled={!valid || isPending}>
+        {isPending ? (
+          <LoaderCircle className="animate-spin" size={16} />
+        ) : (
+          "Map"
+        )}
+      </Button>
+      <a
+        href="https://retroachievements.org/gameList.php"
+        target="_blank"
+        rel="noreferrer"
+        className="text-xs underline text-accent-text"
+      >
+        Find ID
+      </a>
+    </form>
+  );
 }
 
 // A single focusable so the controller has somewhere to land when entering the

@@ -29,10 +29,14 @@ use retrom_codegen::{
     },
 };
 use retrom_service_common::{
-    achievements::{steam::SteamAchievementProvider, AchievementProvider, AchievementsService},
+    achievements::{
+        retroachievements::RetroAchievementsProvider, steam::SteamAchievementProvider,
+        AchievementProvider, AchievementsService,
+    },
     config::ServerConfigManager,
     media_cache::MediaCache,
     metadata_providers::{igdb::provider::IGDBProvider, steam::provider::SteamWebApiProvider},
+    retroachievements::override_store::RaOverrideStore,
     retrom_dirs::RetromDirs,
 };
 use retrom_telemetry::grpc::{GrpcOnRequestSpan, GrpcOnResponseSpanHandler};
@@ -105,11 +109,19 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
     let _retrom_dirs = RetromDirs::new();
     let media_cache = Arc::new(MediaCache::new(config_manager.clone()));
 
-    // Unified achievements: one provider per source (Steam now; RetroAchievements
-    // slots in later) behind a single fetch/cache service.
-    let achievement_providers: Vec<Arc<dyn AchievementProvider>> = vec![Arc::new(
-        SteamAchievementProvider::new(steam_web_api_client.clone(), config_manager.clone()),
-    )];
+    // Unified achievements: one provider per source behind a single fetch/cache
+    // service. Steam keys off the appid; RetroAchievements content-hashes ROMs.
+    let ra_override_store = Arc::new(RaOverrideStore::new());
+    let achievement_providers: Vec<Arc<dyn AchievementProvider>> = vec![
+        Arc::new(SteamAchievementProvider::new(
+            steam_web_api_client.clone(),
+            config_manager.clone(),
+        )),
+        Arc::new(RetroAchievementsProvider::new(
+            config_manager.clone(),
+            ra_override_store.clone(),
+        )),
+    ];
     let achievements_service = Arc::new(AchievementsService::new(
         achievement_providers,
         media_cache.clone(),
@@ -152,6 +164,7 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         job_manager.clone(),
         config_manager.clone(),
         achievements_service.clone(),
+        ra_override_store.clone(),
     ));
 
     // Proactively ensure yt-dlp binary is downloaded for the soundtrack theme audio extraction feature.
