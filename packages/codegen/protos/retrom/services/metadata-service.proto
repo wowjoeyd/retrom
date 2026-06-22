@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package retrom;
 
+import "google/protobuf/timestamp.proto";
 import 'retrom/models/games.proto';
 import 'retrom/models/metadata.proto';
 import 'retrom/models/platforms.proto';
@@ -23,6 +24,15 @@ service MetadataService {
   rpc GetIgdbPlatformSearchResults(GetIgdbPlatformSearchResultsRequest) returns (GetIgdbPlatformSearchResultsResponse);
 
   rpc SyncSteamMetadata(SyncSteamMetadataRequest) returns (SyncSteamMetadataResponse);
+
+  // Unified achievements (Steam + RetroAchievements). The server resolves which
+  // provider applies to the game, fetches the set + the user's progress, caches
+  // it, and serves it through this single RPC.
+  rpc GetGameAchievements(GetGameAchievementsRequest) returns (GetGameAchievementsResponse);
+  // Manually map a game to a RetroAchievements game id when content hashing did
+  // not resolve a match. The override is durable and skips hashing entirely on
+  // subsequent fetches. A retroachievements_game_id of 0 clears the override.
+  rpc SetGameAchievementsManualMatch(SetGameAchievementsManualMatchRequest) returns (SetGameAchievementsManualMatchResponse);
 
   rpc SearchGameSoundtrack(SearchGameSoundtrackRequest) returns (SearchGameSoundtrackResponse);
   rpc DownloadGameSoundtrack(DownloadGameSoundtrackRequest) returns (DownloadGameSoundtrackResponse);
@@ -159,6 +169,74 @@ message SyncSteamMetadataRequest {
 }
 
 message SyncSteamMetadataResponse {}
+
+// Resolved state of a game's achievements, decided server-side.
+enum GameAchievementsStatus {
+  GAME_ACHIEVEMENTS_STATUS_UNSPECIFIED = 0;
+  // No achievement provider applies to this game (native/custom title).
+  GAME_ACHIEVEMENTS_STATUS_NOT_SUPPORTED = 1;
+  // A provider applies but its account credentials are missing/incomplete.
+  GAME_ACHIEVEMENTS_STATUS_NOT_CONFIGURED = 2;
+  // RetroAchievements: the content hash did not resolve to an RA game.
+  GAME_ACHIEVEMENTS_STATUS_NOT_IDENTIFIED = 3;
+  // Configured but the provider could not return progress (e.g. a private Steam
+  // profile, a bad key, or an upstream error). `message` carries the detail.
+  GAME_ACHIEVEMENTS_STATUS_NEEDS_ATTENTION = 4;
+  // A provider applies and is configured, but the game has no achievement set.
+  GAME_ACHIEVEMENTS_STATUS_EMPTY = 5;
+  // Achievements resolved; `set` is populated.
+  GAME_ACHIEVEMENTS_STATUS_POPULATED = 6;
+}
+
+message GameAchievement {
+  // Provider-native achievement id (Steam apiname / RA achievement id).
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  bool unlocked = 4;
+  // RA awards points per achievement; Steam does not.
+  optional int32 points = 5;
+  // Global unlock percentage (rarity), when the provider supplies it.
+  optional double rarity_percent = 6;
+  // Badge image as a relative media path (served under /rest/public), already
+  // resolved to the state-appropriate (unlocked vs locked) art.
+  optional string icon_url = 7;
+  optional google.protobuf.Timestamp unlocked_at = 8;
+}
+
+message GameAchievementSet {
+  // Provider id: "steam" | "retroachievements".
+  string provider = 1;
+  int32 unlocked = 2;
+  int32 total = 3;
+  int32 points_earned = 4;
+  int32 points_total = 5;
+  repeated GameAchievement achievements = 6;
+}
+
+message GetGameAchievementsRequest {
+  int32 game_id = 1;
+  // Bypass the cache TTL and re-fetch from the provider.
+  optional bool force_refresh = 2;
+}
+
+message GetGameAchievementsResponse {
+  GameAchievementsStatus status = 1;
+  optional GameAchievementSet set = 2;
+  // Human-readable detail for NEEDS_ATTENTION / error states.
+  optional string message = 3;
+}
+
+message SetGameAchievementsManualMatchRequest {
+  int32 game_id = 1;
+  // The RetroAchievements game id to bind to this game. 0 clears the override.
+  int32 retroachievements_game_id = 2;
+}
+
+message SetGameAchievementsManualMatchResponse {
+  // The freshly re-resolved achievements for the game after applying the override.
+  GetGameAchievementsResponse achievements = 1;
+}
 
 message GetLocalMetadataStatusRequest {}
 

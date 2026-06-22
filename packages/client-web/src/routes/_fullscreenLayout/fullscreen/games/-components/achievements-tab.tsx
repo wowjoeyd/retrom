@@ -1,12 +1,15 @@
-import { ReactNode, RefObject } from "react";
+import { ReactNode, RefObject, useState } from "react";
 import { AlertCircle, Check, LoaderCircle, Lock, Trophy } from "lucide-react";
 import { cn } from "@retrom/ui/lib/utils";
+import { Button } from "@retrom/ui/components/button";
+import { Input } from "@retrom/ui/components/input";
 import {
   FocusableElement,
   FocusContainer,
   useFocusable,
 } from "@/components/fullscreen/focus-container";
 import { useGameDetail } from "@/providers/game-details";
+import { useSetAchievementsManualMatch } from "@/mutations/useSetAchievementsManualMatch";
 import {
   Achievement,
   AchievementSummary,
@@ -26,28 +29,67 @@ export function AchievementsTab() {
     );
   }
 
-  if (data.status === "error") {
+  if (data.status === "needs-attention") {
     return (
-      <CenteredState focusKey="detail-achievements-error">
+      <CenteredState focusKey="detail-achievements-attention">
         <AlertCircle size={32} className="text-destructive-text opacity-80" />
-        <p className="text-sm text-muted-foreground">{data.message}</p>
+        <div className="flex flex-col gap-1">
+          <p className="text-base font-semibold text-foreground/80">
+            Achievements need attention
+          </p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {data.message}
+          </p>
+        </div>
       </CenteredState>
     );
   }
 
-  if (data.status === "not-connected") {
+  if (data.status === "not-configured") {
     return (
-      <CenteredState focusKey="detail-achievements-empty">
+      <CenteredState focusKey="detail-achievements-not-configured">
         <Trophy size={36} className="opacity-30" />
         <div className="flex flex-col gap-1">
           <p className="text-base font-semibold text-foreground/80">
-            RetroAchievements not connected
+            Achievements account not connected
           </p>
           <p className="max-w-md text-sm text-muted-foreground">
-            Connect a RetroAchievements account to track mastery, points, and
-            unlocks for this game.
+            Add your account credentials under Settings → Achievements to track
+            unlocks, points, and rarity for this game.
           </p>
         </div>
+      </CenteredState>
+    );
+  }
+
+  if (data.status === "not-identified") {
+    return (
+      <CenteredState focusKey="detail-achievements-not-identified">
+        <Trophy size={36} className="opacity-30" />
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-base font-semibold text-foreground/80">
+              Game not identified
+            </p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Retrom couldn&apos;t match this game to RetroAchievements from its
+              file. Enter its RetroAchievements game ID below to map it
+              manually.
+            </p>
+          </div>
+          <ManualMatchForm gameId={game.id} />
+        </div>
+      </CenteredState>
+    );
+  }
+
+  if (data.status === "not-supported") {
+    return (
+      <CenteredState focusKey="detail-achievements-not-supported">
+        <Trophy size={36} className="opacity-30" />
+        <p className="text-sm text-muted-foreground">
+          No achievements available for this game.
+        </p>
       </CenteredState>
     );
   }
@@ -80,7 +122,8 @@ export function AchievementsTab() {
 }
 
 function CompletionHeader(props: { summary: AchievementSummary }) {
-  const { unlocked, total, pointsEarned, pointsTotal } = props.summary;
+  const { unlocked, total, pointsEarned, pointsTotal, hasPoints } =
+    props.summary;
   const pct = total > 0 ? Math.round((unlocked / total) * 100) : 0;
 
   return (
@@ -100,9 +143,11 @@ function CompletionHeader(props: { summary: AchievementSummary }) {
         <p className="text-lg font-semibold text-foreground">
           {unlocked} of {total} unlocked
         </p>
-        <p className="text-sm text-muted-foreground">
-          {pointsEarned} of {pointsTotal} points earned
-        </p>
+        {hasPoints && (
+          <p className="text-sm text-muted-foreground">
+            {pointsEarned} of {pointsTotal} points earned
+          </p>
+        )}
       </div>
     </div>
   );
@@ -110,7 +155,7 @@ function CompletionHeader(props: { summary: AchievementSummary }) {
 
 function AchievementRow(props: { achievement: Achievement }) {
   const { achievement } = props;
-  const { id, title, description, points, unlocked, iconUrl } = achievement;
+  const { id, title, description, unlocked, iconUrl } = achievement;
 
   const { ref } = useFocusable<HTMLDivElement>({
     focusKey: `detail-achievement-${id}`,
@@ -158,10 +203,79 @@ function AchievementRow(props: { achievement: Achievement }) {
         </span>
       </div>
 
+      <AchievementMetric achievement={achievement} />
+    </div>
+  );
+}
+
+// RetroAchievements awards points; Steam awards none but exposes global rarity.
+// Show whichever the provider supplied — points take precedence.
+function AchievementMetric(props: { achievement: Achievement }) {
+  const { points, rarityPercent } = props.achievement;
+
+  if (points != null && points > 0) {
+    return (
       <span className="ml-auto shrink-0 text-sm font-semibold text-amber-400">
         {points} pts
       </span>
-    </div>
+    );
+  }
+
+  if (rarityPercent != null) {
+    const rarity =
+      rarityPercent < 10 ? rarityPercent.toFixed(1) : Math.round(rarityPercent);
+    return (
+      <span className="ml-auto shrink-0 text-right text-xs text-muted-foreground">
+        {rarity}%<span className="block opacity-70">of players</span>
+      </span>
+    );
+  }
+
+  return null;
+}
+
+// Manual RetroAchievements game-id override for games whose ROM hash didn't
+// resolve. Submitting fetches by the given id and refreshes the tab.
+function ManualMatchForm(props: { gameId: number }) {
+  const [value, setValue] = useState("");
+  const { mutate, isPending } = useSetAchievementsManualMatch(props.gameId);
+
+  const id = Number.parseInt(value, 10);
+  const valid = Number.isFinite(id) && id > 0;
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) mutate(id);
+      }}
+      className="flex items-center gap-2"
+    >
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        placeholder="RA game ID"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-36"
+      />
+      <Button type="submit" disabled={!valid || isPending}>
+        {isPending ? (
+          <LoaderCircle className="animate-spin" size={16} />
+        ) : (
+          "Map"
+        )}
+      </Button>
+      <a
+        href="https://retroachievements.org/gameList.php"
+        target="_blank"
+        rel="noreferrer"
+        className="text-xs underline text-accent-text"
+      >
+        Find ID
+      </a>
+    </form>
   );
 }
 

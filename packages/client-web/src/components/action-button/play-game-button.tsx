@@ -1,6 +1,7 @@
 import { Button } from "@retrom/ui/components/button";
 import { usePlayGame } from "@/mutations/usePlayGame";
 import { usePlayStatusQuery } from "@/queries/usePlayStatus";
+import { useRefreshAchievementsOnExit } from "@/queries/useRefreshAchievementsOnExit";
 import {
   PlayGamePayload,
   PlayStatus,
@@ -182,6 +183,10 @@ export const PlayGameButton = forwardRef(
 
     const { data: playStatusUpdate, status: queryStatus } =
       usePlayStatusQuery(game);
+
+    // Re-poll achievements when this game exits, picking up unlocks earned
+    // during the session.
+    useRefreshAchievementsOnExit(game.id);
 
     const { emulator, defaultProfile } = emulatorData ?? {};
 

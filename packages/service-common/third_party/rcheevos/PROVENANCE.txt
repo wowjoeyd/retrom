@@ -1,0 +1,6 @@
+Vendored from RetroAchievements/rcheevos @ tag v11.6.0
+https://github.com/RetroAchievements/rcheevos (MIT, see LICENSE)
+
+Only the rc_hash (content hashing) sources are vendored. Update by re-copying
+include/{rc_hash,rc_consoles,rc_export}.h, src/rc_compat.h and src/rhash/*.{c,h}
+from the desired tag.

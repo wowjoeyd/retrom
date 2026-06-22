@@ -13,13 +13,16 @@ use retrom_codegen::{
         AutoDownloadGameSoundtrackRequest, AutoDownloadGameSoundtrackResponse,
         DeleteGameSoundtrackTrackRequest, DeleteGameSoundtrackTrackResponse,
         DeleteLocalMetadataRequest, DeleteLocalMetadataResponse, DownloadGameSoundtrackRequest,
-        DownloadGameSoundtrackResponse, Game, GameGenre, GameGenreMap, GetGameMetadataRequest,
-        GetGameMetadataResponse, GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
+        DownloadGameSoundtrackResponse, Game, GameAchievement, GameAchievementSet,
+        GameAchievementsStatus, GameFile, GameGenre, GameGenreMap, GetGameAchievementsRequest,
+        GetGameAchievementsResponse, GetGameMetadataRequest, GetGameMetadataResponse,
+        GetIgdbGameSearchResultsRequest, GetIgdbGameSearchResultsResponse,
         GetIgdbPlatformSearchResultsRequest, GetIgdbPlatformSearchResultsResponse,
         GetIgdbSearchRequest, GetIgdbSearchResponse, GetLocalMetadataStatusRequest,
         GetLocalMetadataStatusResponse, GetPlatformMetadataRequest, GetPlatformMetadataResponse,
         IgdbSearchGameResponse, IgdbSearchPlatformResponse, SearchGameSoundtrackRequest,
-        SearchGameSoundtrackResponse, SimilarGameMap,
+        SearchGameSoundtrackResponse, SetGameAchievementsManualMatchRequest,
+        SetGameAchievementsManualMatchResponse, SimilarGameMap,
         SoundtrackCandidate as SoundtrackCandidateProto, SyncSteamMetadataRequest,
         SyncSteamMetadataResponse, UpdateGameMetadataRequest, UpdateGameMetadataResponse,
         UpdateGamePlaytimeRequest, UpdateGamePlaytimeResponse, UpdatePlatformMetadataRequest,
@@ -29,6 +32,9 @@ use retrom_codegen::{
 };
 use retrom_db::{schema, Pool};
 use retrom_service_common::{
+    achievements::{
+        AchievementsService, AchievementsStatus, ProviderAchievement, ProviderAchievementSet,
+    },
     media_cache::{cacheable_media::CacheableMetadata, get_public_url, MediaCache},
     metadata_providers::{
         igdb::provider::{IGDBProvider, IgdbSearchData},
@@ -41,9 +47,10 @@ use retrom_service_common::{
         steam::provider::SteamWebApiProvider,
         GameMetadataProvider, MetadataProvider, PlatformMetadataProvider,
     },
+    retroachievements::override_store::RaOverrideStore,
     retrom_dirs::RetromDirs,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{error, Instrument, Level};
@@ -97,6 +104,77 @@ async fn clean_image_cache_preserving_theme(cache_dir: &std::path::Path) {
     }
 }
 
+/// Map the internal achievement set (with relative media badge paths) to the
+/// wire type. `unlocked_at` is stored internally as unix seconds.
+fn proto_achievement_set(set: ProviderAchievementSet) -> GameAchievementSet {
+    GameAchievementSet {
+        provider: set.provider,
+        unlocked: set.unlocked,
+        total: set.total,
+        points_earned: set.points_earned,
+        points_total: set.points_total,
+        achievements: set
+            .achievements
+            .into_iter()
+            .map(proto_achievement)
+            .collect(),
+    }
+}
+
+fn proto_achievement(a: ProviderAchievement) -> GameAchievement {
+    GameAchievement {
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        unlocked: a.unlocked,
+        points: a.points,
+        rarity_percent: a.rarity_percent,
+        icon_url: a.icon_url,
+        unlocked_at: a.unlocked_at.map(|seconds| Timestamp { seconds, nanos: 0 }),
+    }
+}
+
+/// Map the orchestrator's resolved result onto the wire response. Shared by the
+/// get + manual-match RPCs.
+fn achievements_result_to_proto(
+    result: retrom_service_common::achievements::AchievementsResult,
+) -> GetGameAchievementsResponse {
+    let status = match result.status {
+        AchievementsStatus::NotSupported => GameAchievementsStatus::NotSupported,
+        AchievementsStatus::NotConfigured => GameAchievementsStatus::NotConfigured,
+        AchievementsStatus::NotIdentified => GameAchievementsStatus::NotIdentified,
+        AchievementsStatus::NeedsAttention => GameAchievementsStatus::NeedsAttention,
+        AchievementsStatus::Empty => GameAchievementsStatus::Empty,
+        AchievementsStatus::Populated => GameAchievementsStatus::Populated,
+    };
+
+    GetGameAchievementsResponse {
+        status: status as i32,
+        set: result.set.map(proto_achievement_set),
+        message: result.message,
+    }
+}
+
+/// Pick the ROM file to content-hash for RetroAchievements. Prefer a disc index
+/// (.cue/.m3u — gives rc_hash the full track layout), then the configured
+/// default file, then the first available file.
+fn pick_rom_file(files: &[GameFile], default_file_id: Option<i32>) -> Option<PathBuf> {
+    if let Some(f) = files.iter().find(|f| {
+        let p = f.path.to_ascii_lowercase();
+        p.ends_with(".cue") || p.ends_with(".m3u")
+    }) {
+        return Some(PathBuf::from(&f.path));
+    }
+
+    if let Some(fid) = default_file_id {
+        if let Some(f) = files.iter().find(|f| f.id == fid) {
+            return Some(PathBuf::from(&f.path));
+        }
+    }
+
+    files.first().map(|f| PathBuf::from(&f.path))
+}
+
 pub struct MetadataServiceHandlers {
     db_pool: Arc<Pool>,
     igdb_client: Arc<IGDBProvider>,
@@ -104,9 +182,12 @@ pub struct MetadataServiceHandlers {
     media_cache: Arc<MediaCache>,
     job_manager: Arc<JobManager>,
     config_manager: Arc<retrom_service_common::config::ServerConfigManager>,
+    achievements_service: Arc<AchievementsService>,
+    ra_override_store: Arc<RaOverrideStore>,
 }
 
 impl MetadataServiceHandlers {
+    #[allow(clippy::too_many_arguments)] // dependency-injection constructor
     pub fn new(
         db_pool: Arc<Pool>,
         igdb_client: Arc<IGDBProvider>,
@@ -114,6 +195,8 @@ impl MetadataServiceHandlers {
         media_cache: Arc<MediaCache>,
         job_manager: Arc<JobManager>,
         config_manager: Arc<retrom_service_common::config::ServerConfigManager>,
+        achievements_service: Arc<AchievementsService>,
+        ra_override_store: Arc<RaOverrideStore>,
     ) -> Self {
         Self {
             db_pool,
@@ -122,7 +205,37 @@ impl MetadataServiceHandlers {
             media_cache,
             job_manager,
             config_manager,
+            achievements_service,
+            ra_override_store,
         }
+    }
+
+    async fn load_game(&self, game_id: i32) -> Result<retrom::Game, Status> {
+        let mut conn = self
+            .db_pool
+            .get()
+            .await
+            .map_err(|why| Status::internal(why.to_string()))?;
+
+        schema::games::table
+            .find(game_id)
+            .first::<retrom::Game>(&mut conn)
+            .await
+            .map_err(|_| Status::not_found("game not found"))
+    }
+
+    /// Resolve the on-disk ROM path to hash for a game (None if it has no files).
+    async fn resolve_rom_path(&self, game: &retrom::Game) -> Option<PathBuf> {
+        let mut conn = self.db_pool.get().await.ok()?;
+
+        let files: Vec<GameFile> = schema::game_files::table
+            .filter(schema::game_files::game_id.eq(game.id))
+            .filter(schema::game_files::is_deleted.eq(false))
+            .load::<GameFile>(&mut conn)
+            .await
+            .ok()?;
+
+        pick_rom_file(&files, game.default_file_id)
     }
 }
 
@@ -1147,6 +1260,50 @@ impl MetadataService for MetadataServiceHandlers {
         });
 
         Ok(Response::new(SyncSteamMetadataResponse {}))
+    }
+
+    async fn get_game_achievements(
+        &self,
+        request: Request<GetGameAchievementsRequest>,
+    ) -> Result<Response<GetGameAchievementsResponse>, Status> {
+        let request = request.into_inner();
+        let force_refresh = request.force_refresh.unwrap_or(false);
+
+        let game = self.load_game(request.game_id).await?;
+        let rom_path = self.resolve_rom_path(&game).await;
+
+        let result = self
+            .achievements_service
+            .get(&game, rom_path.as_deref(), force_refresh)
+            .await;
+
+        Ok(Response::new(achievements_result_to_proto(result)))
+    }
+
+    async fn set_game_achievements_manual_match(
+        &self,
+        request: Request<SetGameAchievementsManualMatchRequest>,
+    ) -> Result<Response<SetGameAchievementsManualMatchResponse>, Status> {
+        let request = request.into_inner();
+
+        // Persist (or, with 0, clear) the override, then re-resolve bypassing the
+        // cache so the override (or its removal) takes effect immediately.
+        self.ra_override_store
+            .set(request.game_id, request.retroachievements_game_id as i64)
+            .await
+            .map_err(|why| Status::internal(format!("failed to store manual match: {why}")))?;
+
+        let game = self.load_game(request.game_id).await?;
+        let rom_path = self.resolve_rom_path(&game).await;
+
+        let result = self
+            .achievements_service
+            .get(&game, rom_path.as_deref(), true)
+            .await;
+
+        Ok(Response::new(SetGameAchievementsManualMatchResponse {
+            achievements: Some(achievements_result_to_proto(result)),
+        }))
     }
 
     async fn get_local_metadata_status(

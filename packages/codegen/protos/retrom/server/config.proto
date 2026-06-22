@@ -65,6 +65,14 @@ message SteamConfig {
   string user_id = 2;
 }
 
+// RetroAchievements account credentials, used by the achievements feature to
+// fetch a user's unlocked achievements for emulated games. The web API key is a
+// per-user secret obtained from the RA site (Settings → Keys).
+message RetroAchievementsConfig {
+  string username = 1;
+  string api_key = 2;
+}
+
 message SavesConfig {
   int32 max_save_files_backups = 1;
   int32 max_save_states_backups = 2;
@@ -134,4 +142,5 @@ message ServerConfig {
   repeated EmulatorPackageDirectory emulator_package_directories = 8;
   optional string custom_catalog_dir = 9;
   optional EmulatorPackagesConfig emulator_packages = 10;
+  optional RetroAchievementsConfig retro_achievements = 11;
 }

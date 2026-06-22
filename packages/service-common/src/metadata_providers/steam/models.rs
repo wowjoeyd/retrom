@@ -98,3 +98,106 @@ pub struct Movie {
     pub mp4: Option<MovieQualities>,
     pub highlight: bool,
 }
+
+// ── Achievements: GetSchemaForGame (ISteamUserStats/GetSchemaForGame/v2) ──────
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetSchemaForGameResponse {
+    pub game: Option<SchemaGame>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SchemaGame {
+    #[serde(rename = "availableGameStats")]
+    pub available_game_stats: Option<AvailableGameStats>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AvailableGameStats {
+    #[serde(default)]
+    pub achievements: Vec<SchemaAchievement>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SchemaAchievement {
+    /// Stable api name (e.g. "ACH_WIN_ONE_GAME"); the join key for player + global.
+    pub name: String,
+    #[serde(rename = "displayName", default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub hidden: i32,
+    /// Unlocked (colour) badge URL.
+    #[serde(default)]
+    pub icon: String,
+    /// Locked (grey) badge URL.
+    #[serde(default)]
+    pub icongray: String,
+}
+
+// ── Achievements: GetPlayerAchievements (ISteamUserStats/GetPlayerAchievements/v1) ──
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetPlayerAchievementsResponse {
+    pub playerstats: PlayerStats,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PlayerStats {
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub achievements: Option<Vec<PlayerAchievement>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PlayerAchievement {
+    pub apiname: String,
+    pub achieved: i32,
+    #[serde(default)]
+    pub unlocktime: i64,
+}
+
+// ── Achievements: GetGlobalAchievementPercentagesForApp (v2) ──────────────────
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GetGlobalAchievementPercentagesResponse {
+    #[serde(rename = "achievementpercentages")]
+    pub achievement_percentages: Option<GlobalPercentages>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GlobalPercentages {
+    #[serde(default)]
+    pub achievements: Vec<GlobalAchievementPercent>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GlobalAchievementPercent {
+    pub name: String,
+    /// Steam returns this as a JSON number, but has historically also sent it as
+    /// a string — accept either so a format change doesn't drop all rarity data.
+    #[serde(deserialize_with = "de_percent")]
+    pub percent: f64,
+}
+
+fn de_percent<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        Num(f64),
+        Str(String),
+    }
+
+    Ok(match NumOrStr::deserialize(deserializer)? {
+        NumOrStr::Num(n) => n,
+        NumOrStr::Str(s) => s.trim().parse().unwrap_or(0.0),
+    })
+}

@@ -9,6 +9,7 @@ edition.workspace = true
 description = "Common service utils for the Retrom video game library service"
 
 [dependencies]
+async-trait = { workspace = true }
 directories = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
@@ -40,3 +41,11 @@ regex = { workspace = true }
 glob = "0.3.2"
 zstd = { workspace = true }
 flate2 = { workspace = true }
+
+[build-dependencies]
+cc = "1"
+
+[package.metadata.cargo-machete]
+# cc is used only in build.rs (compiles the vendored rcheevos rc_hash sources),
+# which cargo-machete does not scan — so it false-positives cc as unused.
+ignored = ["cc"]
