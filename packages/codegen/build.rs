@@ -292,6 +292,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "retrom.ServerConfig.emulator_packages",
             "#[serde(alias = \"emulator_packages\", alias = \"emulatorPackages\")]",
         )
+        // Added after release; existing config.json files have an emulator_packages
+        // object without this field, so default it to empty (= install all
+        // available OS targets) instead of failing the whole config parse.
+        .field_attribute(
+            "retrom.EmulatorPackagesConfig.install_operating_systems",
+            "#[serde(default)]",
+        )
         .field_attribute(
             "retrom.ContentDirectory.storage_type",
             "#[serde(deserialize_with = \"crate::storage_type::deserialize\", \
