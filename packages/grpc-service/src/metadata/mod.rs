@@ -694,22 +694,24 @@ impl MetadataService for MetadataServiceHandlers {
                 }
             };
 
-            // Trigger theme audio extraction as a background job (non-blocking).
-            // By this point any soundtrack URL has already been resolved and injected into
-            // video_urls by the pre-pass above (covering both the bulk path, which arrives
-            // with a URL, and the IGDB search-tab path, which we just looked up). So we only
-            // need the "URL already present" case here.
-            let youtube_url = metadata.video_urls.iter().find(|url| {
-                let lower = url.to_ascii_lowercase();
-                lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
-            });
+            // Theme-audio extraction is intentionally NOT triggered by a metadata
+            // scrape. Downloading/extracting soundtrack music is reserved for the
+            // explicit per-game "download soundtrack" action and the batch
+            // "download all" soundtrack path — a plain refresh must never kick off a
+            // yt-dlp download. (Previously this also extracted whenever a game simply
+            // had no theme file yet, so every scrape of an un-themed game silently
+            // started a download.) We still honor an explicit re-download request via
+            // `overwrite_theme_audio`; by this point the pre-pass above has resolved
+            // any soundtrack URL into video_urls.
+            if overwrite_theme_audio {
+                let youtube_url = metadata.video_urls.iter().find(|url| {
+                    let lower = url.to_ascii_lowercase();
+                    lower.contains("youtube.com/watch") || lower.contains("youtu.be/")
+                });
 
-            if let Some(first) = youtube_url {
-                if let Some(vid) = extract_video_id_from_url(first) {
-                    if let Some(cache_dir) = metadata.get_cache_dir() {
-                        let needs_extract =
-                            overwrite_theme_audio || find_theme_audio_file(&cache_dir).is_none();
-                        if needs_extract {
+                if let Some(first) = youtube_url {
+                    if let Some(vid) = extract_video_id_from_url(first) {
+                        if let Some(cache_dir) = metadata.get_cache_dir() {
                             let game_id = metadata.game_id;
                             let job_name = format!("Extract Theme Audio For Game {}", game_id);
                             let cache_dir_clone = cache_dir.clone();
