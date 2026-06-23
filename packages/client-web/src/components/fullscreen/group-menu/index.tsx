@@ -67,7 +67,10 @@ export function GroupMenu(
 
         <ScrollArea
           className={cn(
-            "relative w-full grow",
+            // min-w-0 lets this flex item shrink below its tab content's
+            // intrinsic width so the tabs scroll within the ScrollArea instead
+            // of forcing the whole header (and page) wider.
+            "relative w-full grow min-w-0",
             "before:absolute before:inset-y-0 before:left-0 before:w-12 before:z-10",
             "after:absolute after:inset-y-0 after:right-0 after:w-12 after:z-10",
             "before:bg-gradient-to-l before:from-transparent before:to-background",

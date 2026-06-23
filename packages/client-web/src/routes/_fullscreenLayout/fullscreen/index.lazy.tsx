@@ -48,7 +48,13 @@ function FullscreenComponent() {
   ]);
 
   return (
-    <div className="h-full grid grid-flow-row grid-rows-[auto_1fr_auto]">
+    // grid-cols-1 pins the single column to `minmax(0, 1fr)`. Without it the
+    // implicit column is `auto` and grows to its widest child, so a category
+    // tab row (GroupMenu) with many consoles stretches the whole layout
+    // horizontally — and the grid below, sized off this same column, widens its
+    // cards to match. Capping the column forces the GroupMenu to scroll its
+    // tabs internally and keeps the grid at viewport width.
+    <div className="h-full min-w-0 grid grid-flow-row grid-cols-1 grid-rows-[auto_1fr_auto]">
       {/* Steam Big Picture-style category tabs near the top. */}
       <GroupMenu className="w-full border-b bg-background/60" />
 
