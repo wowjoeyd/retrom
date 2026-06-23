@@ -40,7 +40,13 @@ impl ServerConfigManager {
                 max_save_states_backups: 5,
             }),
             metadata: Some(MetadataConfig {
-                store_metadata_locally: false,
+                // Default to caching all external metadata media (cover/background/
+                // screenshots/artwork) on the server. Soundtrack audio and the DB
+                // metadata rows are already always server-side; storing the images too
+                // makes the server the durable source of truth, so any client — e.g. a
+                // second PC connecting to the same server — pulls everything down from
+                // the server instead of re-fetching from external IGDB/Steam CDNs.
+                store_metadata_locally: true,
                 optimization: Some(OptimizationConfig {
                     jpeg_quality: 85,
                     jpeg_optimization: false,

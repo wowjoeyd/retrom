@@ -332,10 +332,13 @@ impl MetadataService for MetadataServiceHandlers {
             .collect();
 
         let config = self.config_manager.get_config().await;
+        // Default ON when the metadata config block is absent — server-side media
+        // storage is the default so connected clients pull cached media from the
+        // server rather than re-fetching from external CDNs.
         let store_metadata = config
             .metadata
             .map(|m| m.store_metadata_locally)
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         // Build media paths for each game from the local cache
         let media_futures = if store_metadata {
@@ -578,10 +581,11 @@ impl MetadataService for MetadataServiceHandlers {
         let overwrite_theme_audio = request.overwrite_theme_audio.unwrap_or(false);
         let config = self.config_manager.get_config().await;
         let meta_cfg = config.metadata.clone();
+        // See get_game_metadata: server-side media storage is the default.
         let store_metadata = meta_cfg
             .as_ref()
             .map(|m| m.store_metadata_locally)
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         // Keep the global cookies path in sync with the current server config.
         let cookies_path = meta_cfg

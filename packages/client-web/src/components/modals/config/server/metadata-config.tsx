@@ -50,7 +50,7 @@ import {
 } from "@retrom/ui/components/select";
 
 const metadataSchema = z.object({
-  storeMetadataLocally: z.boolean().default(false),
+  storeMetadataLocally: z.boolean().default(true),
   youtubeCookiesPath: z.string().optional(),
   autoDownloadMusic: z.boolean().default(false),
   optimization: z
@@ -157,8 +157,13 @@ export function MetadataConfig(props: {
                         </label>
 
                         <p className="text-sm text-muted-foreground">
-                          Fetch and store external metadata locally on the
-                          Retrom server.
+                          Fetch and store external metadata (covers, artwork,
+                          screenshots) on the Retrom server. Recommended: the
+                          server becomes the source of truth, so other devices
+                          connecting to it pull the cached media down instead of
+                          re-fetching from IGDB/Steam. Soundtrack audio is
+                          always stored on the server regardless of this
+                          setting.
                         </p>
                       </div>
                     </div>
