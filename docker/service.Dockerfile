@@ -79,6 +79,11 @@ ENV EMBEDDED_DB_OPTS="?data_dir=/app/data/db&password_file=/app/data/pgpass.conf
 ENV NODE_ENV=production
 ENV VITE_UPTRACE_DSN=${UPTRACE_DSN}
 
+# ffmpeg is required by yt-dlp to extract/trim theme audio (soundtrack downloads).
+# Without it, yt-dlp's --download-sections aborts the download.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 # remove the provided node user for clarity, as it uses 1000:1000 as well
 RUN groupmod -g 1500 node
 RUN deluser node

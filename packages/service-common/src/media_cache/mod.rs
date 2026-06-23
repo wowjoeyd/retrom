@@ -12,8 +12,16 @@ use std::{
 };
 use thiserror::Error;
 use tokio::fs;
+use tokio::sync::Semaphore;
 use tokio_retry::Condition;
 use tracing::{debug, instrument, warn, Instrument};
+
+/// Upper bound on concurrent media caching operations process-wide. Metadata
+/// refreshes fan out one job per game, each with many media tasks (cover,
+/// background, every screenshot/artwork). Without a cap the combined open
+/// sockets + file handles exhaust the process file-descriptor limit, surfacing
+/// as `Too many open files (os error 24)`.
+const MAX_CONCURRENT_CACHE_OPS: usize = 8;
 
 pub mod cacheable_media;
 pub mod index;
@@ -123,6 +131,7 @@ pub struct MediaCache {
     compression_threads: Arc<ThreadPool>,
     index_manager: IndexManager,
     config_manager: Arc<crate::config::ServerConfigManager>,
+    cache_semaphore: Arc<Semaphore>,
 }
 
 struct RetryCondition {}
@@ -170,6 +179,7 @@ impl MediaCache {
             compression_threads,
             index_manager: IndexManager::new(),
             config_manager,
+            cache_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_CACHE_OPS)),
         }
     }
 
@@ -208,6 +218,13 @@ impl MediaCache {
                 ));
             }
         }
+
+        // Hold a permit for the whole download/convert/write so caching cannot
+        // exhaust the process file-descriptor limit no matter how many game/media
+        // jobs fan out concurrently.
+        let _permit = self.cache_semaphore.acquire().await.map_err(|_| {
+            MediaCacheError::NonCacheableItem("media cache semaphore closed".to_string())
+        })?;
 
         let cache_path = opts.get_item_path().await?;
 
@@ -295,8 +312,12 @@ impl MediaCache {
                 let compressed_bytes = match converted_bytes {
                     Ok(b) => compress_in_memory(b, &params),
                     Err(e) => {
-                        warn!("Image conversion failed, using original bytes: {:?}", e);
-                        return bytes.to_vec();
+                        // The common case is the source already being the target
+                        // format (e.g. JPEG -> JPEG), which caesium reports as
+                        // error 10407. Still compress the original bytes rather
+                        // than storing them uncompressed.
+                        debug!("Image conversion skipped ({e:?}); compressing original bytes");
+                        compress_in_memory(bytes.to_vec(), &params)
                     }
                 };
 

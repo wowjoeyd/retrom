@@ -1228,8 +1228,6 @@ pub async fn try_extract_theme_audio(
     cmd.args([
         "--no-playlist",
         "--no-mtime",
-        // Limit to a solid "theme" chunk (first ~6 minutes).
-        "--download-sections", "*0:00-6:00",
         // Prefer direct audio-only (webm/opus or m4a), fall back to best.
         "-f", "bestaudio/best",
         "--user-agent",
@@ -1237,8 +1235,17 @@ pub async fn try_extract_theme_audio(
         "-o", &output_template,
         &yt_url,
     ]);
+    // `--download-sections` requires ffmpeg — yt-dlp aborts the whole download
+    // ("ffmpeg is not installed. Aborting") when it is missing. Only trim to the
+    // first ~6 minutes when ffmpeg is available; otherwise download the full audio
+    // so extraction still succeeds (theme playback only uses the audio track).
     if let Some(ref loc) = ffmpeg_location_str {
-        cmd.args(["--ffmpeg-location", loc]);
+        cmd.args(["--download-sections", "*0:00-6:00", "--ffmpeg-location", loc]);
+    } else {
+        tracing::warn!(
+            "ffmpeg not found; downloading full soundtrack audio without trimming. \
+             Install ffmpeg on the server to limit theme audio to ~6 minutes."
+        );
     }
     if let Some(ref cp) = cookies_path_str {
         cmd.args(["--cookies", cp]);
