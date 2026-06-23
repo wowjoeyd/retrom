@@ -11,6 +11,7 @@ import {
 import { useInputDeviceContext } from "../input-device";
 import { useHotkeyMapping } from "./mapping";
 import { gamepadAxisToHotkey } from "./gamepad-axis";
+import { isGamepadUiSuppressed } from "../gamepad/capture-suppression";
 
 export type Hotkey = (typeof Hotkey)[number];
 export const Hotkey = [
@@ -98,6 +99,15 @@ export function useHotkeys(opts: {
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (!enabled) {
+        return;
+      }
+
+      // While the quit-combo capture is recording, swallow keyboard hotkeys too.
+      // The gamepad paths are already suppressed at their source, but controllers
+      // that present as a keyboard (common on Windows handhelds / emulation
+      // setups) arrive here — and would navigate/close the menu mid-capture
+      // instead of being recorded. Blocking them keeps capture exclusive.
+      if (isGamepadUiSuppressed()) {
         return;
       }
 
