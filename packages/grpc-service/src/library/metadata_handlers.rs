@@ -613,30 +613,32 @@ pub async fn update_metadata(
                 // to be rate limited
                 drop(conn);
 
-                // Fast path: metadata exists WITH Steam-sourced content (screenshots or artwork)
-                // and the caller did not request overwrite. Only refresh playtime/last-played.
-                //
-                // An existing row WITHOUT screenshots/artwork (e.g. an IGDB-only row written by
-                // a concurrent IGDB task, or a prior partial scrape) does not qualify — we still
-                // run the full Steam fetch so the game gets its images and videos.
-                let has_steam_content = existing.as_ref().ok().is_some_and(|meta| {
-                    !meta.screenshot_urls.is_empty() || !meta.artwork_urls.is_empty()
-                });
-                if has_steam_content && !overwrite {
-                    let last_played = if app.rtime_last_played > 0 {
-                        DateTime::from_timestamp(app.rtime_last_played, 0).map(|dt| Timestamp {
-                            seconds: dt.timestamp(),
-                            nanos: 0,
-                        })
-                    } else {
-                        None
-                    };
-                    let minutes_played = if app.playtime_forever > 0 {
-                        Some(app.playtime_forever)
-                    } else {
-                        None
-                    };
+                // Playtime / last-played come from the owned-games payload, so they're
+                // cheap to refresh every run with no Store API call.
+                let last_played = if app.rtime_last_played > 0 {
+                    DateTime::from_timestamp(app.rtime_last_played, 0).map(|dt| Timestamp {
+                        seconds: dt.timestamp(),
+                        nanos: 0,
+                    })
+                } else {
+                    None
+                };
+                let minutes_played = if app.playtime_forever > 0 {
+                    Some(app.playtime_forever)
+                } else {
+                    None
+                };
 
+                // Refresh-only path: a metadata row already exists. For Steam games a
+                // row is ONLY ever created by this Steam path — IGDB game tasks filter
+                // out third_party games and genre enrichment only *updates* existing
+                // rows — so an existing row means we've already handled this app, either
+                // by fetching its full Store content or by recording a placeholder for a
+                // game that has none (delisted / dead titles, which Steam's Store API
+                // returns nothing for). Re-hitting the Store API for those on every
+                // library update was the bug: known-empty games were re-queried forever.
+                // Just refresh playtime here; a forced `overwrite` still re-scrapes below.
+                if existing.is_ok() && !overwrite {
                     let updated_meta = UpdatedGameMetadata {
                         last_played,
                         minutes_played,
@@ -656,14 +658,44 @@ pub async fn update_metadata(
                     return Ok(());
                 }
 
-                // Slow path: no existing metadata OR overwrite requested — call the Store API.
-                let metadata = match steam_provider.get_game_metadata(game, Some(app)).await {
+                // Slow path: no existing row yet (or overwrite requested) — call the Store API.
+                let metadata = match steam_provider
+                    .get_game_metadata(game, Some(app.clone()))
+                    .await
+                {
                     Some(meta) => meta,
                     None => {
                         tracing::warn!(
-                            "No metadata found for game with Steam App ID: {}",
+                            "No Store metadata for Steam App ID {} — seeding a minimal row \
+                             so we don't re-query it on every library update (a manual \
+                             overwrite re-scrape will still retry it)",
                             steam_appid
                         );
+
+                        // Only seed a placeholder when there was no row before; never
+                        // clobber an existing (possibly good) row with a placeholder when
+                        // an overwrite scrape happens to come back empty.
+                        if existing.is_err() {
+                            let placeholder = retrom::NewGameMetadata {
+                                game_id: Some(game_id),
+                                name: Some(app.name.clone()),
+                                last_played,
+                                minutes_played,
+                                ..Default::default()
+                            };
+
+                            let mut conn = db_pool.get().await.expect("Failed to get connection");
+                            if let Err(why) = diesel::insert_into(schema::game_metadata::table)
+                                .values(&placeholder)
+                                .on_conflict(schema::game_metadata::game_id)
+                                .do_nothing()
+                                .execute(&mut conn)
+                                .await
+                            {
+                                tracing::error!("Failed to seed placeholder metadata: {}", why);
+                            }
+                        }
+
                         return Ok(());
                     }
                 };
