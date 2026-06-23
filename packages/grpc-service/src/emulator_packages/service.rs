@@ -71,12 +71,17 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
             query = query.filter(schema::emulator_packages::catalog_id.eq(catalog_id));
         }
 
+        if let Some(os) = request.operating_system {
+            query = query.filter(schema::emulator_packages::os.eq(os));
+        }
+
         let packages = query
             .load::<retrom_codegen::retrom::EmulatorPackage>(&mut conn)
             .await
             .map_err(|why| Status::internal(why.to_string()))?;
 
-        let latest_package_id_by_slug = latest_package_ids_by_slug(&packages);
+        let latest_package_id_by_slug =
+            latest_package_ids_by_slug(&packages, request.operating_system);
 
         Ok(Response::new(GetEmulatorPackagesResponse {
             packages,
@@ -196,6 +201,7 @@ impl EmulatorPackageService for EmulatorPackageServiceHandlers {
                 subpath: request.subpath,
                 client_id: request.client_id,
                 target_operating_system: request.target_operating_system,
+                target_operating_systems: request.target_operating_systems,
             },
         )
         .await

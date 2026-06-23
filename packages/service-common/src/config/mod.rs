@@ -58,6 +58,8 @@ impl ServerConfigManager {
             custom_catalog_dir: None,
             emulator_packages: Some(EmulatorPackagesConfig {
                 rescan_interval_hours: Some(24),
+                // Empty = install every OS target the catalog entry offers.
+                install_operating_systems: vec![],
             }),
             ..Default::default()
         }

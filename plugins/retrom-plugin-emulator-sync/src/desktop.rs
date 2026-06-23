@@ -9,6 +9,7 @@ use retrom_codegen::{
             AnalyzeEmulatorUserDataResponse, EmulatorSyncIndex, EmulatorSyncMetrics,
             EmulatorSyncProgressUpdate, EmulatorSyncStatus,
         },
+        emulator::OperatingSystem,
         Client, EmulatorPackage, EmulatorPackageFile, GetEmulatorPackageFilesRequest,
         GetEmulatorPackagesRequest, GetLocalEmulatorConfigsRequest, LocalEmulatorConfig,
         UpdateLocalEmulatorConfigsRequest, UpdatedLocalEmulatorConfig,
@@ -62,6 +63,26 @@ struct PackageManifest {
     preserve_paths: Vec<String>,
     #[serde(default)]
     user_data_paths: Vec<String>,
+}
+
+/// The OS this client runs on, as a proto `Emulator.OperatingSystem` value.
+fn client_os() -> i32 {
+    match std::env::consts::OS {
+        "windows" => OperatingSystem::Windows as i32,
+        "macos" => OperatingSystem::Macos as i32,
+        // linux and any other unix-like fall back to the linux build
+        _ => OperatingSystem::LinuxX8664 as i32,
+    }
+}
+
+fn os_label(os: i32) -> &'static str {
+    match OperatingSystem::try_from(os) {
+        Ok(OperatingSystem::Windows) => "Windows",
+        Ok(OperatingSystem::Macos) => "macOS",
+        Ok(OperatingSystem::LinuxX8664) => "Linux",
+        Ok(OperatingSystem::Wasm) => "WASM",
+        Err(_) => "unknown",
+    }
 }
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -137,13 +158,14 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             })
     }
 
-    async fn resolve_package(&self, package_id: i32) -> crate::Result<EmulatorPackage> {
+    async fn resolve_package_by_id(&self, package_id: i32) -> crate::Result<EmulatorPackage> {
         let mut package_client = self.app_handle.get_emulator_package_client().await;
         let response = package_client
             .get_emulator_packages(GetEmulatorPackagesRequest {
                 ids: vec![package_id],
                 package_slug: None,
                 catalog_id: None,
+                operating_system: None,
             })
             .await?
             .into_inner();
@@ -154,6 +176,63 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .find(|package| package.id == package_id)
             .ok_or_else(|| {
                 crate::Error::Internal(format!("Emulator package {package_id} not found"))
+            })
+    }
+
+    /// Resolve the package this client should actually pull and run: the build
+    /// for this client's OS, sharing the linked package's slug. Prefers the exact
+    /// pinned version, then the latest build for this OS. The linked package is
+    /// the per-client pin, which may have been created for another OS (e.g. the
+    /// server's host OS at install time), so this is what makes a Windows desktop
+    /// pull the Windows build off a Linux server.
+    async fn resolve_package_for_os(
+        &self,
+        linked_package_id: i32,
+    ) -> crate::Result<EmulatorPackage> {
+        let linked = self.resolve_package_by_id(linked_package_id).await?;
+        let my_os = client_os();
+
+        if linked.os == my_os {
+            return Ok(linked);
+        }
+
+        let mut package_client = self.app_handle.get_emulator_package_client().await;
+        let response = package_client
+            .get_emulator_packages(GetEmulatorPackagesRequest {
+                ids: vec![],
+                package_slug: Some(linked.package_slug.clone()),
+                catalog_id: None,
+                operating_system: Some(my_os),
+            })
+            .await?
+            .into_inner();
+
+        let latest_id = response
+            .latest_package_id_by_slug
+            .get(&linked.package_slug)
+            .copied();
+
+        let candidates: Vec<EmulatorPackage> = response
+            .packages
+            .into_iter()
+            .filter(|p| p.os == my_os && !p.is_deleted)
+            .collect();
+
+        candidates
+            .iter()
+            .find(|p| p.version == linked.version)
+            .or_else(|| latest_id.and_then(|id| candidates.iter().find(|p| p.id == id)))
+            .or_else(|| candidates.first())
+            .cloned()
+            .ok_or_else(|| {
+                crate::Error::Internal(format!(
+                    "No {} build available for this client's OS ({}). \
+                     Installed builds target other operating systems — \
+                     re-install with {} included in the server's emulator package OS list.",
+                    linked.display_name,
+                    os_label(my_os),
+                    os_label(my_os),
+                ))
             })
     }
 
@@ -214,6 +293,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
                 ids: vec![],
                 package_slug: Some(slug.to_string()),
                 catalog_id: None,
+                operating_system: Some(client_os()),
             })
             .await?
             .into_inner();
@@ -240,12 +320,12 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             return Ok(EmulatorSyncStatus::NotCached);
         };
 
-        let package = self.resolve_package(linked_package_id).await?;
+        let package = self.resolve_package_for_os(linked_package_id).await?;
         if let Some(latest_id) = self
             .latest_package_id_for_slug(&package.package_slug)
             .await?
         {
-            if latest_id != linked_package_id {
+            if latest_id != package.id {
                 return Ok(EmulatorSyncStatus::OutOfDate);
             }
         }
@@ -253,12 +333,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         let cache_root = self.cache_root_for_package(&package).await?;
         let remote_files = self.get_package_files(package.id).await?;
 
-        if self.files_need_sync(
-            &cache_root,
-            linked_package_id,
-            &package.version,
-            &remote_files,
-        )? {
+        if self.files_need_sync(&cache_root, package.id, &package.version, &remote_files)? {
             Ok(EmulatorSyncStatus::NotCached)
         } else {
             Ok(EmulatorSyncStatus::Synced)
@@ -325,7 +400,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         linked_package_id: i32,
         abort_flag: Arc<AtomicBool>,
     ) -> crate::Result<PathBuf> {
-        let package = self.resolve_package(linked_package_id).await?;
+        let package = self.resolve_package_for_os(linked_package_id).await?;
         let cache_root = self.cache_root_for_package(&package).await?;
 
         // Always fetch the latest manifest first so preserve_paths / user_data_paths
@@ -460,7 +535,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
         save_sync_state(
             &cache_root,
             &SyncState {
-                linked_package_id,
+                linked_package_id: package.id,
                 version: package.version.clone(),
                 files: synced_files,
                 user_data_files: previous_state
@@ -834,7 +909,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
         };
 
-        let package = self.resolve_package(linked_package_id).await?;
+        let package = self.resolve_package_for_os(linked_package_id).await?;
         let cache_root = self.cache_root_for_package(&package).await?;
 
         // Ensure we have up-to-date manifest (also ensures cache has it)
@@ -854,11 +929,11 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             .map(|f| (f.relative_path, f.sha256))
             .collect();
         let mut sync_state = load_sync_state(&cache_root)?.unwrap_or_else(|| SyncState {
-            linked_package_id,
+            linked_package_id: package.id,
             version: package.version.clone(),
             ..Default::default()
         });
-        sync_state.linked_package_id = linked_package_id;
+        sync_state.linked_package_id = package.id;
         sync_state.version = package.version.clone();
 
         let host = self.service_host().await?;
@@ -1098,7 +1173,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
         };
 
-        let package = self.resolve_package(linked_package_id).await?;
+        let package = self.resolve_package_for_os(linked_package_id).await?;
         let cache_root = self.cache_root_for_package(&package).await?;
 
         self.fetch_and_write_manifest(&package, &cache_root).await?;
@@ -1207,7 +1282,7 @@ impl<R: Runtime> EmulatorSyncManager<R> {
             return Err(crate::Error::EmulatorPackageNotLinked(emulator_id));
         };
 
-        let package = self.resolve_package(linked_package_id).await?;
+        let package = self.resolve_package_for_os(linked_package_id).await?;
         let cache_root = self.cache_root_for_package(&package).await?;
 
         // Ensure manifest is present for base paths

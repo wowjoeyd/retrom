@@ -94,6 +94,7 @@ mod tests {
         let config = ServerConfig {
             emulator_packages: Some(EmulatorPackagesConfig {
                 rescan_interval_hours: Some(6),
+                install_operating_systems: vec![],
             }),
             ..Default::default()
         };
@@ -106,6 +107,7 @@ mod tests {
         let config = ServerConfig {
             emulator_packages: Some(EmulatorPackagesConfig {
                 rescan_interval_hours: Some(0),
+                install_operating_systems: vec![],
             }),
             ..Default::default()
         };

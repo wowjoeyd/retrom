@@ -35,6 +35,7 @@ import { useDeleteEmulatorPackages } from "@/mutations/useDeleteEmulatorPackages
 import { useConfig } from "@/providers/config";
 import { LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { match } from "ts-pattern";
+import { operatingSystemDisplayMap } from "./utils";
 
 const packageStatusLabels: Record<EmulatorPackageStatus, string> = {
   [EmulatorPackageStatus.UNSPECIFIED]: "Unknown",
@@ -73,10 +74,31 @@ export function PackagesTab(props: {
   const [search, setSearch] = useState("");
 
   const packages = data?.packages ?? [];
-  const latestBySlug = useMemo(
-    () => data?.latestPackageIdBySlug ?? {},
-    [data?.latestPackageIdBySlug],
-  );
+  // Latest build per (slug, os): each client only runs its own OS, so "latest"
+  // must be computed within an OS, not across the mixed-OS server response.
+  const latestBySlugOs = useMemo(() => {
+    const pkgs = data?.packages ?? [];
+    const groups = new Map<string, EmulatorPackage[]>();
+    for (const pkg of pkgs) {
+      if (pkg.status === EmulatorPackageStatus.MISSING) {
+        continue;
+      }
+      const key = `${pkg.packageSlug}:${pkg.os}`;
+      const arr = groups.get(key) ?? [];
+      arr.push(pkg);
+      groups.set(key, arr);
+    }
+    const map = new Map<string, number>();
+    for (const [key, arr] of groups) {
+      const latest = arr.reduce((a, b) =>
+        b.version.localeCompare(a.version, undefined, { numeric: true }) > 0
+          ? b
+          : a,
+      );
+      map.set(key, latest.id);
+    }
+    return map;
+  }, [data?.packages]);
 
   const filteredPackages = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -145,7 +167,7 @@ export function PackagesTab(props: {
         return;
       }
 
-      const latestId = latestBySlug[pkg.packageSlug];
+      const latestId = latestBySlugOs.get(`${pkg.packageSlug}:${pkg.os}`);
       if (!latestId || latestId === config.linkedPackageId) {
         return;
       }
@@ -157,7 +179,7 @@ export function PackagesTab(props: {
         managedPaths: true,
       });
     },
-    [clientId, latestBySlug, linkToPackage],
+    [clientId, latestBySlugOs, linkToPackage],
   );
 
   const pending = status === "pending";
@@ -227,7 +249,9 @@ export function PackagesTab(props: {
           <div className="flex flex-col gap-3 min-w-0">
             {filteredPackages.map((pkg) => {
               const linkedConfigs = linkedByPackageId.get(pkg.id) ?? [];
-              const latestId = latestBySlug[pkg.packageSlug];
+              const latestId = latestBySlugOs.get(
+                `${pkg.packageSlug}:${pkg.os}`,
+              );
               const isLatest = latestId === pkg.id;
               const linkedNames = linkedConfigs.map((c) => {
                 const emulator = props.emulators.find(
@@ -251,6 +275,9 @@ export function PackagesTab(props: {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-1 text-sm">
                         <span>v{pkg.version}</span>
+                        <Badge variant="outline">
+                          {operatingSystemDisplayMap[pkg.os]}
+                        </Badge>
                         {isLatest ? (
                           <Badge variant="secondary">Latest</Badge>
                         ) : null}

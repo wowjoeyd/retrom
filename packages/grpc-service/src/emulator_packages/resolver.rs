@@ -111,6 +111,7 @@ pub async fn upsert_resolved_package(
         .on_conflict((
             schema::emulator_packages::package_slug,
             schema::emulator_packages::version,
+            schema::emulator_packages::os,
         ))
         .do_update()
         .set((
@@ -303,14 +304,28 @@ fn sha256_file(path: &Path) -> Option<String> {
     Some(format!("{:x}", hash))
 }
 
+/// Compute the latest package id per slug.
+///
+/// When `os_filter` is `Some`, only packages for that OS are considered, so the
+/// returned "latest" is per-OS — this is what clients want (they only run their
+/// own OS build). When `None`, the newest version across all OSes wins per slug
+/// (used by OS-agnostic views).
 pub fn latest_package_ids_by_slug(
     packages: &[retrom_codegen::retrom::EmulatorPackage],
+    os_filter: Option<i32>,
 ) -> HashMap<String, i32> {
     use retrom_service_common::emulator_packages::version::compare_package_versions;
 
     let mut latest: HashMap<String, (String, i32)> = HashMap::new();
 
-    for package in packages.iter().filter(|p| !p.is_deleted) {
+    for package in packages
+        .iter()
+        .filter(|p| !p.is_deleted)
+        .filter(|p| match os_filter {
+            Some(os) => p.os == os,
+            None => true,
+        })
+    {
         let entry = latest.get(&package.package_slug);
         let replace = match entry {
             None => true,

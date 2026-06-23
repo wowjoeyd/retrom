@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@retrom/ui/components/dialog";
+import { Checkbox } from "@retrom/ui/components/checkbox";
 import { Input } from "@retrom/ui/components/input";
 import { Label } from "@retrom/ui/components/label";
 import {
@@ -283,6 +284,11 @@ function InstallCatalogDialog(props: {
   );
   const [directoryIndex, setDirectoryIndex] = useState(0);
   const [subpath, setSubpath] = useState(entry.catalogId);
+  // Which OS builds to store on the NAS. Defaults to every build the entry
+  // offers; each client pulls the one matching its own OS at launch.
+  const [selectedOs, setSelectedOs] = useState<Set<number>>(
+    () => new Set(entry.operatingSystems),
+  );
   const [writeTestResult, setWriteTestResult] = useState<{
     writable: boolean;
     errorMessage?: string;
@@ -326,6 +332,7 @@ function InstallCatalogDialog(props: {
       subpath: subpath || entry.catalogId,
       clientId,
       targetOperatingSystem: entry.recommendedOperatingSystem,
+      targetOperatingSystems: Array.from(selectedOs),
     });
 
     onOpenChange(false);
@@ -337,6 +344,7 @@ function InstallCatalogDialog(props: {
     install,
     onOpenChange,
     subpath,
+    selectedOs,
   ]);
 
   const noRoots = roots.length === 0;
@@ -348,7 +356,9 @@ function InstallCatalogDialog(props: {
           <DialogTitle>Install {entry.displayName} to NAS</DialogTitle>
           <DialogDescription>
             Downloads upstream release assets to your configured emulator
-            package root. A write test runs before install.
+            package root. Builds for every operating system enabled on the
+            server are stored side by side; each client pulls the build matching
+            its own OS when you press Play. A write test runs before install.
           </DialogDescription>
         </DialogHeader>
 
@@ -416,11 +426,38 @@ function InstallCatalogDialog(props: {
               </p>
             </div>
 
-            {entry.recommendedOperatingSystem !== undefined ? (
-              <p className="text-sm text-muted-foreground">
-                Target OS:{" "}
-                {operatingSystemDisplayMap[entry.recommendedOperatingSystem]}
-              </p>
+            {entry.operatingSystems.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <Label>OS builds to store on NAS</Label>
+                <div className="flex flex-col gap-2">
+                  {entry.operatingSystems.map((os) => (
+                    <label
+                      key={os}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedOs.has(os)}
+                        onCheckedChange={(checked) =>
+                          setSelectedOs((prev) => {
+                            const next = new Set(prev);
+                            if (checked === true) {
+                              next.add(os);
+                            } else {
+                              next.delete(os);
+                            }
+                            return next;
+                          })
+                        }
+                      />
+                      {operatingSystemDisplayMap[os]}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Each client pulls the build matching its own OS when you press
+                  Play. Selecting fewer saves NAS space.
+                </p>
+              </div>
             ) : null}
 
             {writeTestResult ? (
@@ -445,7 +482,13 @@ function InstallCatalogDialog(props: {
             Cancel
           </Button>
           <Button
-            disabled={noRoots || checkingWritable || installing || !clientId}
+            disabled={
+              noRoots ||
+              checkingWritable ||
+              installing ||
+              !clientId ||
+              selectedOs.size === 0
+            }
             onClick={() => void handleInstall()}
           >
             {checkingWritable || installing ? (

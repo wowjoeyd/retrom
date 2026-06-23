@@ -184,6 +184,20 @@ fn enrich_catalog_entry(
     entry
 }
 
+/// All OSes the entry can actually be installed for (i.e. for which a concrete
+/// upstream + install target resolves). WASM is excluded — it is not a NAS
+/// package. Order is stable: Windows, macOS, Linux.
+pub fn available_install_oses(entry: &EmulatorCatalogEntry) -> Vec<OperatingSystem> {
+    [
+        OperatingSystem::Windows,
+        OperatingSystem::Macos,
+        OperatingSystem::LinuxX8664,
+    ]
+    .into_iter()
+    .filter(|os| resolve_target_for_os(entry, *os).is_some())
+    .collect()
+}
+
 /// Pick the best install target for the given host OS.
 pub fn recommend_target_os(
     entry: &EmulatorCatalogEntry,

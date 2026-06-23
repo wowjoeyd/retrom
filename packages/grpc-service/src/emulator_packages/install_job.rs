@@ -12,7 +12,9 @@ use retrom_codegen::{
 use retrom_db::{schema, Pool};
 use retrom_service_common::{
     config::ServerConfigManager,
-    emulator_catalog::{recommend_target_os, resolve_platform_ids_for_catalog_entry},
+    emulator_catalog::{
+        available_install_oses, recommend_target_os, resolve_platform_ids_for_catalog_entry,
+    },
     emulator_catalog_install::{install_catalog_package, InstallCatalogParams},
 };
 use std::{path::PathBuf, sync::Arc, time::SystemTime};
@@ -29,6 +31,9 @@ pub struct InstallJobRequest {
     pub subpath: Option<String>,
     pub client_id: i32,
     pub target_operating_system: Option<i32>,
+    /// Explicit per-install OS selection. Empty = fall back to server config /
+    /// all available targets.
+    pub target_operating_systems: Vec<i32>,
 }
 
 pub async fn spawn_install_catalog_job(
@@ -53,6 +58,11 @@ async fn run_install_catalog_job(
 ) -> Result<(), String> {
     let config = config_manager.get_config().await;
     let custom_catalog_dir = config.custom_catalog_dir.clone();
+    let allow_list: Vec<i32> = config
+        .emulator_packages
+        .as_ref()
+        .map(|c| c.install_operating_systems.clone())
+        .unwrap_or_default();
     let directories = config.emulator_package_directories;
 
     let directory = directories.get(request.directory_index).ok_or_else(|| {
@@ -70,40 +80,113 @@ async fn run_install_catalog_job(
         .ok_or_else(|| format!("catalog entry not found: {}", request.catalog_id))?;
 
     let host_os = retrom_service_common::emulator_catalog::host_operating_system();
-    let target_os = request
+    let oses = resolve_install_oses(
+        &entry,
+        &request.target_operating_systems,
+        &allow_list,
+        request.target_operating_system,
+        host_os,
+    );
+
+    if oses.is_empty() {
+        return Err(format!(
+            "catalog entry {} has no installable OS target",
+            request.catalog_id
+        ));
+    }
+
+    // Install one build per resolved OS, side by side on the NAS. The download /
+    // extract / manifest / scan pipeline runs per OS; clients later pull only the
+    // build matching their own OS.
+    let mut installed: Vec<(OperatingSystem, i32, String)> = Vec::new();
+    for os in &oses {
+        let install_result = install_catalog_package(InstallCatalogParams {
+            entry: entry.clone(),
+            target_os: *os,
+            install_root: PathBuf::from(&directory.path),
+            subpath: request.subpath.clone(),
+        })
+        .await
+        .map_err(|why| format!("install for {os:?} failed: {why}"))?;
+
+        let package_id =
+            scan_installed_package(db_pool.clone(), &install_result.package_root).await?;
+        installed.push((*os, package_id, install_result.executable_rel));
+    }
+
+    // Auto-provision once. The local config links the preferred OS build, but the
+    // launching client re-resolves to its own OS at play time regardless.
+    let preferred_os = request
         .target_operating_system
         .and_then(|os| OperatingSystem::try_from(os).ok())
         .unwrap_or_else(|| recommend_target_os(&entry, host_os));
 
-    if retrom_service_common::emulator_catalog::resolve_target_for_os(&entry, target_os).is_none() {
-        return Err(format!(
-            "catalog entry {} has no install target for {:?}",
-            request.catalog_id, target_os
-        ));
-    }
-
-    let install_result = install_catalog_package(InstallCatalogParams {
-        entry: entry.clone(),
-        target_os,
-        install_root: PathBuf::from(&directory.path),
-        subpath: request.subpath.clone(),
-    })
-    .await
-    .map_err(|why| why.to_string())?;
-
-    let package_id = scan_installed_package(db_pool.clone(), &install_result.package_root).await?;
+    // Note: `installed.iter().next()` rather than `.first()` — `diesel::prelude::*`
+    // brings a `first()` query method into scope that shadows slice `first()` here.
+    let (_, link_package_id, link_executable_rel) = installed
+        .iter()
+        .find(|(os, _, _)| *os == preferred_os)
+        .or_else(|| installed.iter().next())
+        .cloned()
+        .ok_or_else(|| "no OS build was installed".to_string())?;
 
     auto_provision_emulator(
         db_pool,
         &entry,
-        package_id,
-        &install_result.executable_rel,
+        link_package_id,
+        &link_executable_rel,
         request.client_id,
     )
     .await
     .map_err(|why| why.to_string())?;
 
     Ok(())
+}
+
+/// Resolve which OS builds to install, in priority order:
+/// 1. the explicit per-install `selected` list (from the install dialog), else
+/// 2. the server `allow_list` config, else
+/// 3. all of the entry's available targets.
+/// The chosen set is always intersected with what the entry actually offers, the
+/// preferred link OS is included when supported, and we never return empty —
+/// falling back to the host recommendation.
+fn resolve_install_oses(
+    entry: &EmulatorCatalogEntry,
+    selected: &[i32],
+    allow_list: &[i32],
+    preferred: Option<i32>,
+    host_os: OperatingSystem,
+) -> Vec<OperatingSystem> {
+    let available = available_install_oses(entry);
+
+    let filter_list = if !selected.is_empty() {
+        Some(selected)
+    } else if !allow_list.is_empty() {
+        Some(allow_list)
+    } else {
+        None
+    };
+
+    let mut set: Vec<OperatingSystem> = match filter_list {
+        None => available.clone(),
+        Some(list) => available
+            .iter()
+            .copied()
+            .filter(|os| list.contains(&(*os as i32)))
+            .collect(),
+    };
+
+    if let Some(req) = preferred.and_then(|os| OperatingSystem::try_from(os).ok()) {
+        if available.contains(&req) && !set.contains(&req) {
+            set.push(req);
+        }
+    }
+
+    if set.is_empty() && !available.is_empty() {
+        set.push(recommend_target_os(entry, host_os));
+    }
+
+    set
 }
 
 async fn scan_installed_package(db_pool: Arc<Pool>, package_root: &PathBuf) -> Result<i32, String> {

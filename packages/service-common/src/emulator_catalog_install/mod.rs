@@ -78,8 +78,14 @@ pub async fn install_catalog_package(
     let temp_dir = tempfile::tempdir()?;
     let downloaded = download::download_upstream_asset(target.upstream, temp_dir.path()).await?;
 
-    let slug_root = params.install_root.join(&subpath).join(&package_slug);
-    let package_root = slug_root.join(&downloaded.version);
+    // Layout: {root}/{subpath}/{slug}/{os}/{version}. The {os} segment lets the
+    // same emulator version store one build per OS side by side on the NAS.
+    let os_root = params
+        .install_root
+        .join(&subpath)
+        .join(&package_slug)
+        .join(os_string(params.target_os));
+    let package_root = os_root.join(&downloaded.version);
 
     let install_result = (|| {
         if package_root.exists() {
@@ -107,7 +113,7 @@ pub async fn install_catalog_package(
             move_path(&entry.path(), &dest)?;
         }
 
-        if let Some(previous) = find_previous_version_dir(&slug_root, &downloaded.version) {
+        if let Some(previous) = find_previous_version_dir(&os_root, &downloaded.version) {
             for preserve in &target.install.preserve_paths {
                 let prev_path = previous.join(preserve);
                 let dest_path = package_root.join(preserve);

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package retrom;
 
+import "retrom/models/emulators.proto";
+
 message ConnectionConfig {
   optional int32 port = 1;
   optional string db_url = 2;
@@ -53,6 +55,14 @@ message EmulatorPackageDirectory {
 message EmulatorPackagesConfig {
   // Hours between automatic re-scans; 0 = disabled. Default: 24.
   optional uint32 rescan_interval_hours = 1;
+
+  // OS builds to pre-stage on the NAS when installing a catalog package.
+  // Install fetches the intersection of this list and the OS targets the
+  // catalog entry actually offers. When empty, all of the entry's available
+  // targets are installed (so cross-OS "just works" out of the box). WASM is
+  // never pre-staged here. Clients resolve and pull their own OS build at play
+  // time, so this only controls what is stored, not what each client runs.
+  repeated Emulator.OperatingSystem install_operating_systems = 2;
 }
 
 message IGDBConfig {
