@@ -46,9 +46,13 @@ and finish-args, but:
   (`build-options.build-args: [--share=network]`), so the SteamOS host needs no
   rust/node toolchain — the `rust-stable` + `node22` SDK extensions provide it:
 
-  - `corepack enable && pnpm install` → `pnpm nx run retrom-client-web:build:desktop`
-    (writes `packages/client-web/dist`),
+  - `corepack pnpm install` → `corepack pnpm nx run retrom-client-web:build:desktop`
+    (on-demand pnpm — no `corepack enable` shim into the read-only SDK; writes
+    `packages/client-web/dist`),
   - `cargo build --release -p retrom-client --features "flatpak,custom-protocol"`.
+
+  All tool caches/stores are pointed at the writable build dir (`/run/build/retrom`)
+  via `build-options.env`, since the SDK prefix and `$HOME` are read-only.
 
   `custom-protocol` is required here because we call `cargo` directly rather than
   `cargo tauri build` (which would add it automatically); without it the app serves
@@ -155,11 +159,19 @@ flatpak override --user io.github.wowjoeyd.RetromDevel \
 
 ## Notes / things to watch on first build
 
-- I can't run `flatpak-builder` from the Windows dev box, so the build-commands are
-  reasoned from upstream's manifest, not yet executed on Linux — expect to iterate.
-  Likely first-failure points: the `corepack`/`pnpm` bootstrap (if `pnpm` isn't on
-  PATH, `npm i -g pnpm` first), the exact `rust-stable`/`node22` extension versions
-  for runtime 49, and `pq-sys`/`openssl-sys` building from source in the sandbox
-  (upstream builds the same, so the SDK has what's needed).
+- Read-only sandbox: the SDK prefix (`/usr/lib/sdk`) and `$HOME` are read-only, so
+  `build-options.env` points every cache/store/registry at the writable build dir
+  (`/run/build/retrom/...`), and pnpm runs on-demand via `corepack pnpm` rather than
+  `corepack enable` (which fails trying to symlink a shim into the SDK bin). If you
+  rename the module from `retrom`, update those `/run/build/<name>` paths.
+- Node version: `node22` SDK extension is Node 22, but the repo declares
+  `engines: node>=24`. `engine-strict` is off (so it's only a warning, and we set
+  `npm_config_engine_strict=false` to be sure); if a web step ever hard-requires
+  Node 24, switch to a `node24` SDK extension.
+- The cargo step uses `--features "flatpak,custom-protocol"`: `flatpak` matches what
+  upstream builds; `custom-protocol` is the production/embedded-assets feature that
+  `cargo-tauri` adds automatically (we call `cargo` directly, so we add it). It was
+  validated to compile on this fork; `pq-sys`/`openssl-sys` build from source in the
+  sandbox, same as upstream, so the GNOME SDK has the needed C toolchain.
 - If `appstream` validation of the metainfo fails the build, drop the metainfo
   install line — it's not required to run.

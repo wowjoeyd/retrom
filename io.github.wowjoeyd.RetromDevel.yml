@@ -52,6 +52,26 @@ build-options:
   # for not having to pre-stage artifacts.)
   build-args:
     - --share=network
+  # The SDK prefix (/usr/lib/sdk) and $HOME are read-only in the build sandbox, so
+  # point every tool's cache/store/registry at the writable build dir
+  # (/run/build/<module> = /run/build/retrom). This is why `corepack enable` fails
+  # (it tries to symlink a pnpm shim into /usr/lib/sdk/node22/bin); the build below
+  # runs pnpm on-demand via `corepack pnpm` instead, which writes no shim.
+  env:
+    CARGO_HOME: /run/build/retrom/cargo
+    XDG_CACHE_HOME: /run/build/retrom/.cache
+    XDG_DATA_HOME: /run/build/retrom/.local/share
+    COREPACK_HOME: /run/build/retrom/.cache/corepack
+    # Don't block on an interactive "download pnpm?" prompt in the sandbox.
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    npm_config_cache: /run/build/retrom/.npm
+    npm_config_store_dir: /run/build/retrom/.pnpm-store
+    # node22 SDK extension is Node 22; the repo declares engines node>=24, but the
+    # web + cargo toolchain runs on 22, so don't hard-fail the engine check.
+    npm_config_engine_strict: "false"
+    # nx in a one-shot sandbox: no cloud (would need auth), no background daemon.
+    NX_NO_CLOUD: "true"
+    NX_DAEMON: "false"
 
 modules:
   - name: retrom
@@ -65,10 +85,13 @@ modules:
         branch: feat-remote-play-integration
     build-commands:
       # Frontend: workspace deps + the desktop web client -> packages/client-web/dist
-      # (referenced by tauri.conf.json `frontendDist`).
-      - corepack enable
-      - pnpm install --frozen-lockfile
-      - pnpm nx run retrom-client-web:build:desktop
+      # (referenced by tauri.conf.json `frontendDist`). pnpm is run on-demand via
+      # `corepack pnpm` -- NOT `corepack enable`, which would symlink a shim into
+      # the read-only SDK bin (EROFS). corepack resolves the pnpm version from the
+      # root package.json `packageManager` field (pnpm@10.26.1) and caches it under
+      # the writable dirs configured above.
+      - corepack pnpm install --frozen-lockfile
+      - corepack pnpm nx run retrom-client-web:build:desktop
 
       # Desktop client. `flatpak` enables flatpak-spawn for host executables +
       # vendored protoc + the Moonlight flatpak-spawn wrapping; `custom-protocol`
