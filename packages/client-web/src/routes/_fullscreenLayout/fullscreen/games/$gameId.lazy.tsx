@@ -19,6 +19,7 @@ import {
 import { Background } from "./-components/background";
 import { SoundtrackConsole } from "./-components/soundtrack-console";
 import { AchievementsChip } from "./-components/achievements-chip";
+import { StartStreamingButton } from "./-components/start-streaming-button";
 import {
   DetailTabs,
   DETAIL_TAB_KEYS,
@@ -389,6 +390,7 @@ function Inner() {
 
                   <div className="flex flex-wrap items-center gap-3">
                     <ActionButton />
+                    <StartStreamingButton />
                     <GameActions
                       open={actionsOpen}
                       onOpenChange={setActionsOpen}
