@@ -8,6 +8,8 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("JSON serialization/deserialization error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Sunshine is not configured: {0}")]
+    NotConfigured(String),
     #[error("Internal error: {0}")]
     Internal(String),
 }

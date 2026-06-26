@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-play-ensure-host-app"
+description = "Enables the remote_play_ensure_host_app command without any pre-configured scope."
+commands.allow = ["remote_play_ensure_host_app"]
+
+[[permission]]
+identifier = "deny-remote-play-ensure-host-app"
+description = "Denies the remote_play_ensure_host_app command without any pre-configured scope."
+commands.deny = ["remote_play_ensure_host_app"]

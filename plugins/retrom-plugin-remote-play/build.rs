@@ -1,4 +1,4 @@
-const COMMANDS: &[&str] = &["remote_play_host_readiness"];
+const COMMANDS: &[&str] = &["remote_play_host_readiness", "remote_play_ensure_host_app"];
 
 fn main() {
     tauri_plugin::Builder::new(COMMANDS)

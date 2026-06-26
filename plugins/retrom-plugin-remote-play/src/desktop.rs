@@ -1,7 +1,10 @@
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
-use crate::sunshine::{self, HostReadiness, HttpSunshineClient, SunshineConfig};
+use crate::sunshine::{
+    self, EnsureOutcome, HostReadiness, HttpSunshineClient, SunshineClient, SunshineConfig,
+    RETROM_HOST_AGENT_CMD,
+};
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
     app: &AppHandle<R>,
@@ -36,5 +39,20 @@ impl<R: Runtime> RemotePlay<R> {
                 HostReadiness::default()
             }
         }
+    }
+
+    /// Setup flow: idempotently ensure the single managed "Retrom Remote Play"
+    /// Sunshine app exists, returning whether it was created, updated, or already
+    /// present. Errors if Sunshine credentials aren't configured.
+    pub async fn ensure_host_app(&self) -> crate::Result<EnsureOutcome> {
+        let Some(config) = SunshineConfig::from_env() else {
+            return Err(crate::Error::NotConfigured(
+                "set RETROM_SUNSHINE_USERNAME and RETROM_SUNSHINE_PASSWORD".to_string(),
+            ));
+        };
+
+        HttpSunshineClient::new(config)
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
     }
 }

@@ -27,7 +27,8 @@ impl<R: Runtime, T: Manager<R>> crate::RemotePlayExt<R> for T {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("remote-play")
         .invoke_handler(tauri::generate_handler![
-            commands::remote_play_host_readiness
+            commands::remote_play_host_readiness,
+            commands::remote_play_ensure_host_app
         ])
         .setup(|app, api| {
             let remote_play = desktop::init(app, api)?;
