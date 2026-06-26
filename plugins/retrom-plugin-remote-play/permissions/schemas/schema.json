@@ -319,10 +319,22 @@
           "markdownDescription": "Denies the remote_play_host_readiness command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the remote-play plugin\n#### This default permission set includes:\n\n- `allow-remote-play-host-readiness`\n- `allow-remote-play-ensure-host-app`",
+          "description": "Enables the start_remote_play command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-remote-play",
+          "markdownDescription": "Enables the start_remote_play command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_remote_play command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-remote-play",
+          "markdownDescription": "Denies the start_remote_play command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the remote-play plugin\n#### This default permission set includes:\n\n- `allow-remote-play-host-readiness`\n- `allow-remote-play-ensure-host-app`\n- `allow-start-remote-play`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the remote-play plugin\n#### This default permission set includes:\n\n- `allow-remote-play-host-readiness`\n- `allow-remote-play-ensure-host-app`"
+          "markdownDescription": "Default permissions for the remote-play plugin\n#### This default permission set includes:\n\n- `allow-remote-play-host-readiness`\n- `allow-remote-play-ensure-host-app`\n- `allow-start-remote-play`"
         }
       ]
     }

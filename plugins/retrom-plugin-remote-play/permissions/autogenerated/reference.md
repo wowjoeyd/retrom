@@ -6,6 +6,7 @@ Default permissions for the remote-play plugin
 
 - `allow-remote-play-host-readiness`
 - `allow-remote-play-ensure-host-app`
+- `allow-start-remote-play`
 
 ## Permission Table
 
@@ -64,6 +65,32 @@ Enables the remote_play_host_readiness command without any pre-configured scope.
 <td>
 
 Denies the remote_play_host_readiness command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-remote-play:allow-start-remote-play`
+
+</td>
+<td>
+
+Enables the start_remote_play command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`retrom-plugin-remote-play:deny-start-remote-play`
+
+</td>
+<td>
+
+Denies the start_remote_play command without any pre-configured scope.
 
 </td>
 </tr>

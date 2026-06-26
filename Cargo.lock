@@ -9345,6 +9345,11 @@ dependencies = [
 [[package]]
 name = "retrom-host-agent"
 version = "0.8.4"
+dependencies = [
+ "retrom-codegen",
+ "tokio",
+ "tonic 0.14.5",
+]
 
 [[package]]
 name = "retrom-plugin-config"
@@ -9437,12 +9442,17 @@ version = "0.8.4"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
+ "retrom-codegen",
+ "retrom-plugin-config",
+ "retrom-plugin-launcher",
+ "retrom-plugin-service-client",
  "serde",
  "serde_json",
  "tauri",
  "tauri-plugin",
  "thiserror 1.0.69",
  "tokio",
+ "tonic 0.14.5",
  "tracing",
 ]
 

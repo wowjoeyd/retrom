@@ -18,9 +18,12 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 async-trait = { workspace = true }
-
-[dev-dependencies]
 tokio = { workspace = true }
+tonic = { workspace = true }
+retrom-codegen = { workspace = true }
+retrom-plugin-launcher = { workspace = true }
+retrom-plugin-service-client = { workspace = true }
+retrom-plugin-config = { workspace = true }
 
 [build-dependencies]
 tauri-plugin = { workspace = true }

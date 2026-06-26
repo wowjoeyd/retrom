@@ -23,3 +23,12 @@ pub(crate) async fn remote_play_ensure_host_app<R: Runtime>(
 ) -> Result<EnsureOutcome> {
     app.remote_play().ensure_host_app().await
 }
+
+/// Viewer flow: start streaming the given game from the configured host (create a
+/// session and launch Moonlight). Resolves when streaming ends.
+#[command]
+#[instrument(skip(app))]
+pub(crate) async fn start_remote_play<R: Runtime>(app: AppHandle<R>, game_id: i32) -> Result<()> {
+    app.remote_play().start_remote_play(game_id).await?;
+    Ok(())
+}

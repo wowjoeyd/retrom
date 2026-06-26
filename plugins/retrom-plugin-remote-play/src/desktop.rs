@@ -1,6 +1,9 @@
+use retrom_codegen::retrom::RemotePlaySession;
+use retrom_plugin_config::ConfigExt;
 use serde::de::DeserializeOwned;
 use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
+use crate::moonlight::{self, GrpcSessionCreator, MoonlightConfig, MoonlightStreamLauncher};
 use crate::sunshine::{
     self, EnsureOutcome, HostReadiness, HttpSunshineClient, SunshineClient, SunshineConfig,
 };
@@ -53,5 +56,51 @@ impl<R: Runtime> RemotePlay<R> {
         HttpSunshineClient::new(config)
             .ensure_retrom_app(&sunshine::resolved_host_agent_cmd())
             .await
+    }
+
+    /// Viewer flow: start streaming `game_id` from the configured host -- create a
+    /// brokered session and launch Moonlight straight into the host's managed
+    /// "Retrom Remote Play" app. Blocks until Moonlight exits, at which point
+    /// Retrom is back in the foreground. v4 uses one configured host (no picker).
+    pub async fn start_remote_play(&self, game_id: i32) -> crate::Result<RemotePlaySession> {
+        let host_client_id = std::env::var("RETROM_REMOTE_PLAY_HOST_ID")
+            .ok()
+            .and_then(|id| id.parse::<i32>().ok())
+            .ok_or_else(|| crate::Error::NotConfigured("RETROM_REMOTE_PLAY_HOST_ID".into()))?;
+
+        let client_client_id = self.client_id().await.ok_or_else(|| {
+            crate::Error::NotConfigured("client id (no client_info in config)".into())
+        })?;
+
+        let config = MoonlightConfig::from_env()
+            .ok_or_else(|| crate::Error::NotConfigured("RETROM_REMOTE_PLAY_HOST".into()))?;
+
+        let creator = GrpcSessionCreator {
+            app: self.app_handle.clone(),
+        };
+        let streamer = MoonlightStreamLauncher {
+            app: self.app_handle.clone(),
+            config,
+        };
+
+        moonlight::start_remote_play_with(
+            &creator,
+            &streamer,
+            game_id,
+            host_client_id,
+            client_client_id,
+            sunshine::RETROM_APP_NAME,
+        )
+        .await
+    }
+
+    /// This client's own Retrom client id, from config.
+    async fn client_id(&self) -> Option<i32> {
+        self.app_handle
+            .config_manager()
+            .get_config()
+            .await
+            .config
+            .and_then(|config| config.client_info.map(|info| info.id))
     }
 }

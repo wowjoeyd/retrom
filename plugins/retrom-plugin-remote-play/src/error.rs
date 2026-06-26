@@ -10,6 +10,10 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("Sunshine is not configured: {0}")]
     NotConfigured(String),
+    #[error("Moonlight was not found; install it and pair it with the host's Sunshine")]
+    MoonlightNotFound,
+    #[error("Service error: {0}")]
+    Status(String),
     #[error("Internal error: {0}")]
     Internal(String),
 }
