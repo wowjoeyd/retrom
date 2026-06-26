@@ -36,7 +36,7 @@
   "build": {
     "frontendDist": "../client-web/dist",
     "devUrl": "http://localhost:3000",
-    "beforeBundleCommand": "node ../../scripts/bundle-host-agent.mjs"
+    "beforeBundleCommand": "pnpm -w exec node scripts/bundle-host-agent.mjs"
   },
   "productName": "Retrom",
   "identifier": "com.retrom.client",
