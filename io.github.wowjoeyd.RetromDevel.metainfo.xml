@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.wowjoeyd.RetromDevel</id>
+  <launchable type="desktop-id">io.github.wowjoeyd.RetromDevel.desktop</launchable>
+  <name>Retrom Devel</name>
+  <developer id="io.github.wowjoeyd">
+    <name>wowjoeyd</name>
+  </developer>
+  <content_rating type="oars-1.1"></content_rating>
+  <summary>Dogfood build of Retrom with Remote Play (fork)</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <url type="homepage">https://github.com/wowjoeyd/retrom</url>
+  <description>
+    <p>
+      Local dogfood build of the Retrom desktop client from the wowjoeyd fork's
+      feat-remote-play-integration branch, including Remote Play (Sunshine host +
+      Moonlight viewer). Not an official release; installs side-by-side with the
+      upstream Retrom Flatpak under a distinct application id.
+    </p>
+  </description>
+  <releases>
+    <release version="0.8.4-devel" date="2026-06-26"></release>
+  </releases>
+</component>

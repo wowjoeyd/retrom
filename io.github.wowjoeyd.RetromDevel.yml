@@ -1,0 +1,87 @@
+# Local/dev Flatpak manifest for the FORK's feat-remote-play-integration branch.
+#
+# Distinct app id (io.github.wowjoeyd.RetromDevel) so it installs SIDE-BY-SIDE and
+# never clobbers an installed upstream io.github.jmberesford.Retrom. The binary is
+# still `Retrom`; only the Flatpak id / desktop / metainfo / icon ids differ.
+#
+# Unlike the upstream manifest (io.github.jmberesford.Retrom.yml), which pulls
+# prebuilt web-dist + vendored-cargo tarballs from JMBeresford release tags, this
+# one builds the branch from source in-sandbox (the GNOME SDK's rust-stable +
+# node22 extensions provide the toolchain, so the Steam Deck host needs no
+# rust/node). It's meant for `flatpak-builder` on a Steam Deck in Desktop Mode.
+#
+# See design/remote-play/05-flatpak.md for build + install commands.
+
+id: io.github.wowjoeyd.RetromDevel
+
+runtime: org.gnome.Platform
+runtime-version: "49"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+
+command: Retrom
+
+finish-args:
+  # flatpak-spawn --host: launch host emulators for local play AND -- for Remote
+  # Play -- the Moonlight Flatpak. moonlight.rs wraps its Moonlight launch +
+  # `flatpak info` check in `flatpak-spawn --host` under the `flatpak` feature
+  # (enabled by the client's `flatpak` feature, used in the build below).
+  - --talk-name=org.freedesktop.Flatpak
+
+  # Retrom's own WebKitGTK UI -- this (runtime WebKitGTK + host GPU via --device=dri)
+  # is what fixes the SteamOS white-screen the self-built AppImage hit.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --device=input # gamepad / Steam Deck controls
+  - --socket=pulseaudio # local-play emulator audio
+
+  # Library + emulator executables on host, remote Retrom server + metadata.
+  - --filesystem=host-os
+  - --share=network
+
+  - --env=FLATPAK=1
+
+build-options:
+  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
+  # Dev build: allow the in-sandbox build to fetch npm + cargo deps online.
+  # (Upstream is fully offline via vendored tarballs; this trades reproducibility
+  # for not having to pre-stage artifacts.)
+  build-args:
+    - --share=network
+
+modules:
+  - name: retrom
+    buildsystem: simple
+    sources:
+      # Clean checkout of the local fork clone's branch (no node_modules/target
+      # cruft). Switch to `url: https://github.com/wowjoeyd/retrom` to clone the
+      # fork instead, or pin `commit:` for reproducibility.
+      - type: git
+        path: .
+        branch: feat-remote-play-integration
+    build-commands:
+      # Frontend: workspace deps + the desktop web client -> packages/client-web/dist
+      # (referenced by tauri.conf.json `frontendDist`).
+      - corepack enable
+      - pnpm install --frozen-lockfile
+      - pnpm nx run retrom-client-web:build:desktop
+
+      # Desktop client. `flatpak` enables flatpak-spawn for host executables +
+      # vendored protoc + the Moonlight flatpak-spawn wrapping; `custom-protocol`
+      # is REQUIRED for a production (embedded-asset) build when calling cargo
+      # directly instead of cargo-tauri -- without it the app would try the dev
+      # server and white-screen.
+      - cargo build --release -p retrom-client --features "flatpak,custom-protocol"
+
+      # Install the binary + desktop integration under the distinct devel id.
+      - install -Dm755 -t /app/bin/ target/release/Retrom
+      - install -Dm644 -t /app/share/metainfo/ io.github.wowjoeyd.RetromDevel.metainfo.xml
+      - install -Dm644 -t /app/share/applications/ io.github.wowjoeyd.RetromDevel.desktop
+      - install -Dm644 packages/client/icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.wowjoeyd.RetromDevel.png
+      - install -Dm644 packages/client/icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.wowjoeyd.RetromDevel.png
+      - install -Dm644 packages/client/icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.wowjoeyd.RetromDevel.png
+      - install -Dm644 LICENSE /app/share/licenses/io.github.wowjoeyd.RetromDevel/LICENSE
