@@ -538,8 +538,14 @@ mod tests {
         assert!(game_is_stream_target(&steam_game(440), None));
 
         // Emulator games: native yes, wasm no, missing-emulator no.
-        assert!(game_is_stream_target(&emulator_game(), Some(&native_emulator())));
-        assert!(!game_is_stream_target(&emulator_game(), Some(&wasm_emulator())));
+        assert!(game_is_stream_target(
+            &emulator_game(),
+            Some(&native_emulator())
+        ));
+        assert!(!game_is_stream_target(
+            &emulator_game(),
+            Some(&wasm_emulator())
+        ));
         assert!(!game_is_stream_target(&emulator_game(), None));
 
         // And a Steam session ends like any other on exit.
