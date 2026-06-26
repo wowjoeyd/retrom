@@ -3,7 +3,6 @@ use tauri::{plugin::PluginApi, AppHandle, Runtime};
 
 use crate::sunshine::{
     self, EnsureOutcome, HostReadiness, HttpSunshineClient, SunshineClient, SunshineConfig,
-    RETROM_HOST_AGENT_CMD,
 };
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -52,7 +51,7 @@ impl<R: Runtime> RemotePlay<R> {
         };
 
         HttpSunshineClient::new(config)
-            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .ensure_retrom_app(&sunshine::resolved_host_agent_cmd())
             .await
     }
 }

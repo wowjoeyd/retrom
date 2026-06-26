@@ -15,9 +15,35 @@ use crate::error::Result;
 /// The single Sunshine app Retrom manages. Never per-game.
 pub const RETROM_APP_NAME: &str = "Retrom Remote Play";
 
-/// Placeholder host-agent invocation used as the managed app's `cmd`. Phase 3
-/// resolves the real absolute binary path.
+/// Bare host-agent invocation; used as a fallback when the absolute path can't be
+/// resolved. [`resolved_host_agent_cmd`] is what the managed app actually uses.
 pub const RETROM_HOST_AGENT_CMD: &str = "retrom-host-agent run-pending-session";
+
+fn host_agent_bin_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "retrom-host-agent.exe"
+    }
+    #[cfg(not(windows))]
+    {
+        "retrom-host-agent"
+    }
+}
+
+/// The managed Sunshine app's command: the absolute path to the bundled
+/// `retrom-host-agent` executable (next to this client binary) plus the
+/// `run-pending-session` subcommand. Falls back to the bare command name if the
+/// path can't be resolved.
+pub fn resolved_host_agent_cmd() -> String {
+    let agent = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(host_agent_bin_name())));
+
+    match agent {
+        Some(path) => format!("\"{}\" run-pending-session", path.display()),
+        None => RETROM_HOST_AGENT_CMD.to_string(),
+    }
+}
 
 /// Default Sunshine web API base URL (HTTPS, self-signed cert, localhost).
 pub const DEFAULT_SUNSHINE_BASE_URL: &str = "https://localhost:47990";
