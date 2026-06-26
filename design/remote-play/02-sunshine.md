@@ -21,23 +21,25 @@ talks to. **Please sanity-check this before relying on the real `HttpSunshineCli
 
 ## App management endpoints
 
-| Method & path              | Purpose                     | Notes                                                                                                            |
-| -------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `GET /api/apps`            | List all apps               | Response includes an `apps` array of app objects                                                                 |
-| `POST /api/apps`           | Create **or** update an app | Create vs. update is decided by the **presence of an `index` field**: omit `index` → create; include it → update |
-| `DELETE /api/apps/{index}` | Delete the app at `index`   |                                                                                                                  |
-| `POST /api/apps/close`     | Close the running app       |                                                                                                                  |
-| `POST /api/restart`        | Restart Sunshine            | Connection may drop as it restarts (expected)                                                                    |
+| Method & path              | Purpose                     | Notes                                                                                                                                                 |
+| -------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/apps`            | List all apps               | Response includes an `apps` array of app objects                                                                                                      |
+| `POST /api/apps`           | Create **or** update an app | The `index` field selects create vs. update: **`-1` creates** a new app; the app's **current index** (its position in `GET /api/apps`) **updates** it |
+| `DELETE /api/apps/{index}` | Delete the app at `index`   |                                                                                                                                                       |
+| `POST /api/apps/close`     | Close the running app       |                                                                                                                                                       |
+| `POST /api/restart`        | Restart Sunshine            | Connection may drop as it restarts (expected)                                                                                                         |
 
 ### App object fields (POST /api/apps body)
 
-`name`, `cmd`, `output`, `image-path`, `working-dir`,
+`index`, `name`, `cmd`, `output`, `image-path`, `working-dir`,
 `exclude-global-prep-cmd` (bool), `elevated` (bool), `auto-detach` (bool),
-`wait-all` (bool), and `index` (optional, only for updates). Field names are
+`wait-all` (bool). `index` is **`-1` to create** a new app or the app's
+**current index to update** one (it is required, not omitted). Field names are
 literal JSON keys (note the kebab-case ones like `image-path`).
 
-We only need a tiny subset: `name` (to detect our managed app) and `cmd` (the
-host-agent invocation). On create we also set sensible booleans
+We only need a tiny subset: `name` (to detect our managed app), `cmd` (the
+host-agent invocation), and `index` (`-1` to create, or the managed app's
+current index to update). On create/update we also set sensible booleans
 (`auto-detach`, `wait-all`).
 
 ## Credentials: where they live, and why we don't read them from Sunshine
@@ -71,18 +73,24 @@ binary path). It is **never** a per-game app: the host agent reuses the existing
 launcher to start whichever game the brokered session names, so one Sunshine app
 covers all titles.
 
-`ensure_retrom_app` is **idempotent**: it `GET /api/apps`, and only `POST`s a new
-app if no app named "Retrom Remote Play" already exists. It never duplicates and
-never creates per-game apps.
+`ensure_retrom_app` is **idempotent**: it `GET /api/apps`, then either creates the
+managed app (`POST` with `index: -1`) when it's missing, updates it in place
+(`POST` with its current index) when its command is stale, or does nothing when
+it's already correct. It never duplicates and never creates per-game apps. The
+create-vs-update index choice is a shared default so the real client and the test
+mock exercise identical logic.
 
 ## Trait surface (what the adapter exposes)
 
 ```
 trait SunshineClient {
     async fn is_available(&self) -> bool;                          // reachable + authorized
-    async fn list_apps(&self) -> Result<Vec<SunshineApp>>;         // GET /api/apps
-    async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome>; // idempotent create
+    async fn list_apps(&self) -> Result<Vec<SunshineApp>>;         // GET /api/apps (index = position)
+    async fn save_app(&self, app: &SunshineApp, index: i32) -> Result<()>; // POST /api/apps (-1 = create)
     async fn restart_if_needed(&self) -> Result<()>;               // POST /api/restart when a change was made
+    // ensure_retrom_app(host_agent_cmd) is a shared DEFAULT method built on the
+    // above: create (index -1) / update (current index) / no-op. Returns
+    // EnsureOutcome { Created, Updated, AlreadyPresent }.
 }
 ```
 

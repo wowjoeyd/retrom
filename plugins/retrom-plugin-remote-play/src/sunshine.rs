@@ -33,11 +33,15 @@ pub struct SunshineApp {
 }
 
 /// Outcome of [`SunshineClient::ensure_retrom_app`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum EnsureOutcome {
-    /// The managed app was missing and has been created.
+    /// The managed app was missing and has been created (POSTed with index -1).
     Created,
-    /// The managed app already existed; nothing changed.
+    /// The managed app existed but had a stale command and was updated in place
+    /// (POSTed with its current index).
+    Updated,
+    /// The managed app already existed and was current; nothing changed.
     AlreadyPresent,
 }
 
@@ -57,16 +61,53 @@ pub trait SunshineClient: Send + Sync {
     /// Whether Sunshine is reachable and our credentials are accepted.
     async fn is_available(&self) -> bool;
 
-    /// List the apps Sunshine currently knows about.
+    /// List the apps Sunshine currently knows about, in index order.
     async fn list_apps(&self) -> Result<Vec<SunshineApp>>;
 
-    /// Idempotently ensure the single managed "Retrom Remote Play" app exists,
-    /// with `host_agent_cmd` as its command. Never creates per-game apps and
-    /// never duplicates the managed app.
-    async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome>;
+    /// Save (create or update) an application via Sunshine's "save application"
+    /// endpoint (`POST /api/apps`). Per the Sunshine API, `index` must be `-1` to
+    /// create a new app, or the app's current index (its position in
+    /// [`list_apps`](Self::list_apps)) to update an existing one.
+    async fn save_app(&self, app: &SunshineApp, index: i32) -> Result<()>;
 
     /// Restart Sunshine if a previous call made a change that requires it.
     async fn restart_if_needed(&self) -> Result<()>;
+
+    /// Idempotently ensure the single managed "Retrom Remote Play" app exists and
+    /// runs `host_agent_cmd`: create it (index `-1`) when missing, update it at
+    /// its current index when the command is stale, and do nothing when it's
+    /// already correct. Never creates per-game apps and never duplicates the
+    /// managed app.
+    ///
+    /// This is a shared default so the real client and the test mock exercise the
+    /// exact same create-vs-update index logic.
+    async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome> {
+        let apps = self.list_apps().await?;
+
+        match apps.iter().position(|app| app.name == RETROM_APP_NAME) {
+            // Missing: create. The Sunshine API requires index -1 for a new app.
+            None => {
+                self.save_app(&managed_app(host_agent_cmd), -1).await?;
+                Ok(EnsureOutcome::Created)
+            }
+            // Present and current: nothing to do.
+            Some(index) if apps[index].cmd == host_agent_cmd => Ok(EnsureOutcome::AlreadyPresent),
+            // Present but stale: update in place, reusing its current index.
+            Some(index) => {
+                self.save_app(&managed_app(host_agent_cmd), index as i32)
+                    .await?;
+                Ok(EnsureOutcome::Updated)
+            }
+        }
+    }
+}
+
+/// The managed "Retrom Remote Play" app definition for a given host-agent command.
+fn managed_app(host_agent_cmd: &str) -> SunshineApp {
+    SunshineApp {
+        name: RETROM_APP_NAME.to_string(),
+        cmd: host_agent_cmd.to_string(),
+    }
 }
 
 /// Compute host readiness from any [`SunshineClient`] (generic, so it's testable
@@ -184,20 +225,13 @@ impl SunshineClient for HttpSunshineClient {
         Ok(body.apps)
     }
 
-    async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome> {
-        if self
-            .list_apps()
-            .await?
-            .iter()
-            .any(|app| app.name == RETROM_APP_NAME)
-        {
-            return Ok(EnsureOutcome::AlreadyPresent);
-        }
-
-        // No `index` field => create (vs. update). One managed app, never per-game.
+    async fn save_app(&self, app: &SunshineApp, index: i32) -> Result<()> {
+        // Per the Sunshine "save application" endpoint, `index` is -1 to create a
+        // new app or the app's current index to update an existing one.
         let body = serde_json::json!({
-            "name": RETROM_APP_NAME,
-            "cmd": host_agent_cmd,
+            "index": index,
+            "name": app.name,
+            "cmd": app.cmd,
             "auto-detach": true,
             "wait-all": true,
             "exclude-global-prep-cmd": false,
@@ -211,7 +245,7 @@ impl SunshineClient for HttpSunshineClient {
             .error_for_status()?;
 
         self.needs_restart.store(true, Ordering::SeqCst);
-        Ok(EnsureOutcome::Created)
+        Ok(())
     }
 
     async fn restart_if_needed(&self) -> Result<()> {
@@ -239,20 +273,35 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Mutex;
 
-    /// In-memory Sunshine test double. Records the apps it's been told to create
-    /// so tests can assert idempotency without a real Sunshine.
+    /// A recorded `save_app` request, so tests can assert the index that the
+    /// shared `ensure_retrom_app` logic chose for create vs. update.
+    #[derive(Debug, Clone)]
+    struct RecordedSave {
+        app: SunshineApp,
+        index: i32,
+    }
+
+    /// In-memory Sunshine test double. Applies and records the `save_app` requests
+    /// it receives so tests can assert behavior without a real Sunshine.
     struct MockSunshineClient {
         available: bool,
         apps: Mutex<Vec<SunshineApp>>,
+        saves: Mutex<Vec<RecordedSave>>,
         needs_restart: AtomicBool,
         restart_count: AtomicUsize,
     }
 
     impl MockSunshineClient {
         fn new(available: bool) -> Self {
+            Self::with_apps(available, Vec::new())
+        }
+
+        /// Seed the mock with a pre-existing app list (in index order).
+        fn with_apps(available: bool, apps: Vec<SunshineApp>) -> Self {
             Self {
                 available,
-                apps: Mutex::new(Vec::new()),
+                apps: Mutex::new(apps),
+                saves: Mutex::new(Vec::new()),
                 needs_restart: AtomicBool::new(false),
                 restart_count: AtomicUsize::new(0),
             }
@@ -264,6 +313,10 @@ mod tests {
 
         fn restart_count(&self) -> usize {
             self.restart_count.load(Ordering::SeqCst)
+        }
+
+        fn saves(&self) -> Vec<RecordedSave> {
+            self.saves.lock().unwrap().clone()
         }
     }
 
@@ -277,18 +330,24 @@ mod tests {
             Ok(self.apps.lock().unwrap().clone())
         }
 
-        async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome> {
+        async fn save_app(&self, app: &SunshineApp, index: i32) -> Result<()> {
+            self.saves.lock().unwrap().push(RecordedSave {
+                app: app.clone(),
+                index,
+            });
+
+            // Apply the save the way Sunshine would, so list_apps reflects it.
             let mut apps = self.apps.lock().unwrap();
-            if apps.iter().any(|app| app.name == RETROM_APP_NAME) {
-                return Ok(EnsureOutcome::AlreadyPresent);
+            if index < 0 {
+                apps.push(app.clone());
+            } else if let Some(slot) = apps.get_mut(index as usize) {
+                *slot = app.clone();
+            } else {
+                apps.push(app.clone());
             }
 
-            apps.push(SunshineApp {
-                name: RETROM_APP_NAME.to_string(),
-                cmd: host_agent_cmd.to_string(),
-            });
             self.needs_restart.store(true, Ordering::SeqCst);
-            Ok(EnsureOutcome::Created)
+            Ok(())
         }
 
         async fn restart_if_needed(&self) -> Result<()> {
