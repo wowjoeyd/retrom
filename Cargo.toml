@@ -11,6 +11,7 @@ members = [
   "packages/retrom-download",
   "packages/telemetry",
   "packages/webdav-service",
+  "packages/host-agent",
 
   "plugins/retrom-plugin-config/",
   "plugins/retrom-plugin-installer/",
@@ -21,6 +22,7 @@ members = [
   "plugins/retrom-plugin-steam/",
   "plugins/retrom-plugin-webdav-client/",
   "plugins/retrom-plugin-save-manager/",
+  "plugins/retrom-plugin-remote-play/",
 ]
 exclude = [
   "./packages/ui",
@@ -125,6 +127,7 @@ retrom-plugin-standalone = { path = "./plugins/retrom-plugin-standalone" }
 retrom-webdav-service = { path = "./packages/webdav-service" }
 retrom-plugin-webdav-client = { path = "./plugins/retrom-plugin-webdav-client" }
 retrom-plugin-save-manager = { path = "./plugins/retrom-plugin-save-manager" }
+retrom-plugin-remote-play = { path = "./plugins/retrom-plugin-remote-play" }
 
 config = { version = "0.13.4", features = ["json5"] }
 futures = "0.3.30"

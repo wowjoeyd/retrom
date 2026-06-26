@@ -7,6 +7,7 @@ use retrom_codegen::retrom::{
     emulator_package_service_client::EmulatorPackageServiceClient,
     emulator_service_client::EmulatorServiceClient, game_service_client::GameServiceClient,
     metadata_service_client::MetadataServiceClient, platform_service_client::PlatformServiceClient,
+    remote_play_service_client::RemotePlayServiceClient,
     services::saves::v2::emulator_saves_service_client::EmulatorSavesServiceClient,
 };
 use std::str::FromStr;
@@ -28,6 +29,7 @@ type GameClient = GameServiceClient<GrpcWebClient>;
 type EmulatorClient = EmulatorServiceClient<GrpcWebClient>;
 type EmulatorPackageClient = EmulatorPackageServiceClient<GrpcWebClient>;
 type PlatformClient = PlatformServiceClient<GrpcWebClient>;
+type RemotePlayClient = RemotePlayServiceClient<GrpcWebClient>;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the retrom-plugin-service-client APIs.
 pub trait RetromPluginServiceClientExt<R: Runtime> {
@@ -42,6 +44,7 @@ pub trait RetromPluginServiceClientExt<R: Runtime> {
     fn get_emulator_saves_client(
         &self,
     ) -> impl std::future::Future<Output = EmulatorSavesServiceClient<GrpcWebClient>>;
+    fn get_remote_play_client(&self) -> impl std::future::Future<Output = RemotePlayClient>;
 }
 
 impl<R: Runtime, T: Manager<R>> crate::RetromPluginServiceClientExt<R> for T {
@@ -107,6 +110,16 @@ impl<R: Runtime, T: Manager<R>> crate::RetromPluginServiceClientExt<R> for T {
         let grpc_web_client = state.get_grpc_web_client();
 
         EmulatorSavesServiceClient::with_origin(grpc_web_client, uri)
+    }
+
+    async fn get_remote_play_client(&self) -> RemotePlayClient {
+        let state = self.service_client();
+        let host = state.get_service_host().await;
+
+        let uri = Uri::from_str(&host).expect("Could not parse URI");
+        let grpc_web_client = state.get_grpc_web_client();
+
+        RemotePlayServiceClient::with_origin(grpc_web_client, uri)
     }
 }
 

@@ -35,6 +35,7 @@ retrom-plugin-standalone = { workspace = true }
 retrom-plugin-config = { workspace = true }
 retrom-plugin-webdav-client = { workspace = true }
 retrom-plugin-save-manager = { workspace = true }
+retrom-plugin-remote-play = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-shell = { workspace = true }

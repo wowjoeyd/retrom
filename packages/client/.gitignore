@@ -3,3 +3,5 @@ tauri.local.conf.json
 retrom.log
 server-config.json
 gen/schemas/**
+# Staged Tauri external binaries (built by scripts/bundle-host-agent.mjs)
+binaries/

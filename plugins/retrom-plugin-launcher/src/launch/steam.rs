@@ -38,6 +38,7 @@ impl<R: Runtime> LaunchAdapter<R> for SteamAdapter {
         let app_id =
             steam_app_id(&ctx).expect("SteamAdapter launched without a valid Steam app id");
         let game_id = ctx.game.id;
+        let remote_play_session_id = ctx.remote_play_session_id;
 
         // The install dir lets us identify the game's own process for precise exit
         // detection (Steam launches the game itself, so we never get its PID).
@@ -55,13 +56,15 @@ impl<R: Runtime> LaunchAdapter<R> for SteamAdapter {
         #[cfg(windows)]
         {
             let app = ctx.app.clone();
-            tokio::spawn(async move { windows::watch(app, app_id, game_id, install_dir).await });
+            tokio::spawn(async move {
+                windows::watch(app, app_id, game_id, install_dir, remote_play_session_id).await
+            });
         }
 
         #[cfg(not(windows))]
         {
             // Exit detection is Windows-only for now; the game still launched.
-            let _ = game_id;
+            let _ = (game_id, remote_play_session_id);
         }
 
         Ok(())
@@ -124,6 +127,7 @@ mod windows {
         app_id: u32,
         game_id: i32,
         install_dir: Option<std::path::PathBuf>,
+        remote_play_session_id: Option<i32>,
     ) {
         // Wait for the game to actually start running. If it never does within the
         // timeout (e.g. the user cancelled at a Steam prompt), give up quietly —
@@ -164,6 +168,11 @@ mod windows {
             return;
         }
 
+        // Remote-play session: the Steam game is now up, so PREPARING→RUNNING.
+        if let Some(session_id) = remote_play_session_id {
+            crate::remote_play::report_session_running(&app, session_id).await;
+        }
+
         let stop_requested = wait_for_stop(app_id, install_dir.clone(), &mut recv).await;
 
         info!("Steam game {app_id} stopped; returning to library");
@@ -178,7 +187,19 @@ mod windows {
             }
         }
 
-        app.launcher().foreground_main_window();
+        // Session-aware exit: a remote-play launch must not foreground the host's
+        // own UI (the host is headless to the player) -- end the session instead.
+        // The local Steam path (no session id) is unchanged.
+        match crate::remote_play::exit_action(remote_play_session_id) {
+            crate::remote_play::ExitAction::ForegroundLocalUi => {
+                app.launcher().foreground_main_window();
+            }
+            crate::remote_play::ExitAction::EndSession(session_id) => {
+                info!("Steam game {app_id} teardown: ending remote-play session {session_id} (no host foreground)");
+                crate::remote_play::report_session_ended(&app, session_id).await;
+            }
+        }
+
         if let Err(why) = app.launcher().mark_game_as_stopped(game_id).await {
             warn!("Failed to mark Steam game {game_id} as stopped: {why}");
         }

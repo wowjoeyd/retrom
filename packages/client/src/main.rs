@@ -126,7 +126,19 @@ pub async fn main() {
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(retrom_plugin_standalone::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A Sunshine-invoked `retrom-host-agent run-pending-session` reaches us
+            // here: the agent launched the client with that argument and
+            // single-instance forwarded it to this already-running instance. Drive
+            // the host-agent flow in-process (it reuses the existing launcher).
+            if argv.iter().any(|arg| arg == "run-pending-session") {
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    retrom_plugin_launcher::run_pending_session(app_handle).await;
+                });
+                return;
+            }
+
             if !cfg!(dev) {
                 app.webview_windows()
                     .values()
@@ -149,6 +161,7 @@ pub async fn main() {
         .plugin(retrom_plugin_launcher::init().await)
         .plugin(retrom_plugin_webdav_client::init())
         .plugin(retrom_plugin_save_manager::init())
+        .plugin(retrom_plugin_remote_play::init())
         .invoke_handler(tauri::generate_handler![request_foreground])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

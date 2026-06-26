@@ -21,6 +21,7 @@ use retrom_codegen::{
         library_service_server::LibraryServiceServer,
         metadata_service_server::MetadataServiceServer,
         platform_service_server::PlatformServiceServer,
+        remote_play_service_server::RemotePlayServiceServer,
         server_service_server::ServerServiceServer,
         services::saves::{
             v1::saves_service_server::SavesServiceServer,
@@ -54,6 +55,7 @@ pub mod jobs;
 pub mod library;
 pub mod metadata;
 pub mod platforms;
+pub mod remote_play;
 mod saves;
 pub mod server;
 
@@ -192,6 +194,10 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
     let client_service =
         ClientServiceServer::new(clients::ClientServiceHandlers::new(shared_pool.clone()));
 
+    let remote_play_service = RemotePlayServiceServer::new(
+        remote_play::RemotePlayServiceHandlers::new(shared_pool.clone()),
+    );
+
     let server_service = ServerServiceServer::new(server::ServerServiceHandlers {
         config: config_manager.clone(),
     });
@@ -241,6 +247,7 @@ pub fn grpc_service(db_url: &str, config_manager: Arc<ServerConfigManager>) -> R
         .add_service(platform_service)
         .add_service(metadata_service)
         .add_service(client_service)
+        .add_service(remote_play_service)
         .add_service(server_service)
         .add_service(emulator_service)
         .add_service(job_service)

@@ -14,10 +14,12 @@ mod gamepad;
 mod launch;
 #[cfg(windows)]
 mod quit;
+mod remote_play;
 #[cfg(windows)]
 mod window;
 
 pub use foreground::bring_to_foreground;
+pub use remote_play::run_pending_session;
 
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the launcher APIs.
 pub trait LauncherExt<R: Runtime> {

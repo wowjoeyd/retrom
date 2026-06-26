@@ -6,6 +6,8 @@ diesel::table! {
         name -> Text,
         created_at -> Nullable<Timestamptz>,
         updated_at -> Nullable<Timestamptz>,
+        is_stream_host -> Nullable<Bool>,
+        is_stream_client -> Nullable<Bool>,
     }
 }
 
@@ -196,6 +198,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_play_sessions (id) {
+        id -> Int4,
+        game_id -> Int4,
+        host_client_id -> Int4,
+        client_client_id -> Int4,
+        state -> Int4,
+        created_at -> Nullable<Timestamptz>,
+        updated_at -> Nullable<Timestamptz>,
+        started_at -> Nullable<Timestamptz>,
+        ended_at -> Nullable<Timestamptz>,
+        sunshine_app_name -> Text,
+        error_code -> Nullable<Text>,
+        error_message -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     similar_game_maps (game_id, similar_game_id) {
         game_id -> Int4,
         similar_game_id -> Int4,
@@ -217,6 +236,7 @@ diesel::joinable!(games -> platforms (platform_id));
 diesel::joinable!(local_emulator_configs -> clients (client_id));
 diesel::joinable!(local_emulator_configs -> emulators (emulator_id));
 diesel::joinable!(platform_metadata -> platforms (platform_id));
+diesel::joinable!(remote_play_sessions -> games (game_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     clients,
@@ -233,5 +253,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     local_emulator_configs,
     platform_metadata,
     platforms,
+    remote_play_sessions,
     similar_game_maps,
 );

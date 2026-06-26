@@ -76,6 +76,7 @@
     "config:allow-set-config",
     "config:allow-is-flatpak",
     "save-manager:default",
-    "emulator-sync:default"
+    "emulator-sync:default",
+    "remote-play:default"
   ]
 }

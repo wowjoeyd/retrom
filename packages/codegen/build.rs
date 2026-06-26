@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|path| path.extension() == Some("proto".as_ref()))
         .collect();
 
-    let queryable_models: [ModelDefinitionParams; 15] = [
+    let queryable_models: [ModelDefinitionParams; 16] = [
         ("Platform", "platforms", None, vec![]),
         ("Game", "games", None, vec!["Platform"]),
         (
@@ -127,9 +127,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None,
             vec!["EmulatorPackage, foreign_key = package_id"],
         ),
+        ("RemotePlaySession", "remote_play_sessions", None, vec![]),
     ];
 
-    let insertable_models: [ModelDefinitionParams; 13] = [
+    let insertable_models: [ModelDefinitionParams; 14] = [
         ("NewPlatform", "platforms", None, vec![]),
         ("NewGame", "games", None, vec![]),
         ("NewGameFile", "game_files", None, vec![]),
@@ -168,6 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None,
             vec![],
         ),
+        ("NewRemotePlaySession", "remote_play_sessions", None, vec![]),
     ];
 
     let updatable_models: [ModelDefinitionParams; 17] = [

@@ -1,0 +1,7 @@
+[default]
+description = "Default permissions for the remote-play plugin"
+permissions = [
+  "allow-remote-play-host-readiness",
+  "allow-remote-play-ensure-host-app",
+  "allow-start-remote-play",
+]
