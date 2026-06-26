@@ -163,7 +163,11 @@ impl HttpSunshineClient {
 #[async_trait]
 impl SunshineClient for HttpSunshineClient {
     async fn is_available(&self) -> bool {
-        match self.authed(self.http.get(self.endpoint("api/apps"))).send().await {
+        match self
+            .authed(self.http.get(self.endpoint("api/apps")))
+            .send()
+            .await
+        {
             Ok(res) => res.status().is_success(),
             Err(_) => false,
         }
@@ -301,12 +305,18 @@ mod tests {
         assert_eq!(client.app_count(), 0);
 
         // First call creates the single managed app.
-        let first = client.ensure_retrom_app(RETROM_HOST_AGENT_CMD).await.unwrap();
+        let first = client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
         assert_eq!(first, EnsureOutcome::Created);
         assert_eq!(client.app_count(), 1);
 
         // Second call is a no-op: already present, no duplicate.
-        let second = client.ensure_retrom_app(RETROM_HOST_AGENT_CMD).await.unwrap();
+        let second = client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
         assert_eq!(second, EnsureOutcome::AlreadyPresent);
         assert_eq!(client.app_count(), 1);
 

@@ -16,20 +16,21 @@ talks to. **Please sanity-check this before relying on the real `HttpSunshineCli
   `danger_accept_invalid_certs(true)`, scoped to the local Sunshine endpoint).
 - **Auth:** HTTP **Basic auth** with the Sunshine web-UI **admin username +
   password**.
-- **CSRF:** state-changing endpoints require a CSRF token *for browser requests*;
+- **CSRF:** state-changing endpoints require a CSRF token _for browser requests_;
   non-browser clients (like ours) are exempt.
 
 ## App management endpoints
 
-| Method & path | Purpose | Notes |
-|---|---|---|
-| `GET /api/apps` | List all apps | Response includes an `apps` array of app objects |
-| `POST /api/apps` | Create **or** update an app | Create vs. update is decided by the **presence of an `index` field**: omit `index` → create; include it → update |
-| `DELETE /api/apps/{index}` | Delete the app at `index` | |
-| `POST /api/apps/close` | Close the running app | |
-| `POST /api/restart` | Restart Sunshine | Connection may drop as it restarts (expected) |
+| Method & path              | Purpose                     | Notes                                                                                                            |
+| -------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GET /api/apps`            | List all apps               | Response includes an `apps` array of app objects                                                                 |
+| `POST /api/apps`           | Create **or** update an app | Create vs. update is decided by the **presence of an `index` field**: omit `index` → create; include it → update |
+| `DELETE /api/apps/{index}` | Delete the app at `index`   |                                                                                                                  |
+| `POST /api/apps/close`     | Close the running app       |                                                                                                                  |
+| `POST /api/restart`        | Restart Sunshine            | Connection may drop as it restarts (expected)                                                                    |
 
 ### App object fields (POST /api/apps body)
+
 `name`, `cmd`, `output`, `image-path`, `working-dir`,
 `exclude-global-prep-cmd` (bool), `elevated` (bool), `auto-detach` (bool),
 `wait-all` (bool), and `index` (optional, only for updates). Field names are
@@ -48,7 +49,7 @@ Salt" is part of the credential storage). The plaintext password is therefore
 **not recoverable** from Sunshine's own files.
 
 **Consequence:** Retrom cannot scrape the admin password from Sunshine. The host
-must *give* Retrom the credentials. For Phase 2 the `HttpSunshineClient` reads
+must _give_ Retrom the credentials. For Phase 2 the `HttpSunshineClient` reads
 them from a config value (environment variables, no hardcoding, nothing extra
 stored):
 
@@ -90,6 +91,7 @@ trait SunshineClient {
   creates exactly one app and is idempotent on a second call.
 
 ## Sources
+
 - API reference — Sunshine docs: <https://docs.lizardbyte.dev/projects/sunshine/latest/md_docs_2api.html>
 - API reference — source: <https://github.com/LizardByte/Sunshine/blob/master/docs/api.md>
 - Credential storage — `src/config.cpp`: <https://github.com/LizardByte/Sunshine/blob/master/src/config.cpp>
