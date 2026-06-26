@@ -40,6 +40,24 @@ pub fn is_stream_target(emulator: &Emulator) -> bool {
     !wasm_only
 }
 
+/// Whether dispatch will route this game to the SteamAdapter -- the same keys
+/// `SteamAdapter::matches` uses (third-party + a valid Steam app id). Mirroring
+/// the adapter guarantees a Steam-resolved context will actually match it.
+pub(crate) fn is_steam_game(game: &Game) -> bool {
+    game.third_party
+        && game
+            .steam_app_id
+            .and_then(|app_id| u32::try_from(app_id).ok())
+            .is_some()
+}
+
+/// Whether the brokered game is a Remote Play stream target. Steam games always
+/// are; emulator games are unless the emulator is wasm-only. A non-Steam game
+/// with no resolved emulator can't be launched, so it isn't a stream target.
+pub(crate) fn game_is_stream_target(game: &Game, emulator: Option<&Emulator>) -> bool {
+    is_steam_game(game) || emulator.map(is_stream_target).unwrap_or(false)
+}
+
 /// What to do when a launch's lifecycle ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitAction {
@@ -250,16 +268,8 @@ struct LauncherSessionLaunch<R: Runtime> {
 }
 
 impl<R: Runtime> LauncherSessionLaunch<R> {
-    /// Resolve the pieces a [`LaunchContext`] needs for `game_id`, reusing the
-    /// server's existing resolution RPCs (not reimplementing the launcher).
-    async fn resolve_play(
-        &self,
-        game_id: i32,
-    ) -> crate::Result<(Game, Emulator, EmulatorProfile, Option<GameFile>, bool)> {
-        let client_id = resolve_client_id(&self.app)
-            .await
-            .ok_or_else(|| crate::Error::InternalError("Client ID not configured".into()))?;
-
+    /// Fetch the game and its files.
+    async fn resolve_game(&self, game_id: i32) -> crate::Result<(Game, Vec<GameFile>)> {
         let mut game_client = self.app.get_game_client().await;
         let games = game_client
             .get_games(GetGamesRequest {
@@ -275,10 +285,24 @@ impl<R: Runtime> LauncherSessionLaunch<R> {
             .into_iter()
             .next()
             .ok_or(crate::Error::GameNotFound(Some(game_id)))?;
-        let game_files = games.game_files;
+
+        Ok((game, games.game_files))
+    }
+
+    /// Resolve the emulator, default profile, and ROM file for a non-Steam game,
+    /// reusing the server's existing resolution RPCs (not reimplementing the
+    /// launcher).
+    async fn resolve_emulator_play(
+        &self,
+        game: &Game,
+        game_files: &[GameFile],
+    ) -> crate::Result<(Emulator, EmulatorProfile, Option<GameFile>)> {
+        let client_id = resolve_client_id(&self.app)
+            .await
+            .ok_or_else(|| crate::Error::InternalError("Client ID not configured".into()))?;
 
         let platform_id = game.platform_id.ok_or_else(|| {
-            crate::Error::InternalError(format!("game {game_id} has no platform"))
+            crate::Error::InternalError(format!("game {} has no platform", game.id))
         })?;
 
         let mut emulator_client = self.app.get_emulator_client().await;
@@ -349,30 +373,47 @@ impl<R: Runtime> LauncherSessionLaunch<R> {
             .and_then(|id| game_files.iter().find(|f| f.id == id).cloned())
             .or_else(|| game_files.first().cloned());
 
-        let standalone = self
-            .app
+        Ok((emulator, profile, file))
+    }
+
+    async fn resolve_standalone(&self) -> bool {
+        self.app
             .config_manager()
             .get_config()
             .await
             .server
             .and_then(|server| server.standalone)
-            .unwrap_or(false);
-
-        Ok((game, emulator, profile, file, standalone))
-    }
-}
-
-#[async_trait]
-impl<R: Runtime> SessionLaunch for LauncherSessionLaunch<R> {
-    async fn is_stream_target(&self, game_id: i32) -> crate::Result<bool> {
-        let (_, emulator, _, _, _) = self.resolve_play(game_id).await?;
-        Ok(is_stream_target(&emulator))
+            .unwrap_or(false)
     }
 
-    async fn launch(&self, game_id: i32, session_id: i32) -> crate::Result<()> {
-        let (game, emulator, profile, file, standalone) = self.resolve_play(game_id).await?;
+    /// Build the [`LaunchContext`] for a session's game. Steam (third-party) games
+    /// resolve to a context the SteamAdapter accepts -- game with `third_party` +
+    /// the Steam app id, and no emulator/profile/ROM -- mirroring how the frontend
+    /// hands Steam games to the launcher. Everything else resolves the
+    /// emulator/profile/ROM. Either way it's handed to the existing dispatch.
+    async fn resolve_context(
+        &self,
+        game_id: i32,
+        session_id: i32,
+    ) -> crate::Result<LaunchContext<R>> {
+        let (game, game_files) = self.resolve_game(game_id).await?;
+        let standalone = self.resolve_standalone().await;
 
-        let ctx = LaunchContext {
+        if is_steam_game(&game) {
+            return Ok(LaunchContext {
+                app: self.app.clone(),
+                game,
+                emulator: None,
+                profile: None,
+                file: None,
+                standalone,
+                remote_play_session_id: Some(session_id),
+            });
+        }
+
+        let (emulator, profile, file) = self.resolve_emulator_play(&game, &game_files).await?;
+
+        Ok(LaunchContext {
             app: self.app.clone(),
             game,
             emulator: Some(emulator),
@@ -380,7 +421,26 @@ impl<R: Runtime> SessionLaunch for LauncherSessionLaunch<R> {
             file,
             standalone,
             remote_play_session_id: Some(session_id),
-        };
+        })
+    }
+}
+
+#[async_trait]
+impl<R: Runtime> SessionLaunch for LauncherSessionLaunch<R> {
+    async fn is_stream_target(&self, game_id: i32) -> crate::Result<bool> {
+        let (game, game_files) = self.resolve_game(game_id).await?;
+
+        // Steam games are stream targets without resolving an emulator.
+        if is_steam_game(&game) {
+            return Ok(game_is_stream_target(&game, None));
+        }
+
+        let (emulator, _, _) = self.resolve_emulator_play(&game, &game_files).await?;
+        Ok(game_is_stream_target(&game, Some(&emulator)))
+    }
+
+    async fn launch(&self, game_id: i32, session_id: i32) -> crate::Result<()> {
+        let ctx = self.resolve_context(game_id, session_id).await?;
 
         // dispatch blocks until the game exits, so run it in the background; the
         // adapter drives PREPARING→RUNNING→ENDED via the threaded session id.
@@ -427,6 +487,63 @@ mod tests {
     fn exit_action_branches_on_session() {
         assert_eq!(exit_action(None), ExitAction::ForegroundLocalUi);
         assert_eq!(exit_action(Some(7)), ExitAction::EndSession(7));
+    }
+
+    fn steam_game(steam_app_id: i64) -> Game {
+        Game {
+            third_party: true,
+            steam_app_id: Some(steam_app_id),
+            ..Default::default()
+        }
+    }
+
+    fn emulator_game() -> Game {
+        Game {
+            third_party: false,
+            steam_app_id: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn is_steam_game_matches_steam_adapter_keys() {
+        // Third-party with a valid app id: SteamAdapter would match this.
+        assert!(is_steam_game(&steam_game(440)));
+        // Third-party but no app id.
+        assert!(!is_steam_game(&Game {
+            third_party: true,
+            steam_app_id: None,
+            ..Default::default()
+        }));
+        // App id that doesn't fit u32 (SteamAdapter rejects it too).
+        assert!(!is_steam_game(&Game {
+            third_party: true,
+            steam_app_id: Some(-1),
+            ..Default::default()
+        }));
+        // Has an app id but isn't third-party.
+        assert!(!is_steam_game(&Game {
+            third_party: false,
+            steam_app_id: Some(440),
+            ..Default::default()
+        }));
+        assert!(!is_steam_game(&emulator_game()));
+    }
+
+    #[test]
+    fn steam_game_is_a_stream_target_without_an_emulator() {
+        // A Steam game resolves to a Steam-matching context (no emulator) and is a
+        // stream target.
+        assert!(is_steam_game(&steam_game(440)));
+        assert!(game_is_stream_target(&steam_game(440), None));
+
+        // Emulator games: native yes, wasm no, missing-emulator no.
+        assert!(game_is_stream_target(&emulator_game(), Some(&native_emulator())));
+        assert!(!game_is_stream_target(&emulator_game(), Some(&wasm_emulator())));
+        assert!(!game_is_stream_target(&emulator_game(), None));
+
+        // And a Steam session ends like any other on exit.
+        assert_eq!(exit_action(Some(3)), ExitAction::EndSession(3));
     }
 
     #[derive(Default)]
