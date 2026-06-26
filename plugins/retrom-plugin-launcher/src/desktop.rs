@@ -158,6 +158,59 @@ impl<R: Runtime> Launcher<R> {
         }
     }
 
+    /// Run an external process (e.g. Moonlight) and drive the same
+    /// return-to-library lifecycle a native game uses: mark the game running,
+    /// wait for the process to exit (or a stop signal), then reclaim the OS
+    /// foreground and mark it stopped. This is the shared machinery that returns
+    /// the user to Retrom fullscreen after an external process exits, so the
+    /// Moonlight viewer flow reuses it instead of forking the native spawn +
+    /// foreground-reclaim code.
+    #[instrument(skip(self, command))]
+    pub async fn run_foregrounding_process(
+        &self,
+        game_id: GameId,
+        mut command: Command,
+    ) -> crate::Result<()> {
+        let (send, mut recv) = tokio::sync::mpsc::channel(1);
+        let mut process = command.spawn()?;
+        #[cfg(windows)]
+        let pid = process.id();
+        let send = Arc::new(Mutex::new(send));
+
+        self.mark_game_as_running(
+            game_id,
+            GameProcess {
+                send,
+                start_time: std::time::SystemTime::now(),
+            },
+        )
+        .await?;
+
+        // Bring the new window forward (Windows blocks a background process from
+        // taking the foreground), same as a native game launch.
+        #[cfg(windows)]
+        if let Some(pid) = pid {
+            tokio::spawn(crate::window::foreground_game(self.app_handle.clone(), pid));
+        }
+
+        tokio::select! {
+            _ = recv.recv() => {
+                if let Err(why) = process.kill().await {
+                    warn!("Failed to kill external process for game {game_id}: {why}");
+                }
+            }
+            _ = process.wait() => {}
+        }
+
+        // Reclaim the foreground and mark stopped, returning to Retrom fullscreen.
+        self.foreground_main_window();
+        if let Err(why) = self.mark_game_as_stopped(game_id).await {
+            warn!("Failed to mark game {game_id} as stopped: {why}");
+        }
+
+        Ok(())
+    }
+
     #[instrument(skip_all)]
     pub async fn mark_game_as_running(
         &self,
