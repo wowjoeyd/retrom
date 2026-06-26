@@ -436,4 +436,86 @@ mod tests {
         assert!(r.sunshine_available);
         assert!(r.retrom_app_present);
     }
+
+    #[tokio::test]
+    async fn create_call_uses_index_minus_one() {
+        let client = MockSunshineClient::new(true);
+
+        let outcome = client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
+        assert_eq!(outcome, EnsureOutcome::Created);
+
+        // The recorded save proves a new app is created with index -1.
+        let saves = client.saves();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0].index, -1, "a new app must be saved with index -1");
+        assert_eq!(saves[0].app.name, RETROM_APP_NAME);
+        assert_eq!(saves[0].app.cmd, RETROM_HOST_AGENT_CMD);
+    }
+
+    #[tokio::test]
+    async fn update_call_uses_existing_index() {
+        // Seed Sunshine with another app first, then the managed app at index 1
+        // with a stale command.
+        let client = MockSunshineClient::with_apps(
+            true,
+            vec![
+                SunshineApp {
+                    name: "Desktop".to_string(),
+                    cmd: String::new(),
+                },
+                SunshineApp {
+                    name: RETROM_APP_NAME.to_string(),
+                    cmd: "stale-command".to_string(),
+                },
+            ],
+        );
+
+        let outcome = client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
+        assert_eq!(outcome, EnsureOutcome::Updated);
+
+        // The recorded save proves an update reuses the app's current index (1),
+        // not -1.
+        let saves = client.saves();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0].index, 1,
+            "an update must reuse the app's current index"
+        );
+        assert_eq!(saves[0].app.cmd, RETROM_HOST_AGENT_CMD);
+
+        // Still exactly one managed app, now with the new command (no duplicate).
+        let apps = client.list_apps().await.unwrap();
+        assert_eq!(
+            apps.iter().filter(|a| a.name == RETROM_APP_NAME).count(),
+            1
+        );
+        assert_eq!(apps[1].cmd, RETROM_HOST_AGENT_CMD);
+    }
+
+    #[tokio::test]
+    async fn already_current_app_is_not_re_saved() {
+        let client = MockSunshineClient::with_apps(
+            true,
+            vec![SunshineApp {
+                name: RETROM_APP_NAME.to_string(),
+                cmd: RETROM_HOST_AGENT_CMD.to_string(),
+            }],
+        );
+
+        let outcome = client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
+        assert_eq!(outcome, EnsureOutcome::AlreadyPresent);
+        assert!(
+            client.saves().is_empty(),
+            "no save call when the managed app is already correct"
+        );
+    }
 }
