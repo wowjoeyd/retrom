@@ -93,6 +93,29 @@ pub fn build_moonlight_command(config: &MoonlightConfig, app_name: &str) -> (Str
     }
 }
 
+/// Wrap a host command so a sandboxed (Flatpak) Retrom can run it on the host.
+///
+/// Under the `flatpak` feature this prefixes `flatpak-spawn --host` -- the same way
+/// the launcher runs host emulators (see retrom-plugin-launcher's `desktop.rs`) --
+/// so `flatpak run com.moonlight_stream.Moonlight ...` and `flatpak info ...`
+/// actually reach the host instead of failing inside the sandbox. It is a no-op
+/// otherwise. Applied at the spawn site only, so the logical command in
+/// [`build_moonlight_command`] (and its tests) is unchanged.
+fn host_command(program: &str, args: &[String]) -> (String, Vec<String>) {
+    #[cfg(feature = "flatpak")]
+    {
+        let mut wrapped = Vec::with_capacity(args.len() + 2);
+        wrapped.push("--host".to_string());
+        wrapped.push(program.to_string());
+        wrapped.extend_from_slice(args);
+        ("flatpak-spawn".to_string(), wrapped)
+    }
+    #[cfg(not(feature = "flatpak"))]
+    {
+        (program.to_string(), args.to_vec())
+    }
+}
+
 /// Creates the brokered session (CreateSession RPC), abstracted for testing.
 #[async_trait]
 pub(crate) trait SessionCreator {
@@ -199,19 +222,30 @@ pub(crate) struct MoonlightStreamLauncher<R: Runtime> {
 impl<R: Runtime> StreamLauncher for MoonlightStreamLauncher<R> {
     async fn is_available(&self) -> bool {
         match &self.config.invocation {
-            // `flatpak info <id>` exits 0 when the app is installed.
-            MoonlightInvocation::Flatpak => tokio::process::Command::new("flatpak")
-                .args(["info", MOONLIGHT_FLATPAK_ID])
-                .output()
-                .await
-                .map(|out| out.status.success())
-                .unwrap_or(false),
+            // `flatpak info <id>` exits 0 when the app is installed. Routed through
+            // `flatpak-spawn --host` under the flatpak feature (the sandbox has no
+            // flatpak of its own).
+            MoonlightInvocation::Flatpak => {
+                let (program, args) = host_command(
+                    "flatpak",
+                    &["info".to_string(), MOONLIGHT_FLATPAK_ID.to_string()],
+                );
+                tokio::process::Command::new(program)
+                    .args(args)
+                    .output()
+                    .await
+                    .map(|out| out.status.success())
+                    .unwrap_or(false)
+            }
             MoonlightInvocation::Executable(path) => executable_on_path(path),
         }
     }
 
     async fn launch_stream(&self, app_name: &str, game_id: i32) -> Result<()> {
         let (program, args) = build_moonlight_command(&self.config, app_name);
+        // Route through flatpak-spawn --host under the flatpak feature so the
+        // launch reaches the host Moonlight from inside the sandbox.
+        let (program, args) = host_command(&program, &args);
 
         let mut command = tokio::process::Command::new(program);
         command.args(args);
@@ -324,6 +358,33 @@ mod tests {
                 "stream",
                 "10.0.0.5",
                 "Retrom Remote Play"
+            ]
+        );
+    }
+
+    #[cfg(feature = "flatpak")]
+    #[test]
+    fn flatpak_feature_wraps_command_with_flatpak_spawn_host() {
+        // Under the flatpak feature, the spawn-site wrapper routes the logical
+        // Moonlight command through `flatpak-spawn --host` so it reaches the host.
+        let config = MoonlightConfig {
+            invocation: MoonlightInvocation::Flatpak,
+            host: "10.0.0.5".into(),
+        };
+        let (program, args) = build_moonlight_command(&config, "Retrom Remote Play");
+        let (program, args) = host_command(&program, &args);
+
+        assert_eq!(program, "flatpak-spawn");
+        assert_eq!(
+            args,
+            vec![
+                "--host",
+                "flatpak",
+                "run",
+                MOONLIGHT_FLATPAK_ID,
+                "stream",
+                "10.0.0.5",
+                "Retrom Remote Play",
             ]
         );
     }

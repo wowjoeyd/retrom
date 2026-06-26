@@ -10,6 +10,12 @@ rust-version = "1.80"
 exclude = ["/examples", "/dist", "/guest-js", "/node_modules"]
 links = "tauri-plugin-remote-play"
 
+[features]
+# When built inside a Flatpak, route host commands (the Moonlight launch and the
+# `flatpak info` availability check) through `flatpak-spawn --host`, mirroring the
+# launcher. Enabled by the client's `flatpak` feature.
+flatpak = []
+
 [dependencies]
 tauri = { workspace = true }
 serde = { workspace = true }
