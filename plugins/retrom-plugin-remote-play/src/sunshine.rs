@@ -491,10 +491,7 @@ mod tests {
 
         // Still exactly one managed app, now with the new command (no duplicate).
         let apps = client.list_apps().await.unwrap();
-        assert_eq!(
-            apps.iter().filter(|a| a.name == RETROM_APP_NAME).count(),
-            1
-        );
+        assert_eq!(apps.iter().filter(|a| a.name == RETROM_APP_NAME).count(), 1);
         assert_eq!(apps[1].cmd, RETROM_HOST_AGENT_CMD);
     }
 
