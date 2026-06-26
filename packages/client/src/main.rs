@@ -149,6 +149,7 @@ pub async fn main() {
         .plugin(retrom_plugin_launcher::init().await)
         .plugin(retrom_plugin_webdav_client::init())
         .plugin(retrom_plugin_save_manager::init())
+        .plugin(retrom_plugin_remote_play::init())
         .invoke_handler(tauri::generate_handler![request_foreground])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

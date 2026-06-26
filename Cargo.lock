@@ -9236,6 +9236,7 @@ dependencies = [
  "retrom-plugin-emulator-sync",
  "retrom-plugin-installer",
  "retrom-plugin-launcher",
+ "retrom-plugin-remote-play",
  "retrom-plugin-save-manager",
  "retrom-plugin-service-client",
  "retrom-plugin-standalone",
@@ -9424,6 +9425,21 @@ dependencies = [
  "walkdir",
  "windows-sys 0.59.0",
  "winreg 0.55.0",
+]
+
+[[package]]
+name = "retrom-plugin-remote-play"
+version = "0.8.4"
+dependencies = [
+ "async-trait",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
