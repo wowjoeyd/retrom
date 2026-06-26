@@ -152,18 +152,19 @@ impl RemotePlayService for RemotePlayServiceHandlers {
         };
 
         use schema::remote_play_sessions::dsl;
-        let updated: RemotePlaySession = diesel::update(schema::remote_play_sessions::table.find(id))
-            .set((
-                dsl::state.eq(to as i32),
-                dsl::updated_at.eq(Some(now)),
-                dsl::started_at.eq(started_at),
-                dsl::ended_at.eq(ended_at),
-                dsl::error_code.eq(error_code),
-                dsl::error_message.eq(error_message),
-            ))
-            .get_result(&mut conn)
-            .await
-            .map_err(internal)?;
+        let updated: RemotePlaySession =
+            diesel::update(schema::remote_play_sessions::table.find(id))
+                .set((
+                    dsl::state.eq(to as i32),
+                    dsl::updated_at.eq(Some(now)),
+                    dsl::started_at.eq(started_at),
+                    dsl::ended_at.eq(ended_at),
+                    dsl::error_code.eq(error_code),
+                    dsl::error_message.eq(error_message),
+                ))
+                .get_result(&mut conn)
+                .await
+                .map_err(internal)?;
 
         Ok(Response::new(UpdateSessionStateResponse {
             session: Some(updated),
@@ -195,15 +196,16 @@ impl RemotePlayService for RemotePlayServiceHandlers {
 
         let now = now_ts();
         use schema::remote_play_sessions::dsl;
-        let updated: RemotePlaySession = diesel::update(schema::remote_play_sessions::table.find(id))
-            .set((
-                dsl::state.eq(RemotePlaySessionState::Cancelled as i32),
-                dsl::updated_at.eq(Some(now)),
-                dsl::ended_at.eq(Some(now)),
-            ))
-            .get_result(&mut conn)
-            .await
-            .map_err(internal)?;
+        let updated: RemotePlaySession =
+            diesel::update(schema::remote_play_sessions::table.find(id))
+                .set((
+                    dsl::state.eq(RemotePlaySessionState::Cancelled as i32),
+                    dsl::updated_at.eq(Some(now)),
+                    dsl::ended_at.eq(Some(now)),
+                ))
+                .get_result(&mut conn)
+                .await
+                .map_err(internal)?;
 
         Ok(Response::new(CancelSessionResponse {
             session: Some(updated),
