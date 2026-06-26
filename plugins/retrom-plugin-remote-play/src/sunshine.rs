@@ -223,3 +223,148 @@ impl SunshineClient for HttpSunshineClient {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        readiness, EnsureOutcome, SunshineApp, SunshineClient, RETROM_APP_NAME,
+        RETROM_HOST_AGENT_CMD,
+    };
+    use crate::error::Result;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    /// In-memory Sunshine test double. Records the apps it's been told to create
+    /// so tests can assert idempotency without a real Sunshine.
+    struct MockSunshineClient {
+        available: bool,
+        apps: Mutex<Vec<SunshineApp>>,
+        needs_restart: AtomicBool,
+        restart_count: AtomicUsize,
+    }
+
+    impl MockSunshineClient {
+        fn new(available: bool) -> Self {
+            Self {
+                available,
+                apps: Mutex::new(Vec::new()),
+                needs_restart: AtomicBool::new(false),
+                restart_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn app_count(&self) -> usize {
+            self.apps.lock().unwrap().len()
+        }
+
+        fn restart_count(&self) -> usize {
+            self.restart_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl SunshineClient for MockSunshineClient {
+        async fn is_available(&self) -> bool {
+            self.available
+        }
+
+        async fn list_apps(&self) -> Result<Vec<SunshineApp>> {
+            Ok(self.apps.lock().unwrap().clone())
+        }
+
+        async fn ensure_retrom_app(&self, host_agent_cmd: &str) -> Result<EnsureOutcome> {
+            let mut apps = self.apps.lock().unwrap();
+            if apps.iter().any(|app| app.name == RETROM_APP_NAME) {
+                return Ok(EnsureOutcome::AlreadyPresent);
+            }
+
+            apps.push(SunshineApp {
+                name: RETROM_APP_NAME.to_string(),
+                cmd: host_agent_cmd.to_string(),
+            });
+            self.needs_restart.store(true, Ordering::SeqCst);
+            Ok(EnsureOutcome::Created)
+        }
+
+        async fn restart_if_needed(&self) -> Result<()> {
+            if self.needs_restart.swap(false, Ordering::SeqCst) {
+                self.restart_count.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_retrom_app_creates_exactly_one_and_is_idempotent() {
+        let client = MockSunshineClient::new(true);
+        assert_eq!(client.app_count(), 0);
+
+        // First call creates the single managed app.
+        let first = client.ensure_retrom_app(RETROM_HOST_AGENT_CMD).await.unwrap();
+        assert_eq!(first, EnsureOutcome::Created);
+        assert_eq!(client.app_count(), 1);
+
+        // Second call is a no-op: already present, no duplicate.
+        let second = client.ensure_retrom_app(RETROM_HOST_AGENT_CMD).await.unwrap();
+        assert_eq!(second, EnsureOutcome::AlreadyPresent);
+        assert_eq!(client.app_count(), 1);
+
+        // Exactly one app, and it's the managed one with the host-agent command.
+        let apps = client.list_apps().await.unwrap();
+        let retrom_apps: Vec<_> = apps.iter().filter(|a| a.name == RETROM_APP_NAME).collect();
+        assert_eq!(retrom_apps.len(), 1);
+        assert_eq!(retrom_apps[0].cmd, RETROM_HOST_AGENT_CMD);
+    }
+
+    #[tokio::test]
+    async fn ensure_retrom_app_never_duplicates_across_many_calls() {
+        let client = MockSunshineClient::new(true);
+        for _ in 0..5 {
+            client
+                .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+                .await
+                .unwrap();
+        }
+        assert_eq!(client.app_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn restart_if_needed_only_restarts_after_a_change() {
+        let client = MockSunshineClient::new(true);
+
+        // No change yet => no restart.
+        client.restart_if_needed().await.unwrap();
+        assert_eq!(client.restart_count(), 0);
+
+        // Creating the app marks a change => exactly one restart, then it clears.
+        client
+            .ensure_retrom_app(RETROM_HOST_AGENT_CMD)
+            .await
+            .unwrap();
+        client.restart_if_needed().await.unwrap();
+        client.restart_if_needed().await.unwrap();
+        assert_eq!(client.restart_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn readiness_reflects_availability_and_managed_app() {
+        // Unavailable host: not ready.
+        let down = MockSunshineClient::new(false);
+        let r = readiness(&down).await;
+        assert!(!r.sunshine_available);
+        assert!(!r.retrom_app_present);
+
+        // Available but no managed app yet.
+        let up = MockSunshineClient::new(true);
+        let r = readiness(&up).await;
+        assert!(r.sunshine_available);
+        assert!(!r.retrom_app_present);
+
+        // After ensuring the app, readiness reports it present.
+        up.ensure_retrom_app(RETROM_HOST_AGENT_CMD).await.unwrap();
+        let r = readiness(&up).await;
+        assert!(r.sunshine_available);
+        assert!(r.retrom_app_present);
+    }
+}
