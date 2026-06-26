@@ -1,0 +1,13 @@
+[package]
+name = "retrom-host-agent"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+description = "Thin Sunshine-invoked agent that forwards run-pending-session to the running Retrom client"
+rust-version = "1.80"
+
+[[bin]]
+name = "retrom-host-agent"
+path = "src/main.rs"

@@ -9343,6 +9343,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "retrom-host-agent"
+version = "0.8.4"
+
+[[package]]
 name = "retrom-plugin-config"
 version = "0.8.4"
 dependencies = [

@@ -11,6 +11,7 @@ members = [
   "packages/retrom-download",
   "packages/telemetry",
   "packages/webdav-service",
+  "packages/host-agent",
 
   "plugins/retrom-plugin-config/",
   "plugins/retrom-plugin-installer/",
