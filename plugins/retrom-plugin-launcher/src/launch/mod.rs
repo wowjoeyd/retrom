@@ -32,6 +32,10 @@ pub(crate) struct LaunchContext<R: Runtime> {
     pub profile: Option<EmulatorProfile>,
     pub file: Option<GameFile>,
     pub standalone: bool,
+    /// Set when this launch belongs to an active Remote Play session, so the
+    /// adapter ends the session instead of foregrounding the host's local UI.
+    /// `None` for normal local play.
+    pub remote_play_session_id: Option<i32>,
 }
 
 #[async_trait]

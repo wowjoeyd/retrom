@@ -35,6 +35,8 @@ pub(crate) async fn play_game<R: Runtime>(app: AppHandle<R>, payload: Vec<u8>) -
         profile: payload.emulator_profile,
         file: payload.file,
         standalone,
+        // Normal local play: not a remote-play session.
+        remote_play_session_id: None,
     };
 
     dispatch(ctx).await

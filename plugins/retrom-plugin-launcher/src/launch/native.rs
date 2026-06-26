@@ -48,6 +48,7 @@ impl<R: Runtime> LaunchAdapter<R> for NativeAdapter {
             profile,
             file,
             standalone,
+            remote_play_session_id,
         } = ctx;
 
         let profile = profile.expect("No emulator profile provided");
@@ -211,6 +212,11 @@ impl<R: Runtime> LaunchAdapter<R> for NativeAdapter {
             )
             .await?;
 
+        // Remote-play session: the game process is now up, so PREPARING→RUNNING.
+        if let Some(session_id) = remote_play_session_id {
+            crate::remote_play::report_session_running(&app, session_id).await;
+        }
+
         // Retrom holds the foreground when it spawns the game, so Windows blocks
         // the new window from taking focus — bring it forward ourselves. Runs in
         // the background since the game's window can take a moment to appear.
@@ -322,8 +328,19 @@ impl<R: Runtime> LaunchAdapter<R> for NativeAdapter {
         // session was stranded (controller dead, restart-only) until the upload
         // finished or timed out. This is emulator-only because only the native path
         // syncs saves. Tracing each phase so a hang here is pinpointed in retrom.log.
-        info!("Game {game_id} teardown: reclaiming foreground");
-        app.launcher().foreground_main_window();
+        // Session-aware exit: a remote-play launch must NOT foreground the host's
+        // own UI (the host is headless to the player) -- end the session instead.
+        // The normal local-play path (no session) is unchanged.
+        match crate::remote_play::exit_action(remote_play_session_id) {
+            crate::remote_play::ExitAction::ForegroundLocalUi => {
+                info!("Game {game_id} teardown: reclaiming foreground");
+                app.launcher().foreground_main_window();
+            }
+            crate::remote_play::ExitAction::EndSession(session_id) => {
+                info!("Game {game_id} teardown: ending remote-play session {session_id} (no host foreground)");
+                crate::remote_play::report_session_ended(&app, session_id).await;
+            }
+        }
 
         // Always mark the game as stopped, even if a teardown step above errored,
         // so a failed teardown can never leave Retrom wedged believing a game is
