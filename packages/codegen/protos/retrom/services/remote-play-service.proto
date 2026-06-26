@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package retrom;
+
+import "retrom/models/remote-play.proto";
+
+// Session broker for Remote Play. The server only brokers sessions: it persists
+// the coordination record and validates state transitions. It NEVER relays game
+// video, audio, or input -- that stream is Sunshine (host) -> Moonlight (client).
+service RemotePlayService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // A host polls this for the next session it should pick up.
+  rpc GetPendingSessionForHost(GetPendingSessionForHostRequest) returns (GetPendingSessionForHostResponse);
+  rpc UpdateSessionState(UpdateSessionStateRequest) returns (UpdateSessionStateResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc CancelSession(CancelSessionRequest) returns (CancelSessionResponse);
+}
+
+message CreateSessionRequest {
+  NewRemotePlaySession session = 1;
+}
+
+message CreateSessionResponse {
+  RemotePlaySession session = 1;
+}
+
+message GetPendingSessionForHostRequest {
+  int32 host_client_id = 1;
+}
+
+message GetPendingSessionForHostResponse {
+  // Absent when the host has no pending session.
+  optional RemotePlaySession session = 1;
+}
+
+message UpdateSessionStateRequest {
+  int32 id = 1;
+  RemotePlaySessionState state = 2;
+  // Optional failure detail, applied when transitioning to FAILED.
+  optional string error_code = 3;
+  optional string error_message = 4;
+}
+
+message UpdateSessionStateResponse {
+  RemotePlaySession session = 1;
+}
+
+message GetSessionRequest {
+  int32 id = 1;
+}
+
+message GetSessionResponse {
+  // Absent when no session with the given id exists.
+  optional RemotePlaySession session = 1;
+}
+
+message CancelSessionRequest {
+  int32 id = 1;
+}
+
+message CancelSessionResponse {
+  RemotePlaySession session = 1;
+}

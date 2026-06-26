@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package retrom;
+
+import "google/protobuf/timestamp.proto";
+
+// Lifecycle of a single Remote Play streaming session, brokered by the server.
+// The server only coordinates the session; the actual A/V/input stream goes
+// Sunshine (host) -> Moonlight (client) directly and never touches the server.
+enum RemotePlaySessionState {
+  // Created by a client; waiting for the target host to pick it up.
+  REQUESTED = 0;
+  // Host accepted it and is launching the game / bringing up Sunshine.
+  PREPARING = 1;
+  // Game is running and the stream is live.
+  RUNNING = 2;
+  // Game exited / stream torn down normally (terminal).
+  ENDED = 3;
+  // Could not start or aborted with an error (terminal).
+  FAILED = 4;
+  // Cancelled before it finished, by either side (terminal).
+  CANCELLED = 5;
+}
+
+message RemotePlaySession {
+  int32 id = 1;
+  // Game to launch on the host.
+  int32 game_id = 2;
+  // The client acting as the stream host.
+  int32 host_client_id = 3;
+  // The client that will view/stream the session.
+  int32 client_client_id = 4;
+  RemotePlaySessionState state = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  // Set when the session enters RUNNING.
+  google.protobuf.Timestamp started_at = 8;
+  // Set when the session reaches a terminal state.
+  google.protobuf.Timestamp ended_at = 9;
+  // Name of the Sunshine application the host exposes for this session.
+  string sunshine_app_name = 10;
+  // Populated when the session FAILED.
+  optional string error_code = 11;
+  optional string error_message = 12;
+}
+
+message NewRemotePlaySession {
+  int32 game_id = 1;
+  int32 host_client_id = 2;
+  int32 client_client_id = 3;
+  RemotePlaySessionState state = 4;
+  string sunshine_app_name = 5;
+  optional google.protobuf.Timestamp created_at = 6;
+  optional google.protobuf.Timestamp updated_at = 7;
+}
