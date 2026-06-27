@@ -69,9 +69,14 @@ build-options:
     # node22 SDK extension is Node 22; the repo declares engines node>=24, but the
     # web + cargo toolchain runs on 22, so don't hard-fail the engine check.
     npm_config_engine_strict: "false"
-    # nx in a one-shot sandbox: no cloud (would need auth), no background daemon.
+    # nx in a one-shot sandbox: no cloud (would need auth), no background daemon,
+    # and fully non-interactive -- CI mode skips the @nx/js typescript-sync prompt
+    # (which has no TTY here and otherwise derails the web build) and disables the
+    # terminal UI. This replicates the working GitHub CI web build.
     NX_NO_CLOUD: "true"
     NX_DAEMON: "false"
+    CI: "true"
+    NX_TUI: "false"
 
 modules:
   - name: retrom
@@ -92,6 +97,9 @@ modules:
       # the writable dirs configured above.
       - corepack pnpm install --frozen-lockfile
       - corepack pnpm nx run retrom-client-web:build:desktop
+      # Guard: never reach cargo with an empty dist (tauri's generate_context!
+      # frontendDist check fails late). Fail loudly here instead.
+      - 'test -f packages/client-web/dist/index.html || { echo "FATAL: web build produced no packages/client-web/dist/index.html -- aborting before cargo build"; exit 1; }'
 
       # Desktop client. `flatpak` enables flatpak-spawn for host executables +
       # vendored protoc + the Moonlight flatpak-spawn wrapping; `custom-protocol`

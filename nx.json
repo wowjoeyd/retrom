@@ -1,6 +1,10 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "parallel": 5,
+  "sync": {
+    "//": "Never run the @nx/js:typescript-sync generator's interactive prompt during a task. It derails headless builds (e.g. the Flatpak sandbox) where there's no TTY; this matches what CI does (skip sync, just build).",
+    "applyChanges": false
+  },
   "targetDefaults": {
     "tsc:typecheck": {
       "dependsOn": ["^tsc:typecheck"]
