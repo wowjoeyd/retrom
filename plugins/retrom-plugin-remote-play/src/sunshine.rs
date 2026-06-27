@@ -31,18 +31,21 @@ fn host_agent_bin_name() -> &'static str {
 }
 
 /// The managed Sunshine app's command: the absolute path to the bundled
-/// `retrom-host-agent` executable (next to this client binary) plus the
-/// `run-pending-session` subcommand. Falls back to the bare command name if the
-/// path can't be resolved.
-pub fn resolved_host_agent_cmd() -> String {
+/// `retrom-host-agent` executable (next to this client binary), the
+/// `run-pending-session` subcommand, and the host id + broker URL the agent needs
+/// to watch the session (so Sunshine keeps streaming until the game exits). Falls
+/// back to the bare command name if the path can't be resolved.
+pub fn resolved_host_agent_cmd(host_client_id: i32, server_url: &str) -> String {
     let agent = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join(host_agent_bin_name())));
 
-    match agent {
-        Some(path) => format!("\"{}\" run-pending-session", path.display()),
-        None => RETROM_HOST_AGENT_CMD.to_string(),
-    }
+    let program = match agent {
+        Some(path) => format!("\"{}\"", path.display()),
+        None => "retrom-host-agent".to_string(),
+    };
+
+    format!("{program} run-pending-session --host-id {host_client_id} --server {server_url}")
 }
 
 /// Default Sunshine web API base URL (HTTPS, self-signed cert, localhost).

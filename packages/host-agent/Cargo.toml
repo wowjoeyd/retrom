@@ -5,7 +5,7 @@ authors.workspace = true
 repository.workspace = true
 license.workspace = true
 edition.workspace = true
-description = "Thin Sunshine-invoked agent that forwards run-pending-session to the running Retrom client"
+description = "Sunshine-invoked agent that forwards run-pending-session to the running Retrom client and keeps the stream alive until the session ends"
 rust-version = "1.80"
 
 [[bin]]
@@ -13,11 +13,12 @@ name = "retrom-host-agent"
 path = "src/main.rs"
 
 [features]
-# Dev-only `create-test-session` subcommand. Off by default so the bundled agent
-# stays a thin std-only forwarder; enable with `--features dev` for local testing.
-dev = ["dep:tokio", "dep:tonic", "dep:retrom-codegen"]
+# Dev-only `create-test-session` subcommand for local testing. The gRPC deps are
+# always needed now (the agent watches the brokered session to keep the Sunshine
+# stream alive), so this only gates the extra subcommand.
+dev = []
 
 [dependencies]
-tokio = { workspace = true, optional = true }
-tonic = { workspace = true, optional = true }
-retrom-codegen = { workspace = true, optional = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+retrom-codegen = { workspace = true }

@@ -53,9 +53,38 @@ impl<R: Runtime> RemotePlay<R> {
             ));
         };
 
+        // Bake this host's own client id + the broker URL into the Sunshine command
+        // so the agent can watch the session and keep the stream alive (see
+        // `resolved_host_agent_cmd`).
+        let host_client_id = self.client_id().await.ok_or_else(|| {
+            crate::Error::NotConfigured("client id (no client_info in config)".into())
+        })?;
+        let server_url = self.service_host().await;
+
         HttpSunshineClient::new(config)
-            .ensure_retrom_app(&sunshine::resolved_host_agent_cmd())
+            .ensure_retrom_app(&sunshine::resolved_host_agent_cmd(
+                host_client_id,
+                &server_url,
+            ))
             .await
+    }
+
+    /// The gRPC broker URL this client talks to, mirroring the service client's
+    /// `get_service_host`: `config.server.hostname[:port]`, else the local default.
+    async fn service_host(&self) -> String {
+        self.app_handle
+            .config_manager()
+            .get_config()
+            .await
+            .server
+            .map(|server| {
+                let mut host = server.hostname;
+                if let Some(port) = server.port {
+                    host.push_str(&format!(":{port}"));
+                }
+                host
+            })
+            .unwrap_or_else(|| "http://localhost:5101".to_string())
     }
 
     /// Viewer flow: start streaming `game_id` from the configured host -- create a
