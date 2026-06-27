@@ -2,7 +2,12 @@
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
 
   "identifier": "com.retrom.client",
+  "build": {
+    "//": "Host/release builds only. Stage the host-agent sidecar BEFORE the cargo build so tauri-build's externalBin validation finds it. The base tauri.conf.json deliberately omits externalBin so the Deck/Flatpak client build (plain `cargo build`) needs no host-agent.",
+    "beforeBuildCommand": "pnpm -w exec node scripts/bundle-host-agent.mjs"
+  },
   "bundle": {
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/retrom-host-agent"]
   }
 }

@@ -5,7 +5,6 @@
     "category": "Utility",
     "copyright": "",
     "targets": ["deb", "rpm", "appimage", "app", "nsis"],
-    "externalBin": ["binaries/retrom-host-agent"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -35,8 +34,7 @@
   },
   "build": {
     "frontendDist": "../client-web/dist",
-    "devUrl": "http://localhost:3000",
-    "beforeBundleCommand": "pnpm -w exec node scripts/bundle-host-agent.mjs"
+    "devUrl": "http://localhost:3000"
   },
   "productName": "Retrom",
   "identifier": "com.retrom.client",
