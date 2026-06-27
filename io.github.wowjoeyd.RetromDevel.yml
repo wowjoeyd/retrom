@@ -46,7 +46,11 @@ finish-args:
   - --env=FLATPAK=1
 
 build-options:
-  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
+  # /run/build/retrom/.local/bin holds the corepack-written `pnpm` shim (created in
+  # the first build-command) so a REAL `pnpm` is on PATH for the whole build --
+  # nested nx task scripts call bare `pnpm` (e.g. retrom-codegen:generate runs
+  # `pnpm buf generate`), not `corepack pnpm`.
+  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin:/run/build/retrom/.local/bin
   # Dev build: allow the in-sandbox build to fetch npm + cargo deps online.
   # (Upstream is fully offline via vendored tarballs; this trades reproducibility
   # for not having to pre-stage artifacts.)
@@ -89,14 +93,21 @@ modules:
         path: .
         branch: feat-remote-play-integration
     build-commands:
+      # Put a REAL `pnpm` on PATH for the whole build. `corepack enable` defaults to
+      # symlinking into the read-only SDK bin (EROFS), so target a writable dir with
+      # --install-directory; that dir is on PATH (above). The shim resolves the pnpm
+      # version from the root package.json `packageManager` field (pnpm@10.26.1) and
+      # caches under the writable COREPACK_HOME. This makes bare `pnpm` -- including
+      # nested nx task scripts like `pnpm buf generate` -- work, not just the outer
+      # `corepack pnpm`.
+      - corepack enable --install-directory /run/build/retrom/.local/bin pnpm
+      # Self-check: fail loudly here if bare `pnpm` isn't on PATH, before the nx build.
+      - pnpm --version
       # Frontend: workspace deps + the desktop web client -> packages/client-web/dist
-      # (referenced by tauri.conf.json `frontendDist`). pnpm is run on-demand via
-      # `corepack pnpm` -- NOT `corepack enable`, which would symlink a shim into
-      # the read-only SDK bin (EROFS). corepack resolves the pnpm version from the
-      # root package.json `packageManager` field (pnpm@10.26.1) and caches it under
-      # the writable dirs configured above.
-      - corepack pnpm install --frozen-lockfile
-      - corepack pnpm nx run retrom-client-web:build:desktop
+      # (referenced by tauri.conf.json `frontendDist`). buf, vite, nx, tsc etc. all
+      # resolve from node_modules via pnpm once this install completes.
+      - pnpm install --frozen-lockfile
+      - pnpm nx run retrom-client-web:build:desktop
       # Guard: never reach cargo with an empty dist (tauri's generate_context!
       # frontendDist check fails late). Fail loudly here instead.
       - 'test -f packages/client-web/dist/index.html || { echo "FATAL: web build produced no packages/client-web/dist/index.html -- aborting before cargo build"; exit 1; }'
