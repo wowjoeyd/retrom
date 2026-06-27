@@ -58,9 +58,9 @@ build-options:
     - --share=network
   # The SDK prefix (/usr/lib/sdk) and $HOME are read-only in the build sandbox, so
   # point every tool's cache/store/registry at the writable build dir
-  # (/run/build/<module> = /run/build/retrom). This is why `corepack enable` fails
-  # (it tries to symlink a pnpm shim into /usr/lib/sdk/node22/bin); the build below
-  # runs pnpm on-demand via `corepack pnpm` instead, which writes no shim.
+  # (/run/build/<module> = /run/build/retrom). Same reason `corepack enable` below
+  # uses --install-directory pointing at a writable dir: the default would symlink
+  # the pnpm shim into the read-only /usr/lib/sdk/node22/bin (EROFS).
   env:
     CARGO_HOME: /run/build/retrom/cargo
     XDG_CACHE_HOME: /run/build/retrom/.cache
@@ -112,7 +112,12 @@ modules:
       # (referenced by tauri.conf.json `frontendDist`). buf, vite, nx, tsc etc. all
       # resolve from node_modules via pnpm once this install completes.
       - pnpm install --frozen-lockfile
-      - pnpm nx run retrom-client-web:build:desktop
+      # nx's native pseudo-terminal panics entering raw mode when there's no TTY
+      # (the sandbox): "Failed to enter raw terminal mode". Force fully
+      # non-interactive -- detach stdin from any terminal (</dev/null), static
+      # output, and pipe stdout so neither end is a TTY. pipefail keeps nx's exit
+      # code (also backstopped by the dist guard below).
+      - 'set -o pipefail; pnpm nx run retrom-client-web:build:desktop --output-style=static </dev/null 2>&1 | cat'
       # Guard: never reach cargo with an empty dist (tauri's generate_context!
       # frontendDist check fails late). Fail loudly here instead.
       - 'test -f packages/client-web/dist/index.html || { echo "FATAL: web build produced no packages/client-web/dist/index.html -- aborting before cargo build"; exit 1; }'
