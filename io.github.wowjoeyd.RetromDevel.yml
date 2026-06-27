@@ -93,6 +93,11 @@ modules:
         path: .
         branch: feat-remote-play-integration
     build-commands:
+      # Pre-create the writable dirs we point tools at. corepack's
+      # --install-directory must ALREADY exist (it realpath()s it -> ENOENT
+      # otherwise, which is what failed on the Deck); the rest are belt-and-suspenders
+      # so no tool trips over a missing cache/store dir.
+      - mkdir -p /run/build/retrom/.local/bin /run/build/retrom/.local/share /run/build/retrom/.cache/corepack /run/build/retrom/cargo /run/build/retrom/.npm /run/build/retrom/.pnpm-store
       # Put a REAL `pnpm` on PATH for the whole build. `corepack enable` defaults to
       # symlinking into the read-only SDK bin (EROFS), so target a writable dir with
       # --install-directory; that dir is on PATH (above). The shim resolves the pnpm
